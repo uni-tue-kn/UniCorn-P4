@@ -1,0 +1,55 @@
+version: "3"
+services:
+    # NOTE: both backend and netsim run with network_mode host
+    # This means, that all ports are directly accesible on the host machine.
+    # Otherwise, you would have to manually declare the ports
+    backend:
+        container_name: backend
+        build:
+            context: ../
+            dockerfile: docker/backend/Dockerfile
+        volumes:
+            - ../backend:/app
+            - ../netsim:/netsim
+            # TODO: enter the path of your folder with compiled p4 programs (p4 info (.txt) and bmv2 (.json) files) -> /app/controller/p4_files/
+            # IMPORTANT: Assure that there are no other files in the structure as this application does not check their contents.
+            - ../p4-files:/p4/basic
+            # - /path/to/your/another/p4_files/:/app/controller/p4_files/[subdirectory]
+        network_mode: host
+    
+    netsim:
+        # Required to add virtual interfaces for network simulation
+        privileged: true
+        # Required for some linux distributions
+        cap_add:
+            - NET_ADMIN
+        container_name: netsim
+        build:
+            context: ../
+            dockerfile: docker/netsim/Dockerfile
+        volumes:
+            - ../netsim:/app/netsim
+            - ../p4-files:/p4/basic
+        network_mode: host
+
+        
+        
+    frontend:
+        container_name: frontend
+        build:
+            context: ../
+            dockerfile: docker/frontend/Dockerfile
+        depends_on:
+            - backend
+        ports:
+
+            # - 80:3000 For developement use the one below
+            # React has port 3000 hardcoded for a websocket to dynamically reload the page
+            # Remapping this port to 80 in expose breaks this feature
+            - 3000:3000
+        volumes:
+            - ../frontend/src:/app/src
+        environment:
+            - BASE_URL=http://localhost/
+
+    

@@ -1,0 +1,8 @@
+flask
+flask_restful 
+flask_sqlalchemy
+grpcio
+protobuf==3.20.3
+googleapis-common-protos
+flask-cors
+convert
