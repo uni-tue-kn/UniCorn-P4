@@ -9,9 +9,7 @@ export default function Topology() {
         <Stack direction='column' spacing={2}>
                 <Typography color='primary' variant='h6'>Saved Topologies</Typography>
                 <TopologySelector></TopologySelector>
-                <div>
                     <TopologyRenderer></TopologyRenderer>
-                </div>
             </Stack>
         
     )
