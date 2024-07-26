@@ -83,6 +83,10 @@ export default function TopologyRenderer() {
             .lower();
 
         function simTick() {
+
+            for (var i = 0; i < 100; i++) {
+                simulation.tick();
+            }
             links
                 .attr("x1", function (d) { return d.source.x; })
                 .attr("y1", function (d) { return d.source.y; })
@@ -114,6 +118,9 @@ export default function TopologyRenderer() {
                         .style("font-size", "0.4em")
                         .attr("x", node.x)
                         .attr("y", node.y - 8);
+                        // Set viewbox of SVG such that it scales correctly
+                    let bbox = svg.node().getBBox();
+                     svg.attr("viewBox", `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
                 })
                 // Store topology layout to reload if necessary
                 // TODO: implement loading from stored
@@ -127,7 +134,7 @@ export default function TopologyRenderer() {
     // TODO: add loading animation
     return (
         <div id="TopologyContainer">
-            <svg id="TopologyRender" ref={svg_ref} style={{ width: 100 + "%", height: 100 + "%" }}></svg>
+            <svg id="TopologyRender" ref={svg_ref} style={{height: 100 + "%" }}></svg>
         </div>
     )
 }
