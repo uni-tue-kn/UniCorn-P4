@@ -60,8 +60,8 @@ function SelectSwitch() {
 
   return (
     <>
-      <Stack direction='row' spacing={1}>
-        <Button startIcon={<LanOutlinedIcon />} sx={{ color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/switches" ? 'secondary.light' : 'primary.light') }}
+      <Stack direction='row' spacing={1} sx={{padding: 10 + "px"}}>
+        <Button startIcon={<LanOutlinedIcon />} sx={{  color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/switches" ? 'secondary.light' : 'primary.light') }}
           component={Link} to="/switches" onClick={handleMenu}>Switch Menu</Button>
         <Divider orientation="vertical" flexItem />
         <Tabs
