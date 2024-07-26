@@ -1,16 +1,16 @@
 <div align="center">
  <img src="./logo.png" height=150/>
  <h2>UniCorn-P4: A Universal Control Plane and GUI for P4</h2>
-</div>
 
  ![image](https://img.shields.io/badge/licence-Apache%202.0-blue) ![image](https://img.shields.io/badge/lang-python-darkred) ![image](https://img.shields.io/badge/built%20with-react-orange) ![image](https://img.shields.io/badge/v-1.0-yellow) [![Controller Build](https://github.com/uni-tue-kn/UniCorn-P4/actions/workflows/docker-image.yml/badge.svg)](https://github.com/uni-tue-kn/UniCorn-P4/actions/workflows/docker-image.yml)
 
+</div>
+
 - [Overview](#overview)
-  - [Supported Targets and Data Plane APIs](#supported-targets-and-data-plane-apis)
+- [Supported Targets and Data Plane APIs](#supported-targets-and-data-plane-apis)
 - [Installation & Start Instructions](#installation--start-instructions)
 - [Working with UniCorn-P4](#working-with-unicorn-p4)
 - [Changelog](./CHANGELOG.md)
-- [Documentation](#documentation)
 - [Preview](#preview-of-unicorn-p4)
 
 ## Overview
