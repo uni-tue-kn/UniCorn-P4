@@ -20,8 +20,8 @@ function SelectSwitch() {
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
-  // -1 for the Menu tab which cannot be a valid device_id
-  const [selectedTab, setSelectedTab] = useState(-1);
+  // False ensures that no tab is selected at first
+  const [selectedTab, setSelectedTab] = useState(false);
 
   const handleChange = (event, id) => {
     setCurrentSwitchID(id);
@@ -30,8 +30,7 @@ function SelectSwitch() {
   };
 
   const handleMenu = () => {
-    setSelectedTab(-1);
-    console.log(selectedTab);
+    setSelectedTab(false);
   }
 
   const handleAddTab = () => {
