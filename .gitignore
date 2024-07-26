@@ -4,6 +4,7 @@ netsim/logs/*.log
 netsim/pcaps/*.pcap
 frontend/build/
 package-lock.json
+frontend/node_modules
 
 # dependencies
 /node_modules
