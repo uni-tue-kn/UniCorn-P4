@@ -13,7 +13,7 @@ RUN echo 'deb https://ftp.gwdg.de/pub/opensuse/repositories/home:/p4lang/Debian_
 
 # Import the GPG key for the p4lang repository
 #RUN curl -fsSL https://download.opensuse.org/repositories/home:p4lang/Debian_11/Release.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/home_p4lang.gpg
-RUN curl -fsSL https://ftp.gwdg.de/pub/opensuse/repositories/home:/p4lang/Debian_11/| gpg --dearmor -o /etc/apt/trusted.gpg.d/home_p4lang.gpg
+RUN curl -fsSL https://ftp.gwdg.de/pub/opensuse/repositories/home:/p4lang/Debian_11/Release.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/home_p4lang.gpg
 
 # Update the package lists
 RUN apt-get update
