@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTopology } from '../../Contexts/TopologyContext';
-import { Tabs, Tab, IconButton, Stack, Divider, Typography, Button, FormControl, TextField, Box, MenuItem } from '@mui/material';
 import * as d3 from 'd3';
 import './TopologyRenderer.css';
 

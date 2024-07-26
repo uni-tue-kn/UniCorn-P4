@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
 import TopologySelector from './TopologySelector';
-import { Tabs, Tab, IconButton, Stack, Divider, Typography, Button, FormControl, TextField, Box, MenuItem} from '@mui/material';
+import {Stack, Typography} from '@mui/material';
 import TopologyRenderer from './TopologyRenderer';
 
 export default function Topology() {
