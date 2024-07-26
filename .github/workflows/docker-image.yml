@@ -27,11 +27,14 @@ jobs:
       run: docker-compose up -d netsim
       working-directory: docker      
 
+    - name: Wait for Containers to Start
+      run: sleep 15
+
     - name: Test Backend
       run: curl --fail http://localhost:5000/switches/active || (echo "Backend test failed" && exit 1)
 
     - name: Test Frontend
-      run: curl --fail http://localhost:3000 || (echo "Backend test failed" && exit 1)
+      run: curl --fail http://localhost:3000 || (echo "Frontend test failed" && exit 1)
 
     - name: Test Mininet
-      run: curl --fail http://localhost:5001/switches/online || (echo "Backend test failed" && exit 1)      
+      run: curl --fail http://localhost:5001/switches/online || (echo "Mininet test failed" && exit 1)      
