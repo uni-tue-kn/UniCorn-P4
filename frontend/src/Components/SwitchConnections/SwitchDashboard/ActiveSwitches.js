@@ -70,7 +70,7 @@ function ActiveSwitches() {
                         <List>
                             {switches.map((switch_config) => (
                                 <React.Fragment>
-                                    <ListItem secondaryAction={
+                                    <ListItem key={switch_config.name} secondaryAction={
                                         <IconButton onClick={(event) => handleClose(event, switch_config.device_id)}>
                                             <ClearIcon />
                                         </IconButton>
