@@ -92,19 +92,15 @@ function DashboardContent() {
             vertical: 'top',
             horizontal: 'center'
           }}
-        >
-          {
-            (
-              snackbarState.severity != null
-              && snackbarState.content != null
-            ) ?
-              <Alert onClose={handleClose} severity={snackbarState.severity} >
-                {snackbarState.content}
-              </Alert>
-              :
-              <></>
+          >
+          {(snackbarState.severity != null && snackbarState.content != null) &&
+            <Alert onClose={handleClose} severity={snackbarState.severity} >
+              {snackbarState.content}
+            </Alert>
           }
-        </Snackbar>
+
+      </Snackbar>
+
 
       </Box>
     </ThemeProvider>
