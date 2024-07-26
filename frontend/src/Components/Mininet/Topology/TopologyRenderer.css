@@ -1,0 +1,8 @@
+#TopologyRenderer {
+    flex-grow: 1;
+}
+
+#TopologyContainer {
+    display: flex;
+    max-height: 400px;
+}

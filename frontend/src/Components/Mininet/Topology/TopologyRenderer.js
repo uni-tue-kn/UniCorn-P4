@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useTopology } from '../../Contexts/TopologyContext';
+import { useTopology } from '../../../Contexts/TopologyContext';
 import * as d3 from 'd3';
 import './TopologyRenderer.css';
 
@@ -133,7 +133,7 @@ export default function TopologyRenderer() {
     // TODO: add loading animation
     return (
         <div id="TopologyContainer">
-            <svg id="TopologyRender" ref={svg_ref} style={{height: 100 + "%" }}></svg>
+            <svg id="TopologyRender" ref={svg_ref} style={{flexGrow: 1}}> </svg>
         </div>
     )
 }

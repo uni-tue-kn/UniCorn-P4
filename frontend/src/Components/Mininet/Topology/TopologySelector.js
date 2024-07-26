@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios'
 
 import { Button, FormControl, TextField, Box, MenuItem, Checkbox, FormControlLabel} from '@mui/material';
-import { useSnackbar } from '../../Contexts/SnackbarContext';
-import { useSwitch } from '../../Contexts/SwitchContext';
+import { useSnackbar } from '../../../Contexts/SnackbarContext';
+import { useSwitch } from '../../../Contexts/SwitchContext';
 
-import { useTopology } from '../../Contexts/TopologyContext';
+import { useTopology } from '../../../Contexts/TopologyContext';
 
 //import { handleSwitch } from '../SwitchConnections/SwitchDashboard/AddNewSwitch'
 
