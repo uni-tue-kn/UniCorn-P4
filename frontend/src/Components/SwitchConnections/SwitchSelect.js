@@ -4,6 +4,7 @@ import { Tabs, Tab, IconButton, Stack, Divider, Typography, Button } from '@mui/
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import LanOutlinedIcon from '@mui/icons-material/LanOutlined';
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import RouterOutlinedIcon from '@mui/icons-material/RouterOutlined';
 import styled from '@emotion/styled';
 import AddSwitch from './AddSwitch';
@@ -61,6 +62,9 @@ function SelectSwitch() {
   return (
     <>
       <Stack direction='row' spacing={1} sx={{padding: 10 + "px"}}>
+      <Button startIcon={<HubOutlinedIcon />} sx={{  color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/mininet" ? 'secondary.light' : 'primary.light') }}
+          component={Link} to="/mininet" >Mininet</Button>
+        <Divider orientation="vertical" flexItem />
         <Button startIcon={<LanOutlinedIcon />} sx={{  color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/switches" ? 'secondary.light' : 'primary.light') }}
           component={Link} to="/switches" onClick={handleMenu}>Switch Menu</Button>
         <Divider orientation="vertical" flexItem />
