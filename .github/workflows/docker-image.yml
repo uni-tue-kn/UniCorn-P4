@@ -14,3 +14,24 @@ jobs:
     - uses: actions/checkout@v3
     - name: UniCorn-P4 CI
       run: cd docker && docker-compose build
+
+    - name: Run Backend Container
+      run: docker-compose up -d backend
+      working-directory: docker
+
+    - name: Run Frontend Container
+      run: docker-compose up -d frontend
+      working-directory: docker
+
+    - name: Run Mininet Container
+      run: docker-compose up -d netsim
+      working-directory: docker      
+
+    - name: Test Backend
+      run: curl --fail http://localhost:5000/switches/active || (echo "Backend test failed" && exit 1)
+
+    - name: Test Frontend
+      run: curl --fail http://localhost:3000 || (echo "Backend test failed" && exit 1)
+
+    - name: Test Mininet
+      run: curl --fail http://localhost:5001/switches/online || (echo "Backend test failed" && exit 1)      
