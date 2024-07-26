@@ -105,7 +105,7 @@ function SwitchHistory() {
                 <List>
                     {historySwitches.map((switch_config) => (
                         <React.Fragment>
-                            <ListItem secondaryAction={
+                            <ListItem key={switch_config.id} secondaryAction={
                                 <Stack direction='row'>
                                     <Tooltip title='connect switch with controller'>
                                         <IconButton disabled={loadingID === switch_config.id} onClick={(event) => connectHistorySwitch(event, switch_config.id)}>
