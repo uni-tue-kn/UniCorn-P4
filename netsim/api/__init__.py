@@ -9,22 +9,104 @@ from flask_restful import Api
 from flask_socketio import SocketIO,emit
 from flask_cors import CORS
 
-from .netsim.netsim import MininetRunner
+from mininet.cli import CLI
+from mininet.log import lg, output
 
+from .netsim.netsim import MininetRunner
+from io import StringIO
+from cmd import Cmd
+import logging
+from select import poll
+import sys
+
+# Handler that calls function on each new line
+class LoggingHook(logging.Handler):
+
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+        self.level = logging.INFO
+
+    # Call the supplie function with the logging content
+    def emit(self, record):
+        print("HOOK",record.msg)
+        self.callback(record.msg)
+
+
+# This is a wrapper around the mininet CLI that allows to pass single commands in
+class MininetCLIWrapper(CLI):
+
+    # NOTE: this is mostly the same as the regular CLI, some changes were made to capture the output of the CLI to a stream
+    def __init__(self, network, log_hook):
+        self.mn_runner = network
+        self.mn = network.net
+        self.locals = { 'net': network }
+        self.log_hook = log_hook
+        Cmd.__init__( self )
+
+        self.inPoller = poll()
+        self.inPoller.register( sys.stdin )
+
+        # Create StringIO stream that will access the mininet logger
+        self.log_stream = StringIO()
+        # Logging hook that calls supplied function for each new log record
+        self.handler = LoggingHook(self.forward_logging)
+
+        # Attach stream handler to central mininet logger to capture command oputputs
+        lg.addHandler(self.handler)
+
+        # Calle needed by original CLI
+        self.initReadline()
+
+    # Execs a single command and captures the stdout
+    def exec_command(self, cmd):
+        # Execute given command, will call functions in parent class CLI based on passed command
+
+        print("SELF",self.mn)
+        if (self.mn is None) and (self.mn_runner.net is not None):
+            self.mn = self.mn_runner.net
+        else:
+            output("There is no active mininet simulation. Please load a topology first!")
+            return 
+        try:
+            self.onecmd(cmd)
+        except:
+            pass
+
+
+    def forward_logging(self, msg):
+        self.log_hook(msg)
+    
 # TODO: ensure that terminal is synchronized across multiple users
 class WebsocketManager:
 
     def __init__(self, socket, mininet_runner):
-        self.mininet = mininet_runner
+        self.mn_runner = mininet_runner
         self.socket = socket
+        self.index = 0
+        self.cli_io = None
 
-        self.socket.on("message",self.handle_message)
+        # TODO: ensure that this does not cause problems with memory if programs runs for a lont time
+        self.history = []
 
-    def run(self):
-        self.socket
+        # Register message handlers for Websocket
+        self.register_handlers()
 
-    
+        # Spawns CLI for mininet
+        self.init_cli()
 
+    def register_handlers(self):
+        self.socket.on_event('message', self.handle_message)
+
+    def init_cli(self):
+        self.cli_io = MininetCLIWrapper(self.mn_runner,self.handle_log_message)
+
+    def handle_message(self,message):
+        self.cli_io.exec_command(message)
+
+    def handle_log_message(self, message):
+        # Message is broadcasted -> to synchronize if multiple clients acess terminal at the same time
+        emit("response",message,broadcast=True)
 
 class MininetManager:
 
@@ -37,8 +119,10 @@ class MininetManager:
         app.config['CORS_HEADERS'] = 'application/json'
         self.app = app
 
+        self.index = 0
+
         # Reference to Mininet simulation runner
-        self.netsim = None
+        self.mn_runner = None
         self.socketio = None
 
         # Create Mininet runner
@@ -59,28 +143,21 @@ class MininetManager:
         pcap_dir = "/app/netsim/pcaps"
         quiet = False
 
-        self.netsim = MininetRunner(topology_file, log_dir, pcap_dir, quiet)
+        self.mn_runner = MininetRunner(topology_file, log_dir, pcap_dir, quiet)
 
     def create_api(self):
         self.api = Api(self.app)
-        self.api.add_resource(LoadTopology, '/topology/load', resource_class_kwargs={"netsim": self.netsim})
-        self.api.add_resource(GetTopology, '/topology/get', resource_class_kwargs={"netsim": self.netsim})
-        self.api.add_resource(SwitchesOnline, '/switches/online', resource_class_kwargs={"netsim": self.netsim})
+        self.api.add_resource(LoadTopology, '/topology/load', resource_class_kwargs={"netsim": self.mn_runner})
+        self.api.add_resource(GetTopology, '/topology/get', resource_class_kwargs={"netsim": self.mn_runner})
+        self.api.add_resource(SwitchesOnline, '/switches/online', resource_class_kwargs={"netsim": self.mn_runner})
 
     def create_websocket(self):
-        
 
         # TODO: this catches the "AssertionError: write() before start_respons" error, the socket still establishes
         # Handlign should be done better than this
-        try:
-            socketio = SocketIO(self.app,logger=True, engineio_logger=True, cors_allowed_origins="*")
-        except:
-            pass
-
-        @socketio.on('message')
-        def handle_message(message):
-            emit("response","TEST")
-
+        socketio = SocketIO(self.app,logger=True,cors_allowed_origins="*")
+        self.socketio = WebsocketManager(socketio,self.mn_runner)
+        
     def run(self):
         self.app.run(debug=True, host="0.0.0.0", port=5001)
 
