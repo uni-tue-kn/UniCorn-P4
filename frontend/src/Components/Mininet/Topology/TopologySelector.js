@@ -39,6 +39,8 @@ export default function TopologySelector() {
 
             const switches_in_topology = Object.keys(res.data.switches);
 
+            
+
             // Disconnect switches and optionally connect switches from topology
             let new_switches = [];
             switchesOnline["switches_online"].map((s) => {
@@ -54,6 +56,8 @@ export default function TopologySelector() {
                     console.log("Create switch " + s.name + " " + s.grpc_port)
                 }
             })
+
+            
 
             if (new_switches.length !== switches_in_topology.length) {
                 let warning_msg = "Not all switches from the topology could be loaded. Try connecting them manually."
@@ -81,9 +85,9 @@ export default function TopologySelector() {
             })
         })
         .catch(err => {
-            console.log(err);
             setLoading(false);
-            callSnackbar("error", err || "There was an error during loading a new topology!" + err);
+            console.log(err);
+            callSnackbar("error", "There was an error during loading a new topology! " + err.message);
         });
 
     }
