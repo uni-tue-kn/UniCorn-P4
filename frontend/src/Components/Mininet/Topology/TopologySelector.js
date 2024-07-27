@@ -87,7 +87,7 @@ export default function TopologySelector() {
         .catch(err => {
             setLoading(false);
             console.log(err);
-            callSnackbar("error", "There was an error during loading a new topology! " + err.message);
+            callSnackbar("error", "There was an error during loading a new topology! '" + err.message + "'" + " Check the log of the mininet docker container!");
         });
 
     }
