@@ -33,12 +33,17 @@ export default function MininetTerminal() {
   }, []);
 
   function handleResponse(message) {
-    console.log("RESPONSE",message);
-    setMessageHistory(messageHistory.push(message));
-    setTerminalLineData(messageHistory);
+    // Add Message to history and current terminal
+    setMessageHistory(oldArray => [...oldArray,message]);
+    setTerminalLineData(oldArray => [...oldArray,message]);
   }
 
   function handleInput(text) {
+    // Add Input to history and current terminal
+    setMessageHistory(oldArray => [...oldArray,"$ " + text]);
+    setTerminalLineData(oldArray => [...oldArray,"$ " + text]);
+    
+    // Send input to backend
     socket.send(text);
   }
 
