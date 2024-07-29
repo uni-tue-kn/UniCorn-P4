@@ -7,7 +7,9 @@ export default function MininetTerminal() {
 
   const greeting = "You can interact with the mininet CLI over this terminal.\nEnter 'help' to get a list of available commands!\nThe Ctrl-C interrupt is unavailable here, so enter c or C to interrupt the last command.";
 
+
   const [terminalLineData, setTerminalLineData] = useState([greeting]);
+  const [currentNode, setCurrentNode] = useState("h1");
 
   const [socket, setSocket] = useState(null);
   const [messageHistory, setMessageHistory] = useState([greeting]);
@@ -32,25 +34,41 @@ export default function MininetTerminal() {
     };
   }, []);
 
+  // Change terminal when node is changed
+  useEffect(() => {
+
+  },[currentNode]);
+
   function handleResponse(message) {
-    // Add Message to history and current terminal
-    setMessageHistory(oldArray => [...oldArray,message]);
-    setTerminalLineData(oldArray => [...oldArray,message]);
+    
+    const parsed = JSON.parse(message)
+    console.log("RESPONSE",parsed);
+    // If response message is for curretn terminal
+    // Add Message to history and display
+    if (parsed.name === currentNode) {
+      setMessageHistory(oldArray => [...oldArray,parsed.data]);
+      setTerminalLineData(oldArray => [...oldArray,parsed.data]);
+    }
+    
   }
 
   function handleInput(text) {
     // Add Input to history and current terminal
     setMessageHistory(oldArray => [...oldArray,"$ " + text]);
     setTerminalLineData(oldArray => [...oldArray,"$ " + text]);
+
+    const to_send = {
+      "target": currentNode,
+      "cmd": text};
     
     // Send input to backend
-    socket.send(text);
+    socket.send(to_send);
   }
 
   // Main Terminal window
   return (
     <div className="container">
-      <Terminal name='Mininet CLI' colorMode={ColorMode.Dark} onInput={handleInput}>
+      <Terminal name={currentNode} colorMode={ColorMode.Dark} onInput={handleInput}>
         {terminalLineData.map((line, index) => (
           <TerminalOutput key={index}>{line}</TerminalOutput>
         ))}

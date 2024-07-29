@@ -2,89 +2,78 @@ from .endpoints.load_topology import LoadTopology
 from .endpoints.get_topology import GetTopology
 from .endpoints.switchesonline import SwitchesOnline
 from .netsim.netsim import MininetRunner
+from .netsim.utils.p4_mininet import P4Host
+import time
 
 
 from flask import Flask
 from flask_restful import Api
 from flask_socketio import SocketIO,emit
 from flask_cors import CORS
+from threading import Event, Thread
 
-from mininet.cli import CLI
-from mininet.log import lg, output
-
+import json
 from .netsim.netsim import MininetRunner
-from io import StringIO
-from cmd import Cmd
-import logging
-from select import poll
-import sys
-
-# Handler that calls function on each new line
-class LoggingHook(logging.Handler):
-
-    def __init__(self, callback):
-        super().__init__()
-        self.callback = callback
-        self.level = logging.INFO
-
-    # Call the supplie function with the logging content
-    def emit(self, record):
-        print("HOOK",record.msg)
-        self.callback(record.msg)
 
 
-# This is a wrapper around the mininet CLI that allows to pass single commands in
-class MininetCLIWrapper(CLI):
 
-    # NOTE: this is mostly the same as the regular CLI, some changes were made to capture the output of the CLI to a stream
-    def __init__(self, network, log_hook):
-        self.mn_runner = network
-        self.mn = network.net
-        self.locals = { 'net': network }
-        self.log_hook = log_hook
-        Cmd.__init__( self )
+# Uses mininets Node class interfaces to open a terminal on a passed node, send commands and return output
+class NodeCLI:
+    def __init__(self, node, socket_ref):
+        self.node = node
+        self.shell = None
+        self.thread = None
+        self.stop_event = Event()
+        self.socket = socket_ref
 
-        self.inPoller = poll()
-        self.inPoller.register( sys.stdin )
+        # Starts bash shell on host and registers output handler
+        self.register_shell()
 
-        # Create StringIO stream that will access the mininet logger
-        self.log_stream = StringIO()
-        # Logging hook that calls supplied function for each new log record
-        self.handler = LoggingHook(self.forward_logging)
+    def register_shell(self):
+        # Ensure that shell is running on node
+        self.node.startShell()
+        self.thread = Thread(target=self.read_output)
+        self.thread.start()
 
-        # Attach stream handler to central mininet logger to capture command oputputs
-        lg.addHandler(self.handler)
+    def run_cmd(self, cmd):
+        # Runs command, does not wait for output
+        self.thread = Thread(target=self.read_output)
+        self.thread.start()
+        self.node.write(cmd + '\n' )
+    
+    def read_output(self):
+        while not self.stop_event.is_set():
+            output = self.node.readline()
+            if output:
+                self.handle_output(output)
+            else:
+                break
 
-        # Calle needed by original CLI
-        self.initReadline()
+    def handle_output(self, data):
+        # Send data over websocket to clients
+        json_obj = {
+            "name": self.node.name,
+            "data": data
+        }
+        # TODO: each node should use their own channel, not just response
+        self.socket.emit("response",json.dumps(json_obj))
+        
+    def stop(self):
+        # Stop output thread
+        self.stop_event.set()
+        # Wait for thread to stop
+        self.thread.join()
 
-    # Execs a single command and captures the stdout
-    def exec_command(self, cmd):
-        # Execute given command, will call functions in parent class CLI based on passed command
-
-        print("SELF",self.mn)
-        if (self.mn is None) and (self.mn_runner.net is not None):
-            self.mn = self.mn_runner.net
-        else:
-            output("There is no active mininet simulation. Please load a topology first!")
-            return 
-        try:
-            self.onecmd(cmd)
-        except:
-            pass
-
-
-    def forward_logging(self, msg):
-        self.log_hook(msg)
     
 # TODO: ensure that terminal is synchronized across multiple users
 class WebsocketManager:
 
     def __init__(self, socket, mininet_runner):
         self.mn_runner = mininet_runner
+        self.net = mininet_runner.net
         self.socket = socket
         self.index = 0
-        self.cli_io = None
+        self.clis = {}
 
         # TODO: ensure that this does not cause problems with memory if programs runs for a lont time
         self.history = []
@@ -92,21 +81,35 @@ class WebsocketManager:
         # Register message handlers for Websocket
         self.register_handlers()
 
-        # Spawns CLI for mininet
-        self.init_cli()
 
     def register_handlers(self):
         self.socket.on_event('message', self.handle_message)
 
-    def init_cli(self):
-        self.cli_io = MininetCLIWrapper(self.mn_runner,self.handle_log_message)
+    def init_clis(self):
+        if self.net is None:
+            if self.mn_runner.net is not None:
+                self.net = self.mn_runner.net
+            else:
+                print("ERROR, no topology loaded")
+
+        
+        # Stop CLIs that are still running
+        for name, cli in self.clis.items():
+            cli.stop()
+
+        # Delete old dictionary
+        self.clis = {}
+
+        # Iterate over all nodes in network
+        for node in self.net.values():
+            # Check if node is a Host machine
+            if isinstance(node, P4Host):
+                # Create CLI instance for host
+                self.clis[node.name] = NodeCLI(node,self.socket)
 
     def handle_message(self,message):
-        self.cli_io.exec_command(message)
-
-    def handle_log_message(self, message):
-        # Message is broadcasted -> to synchronize if multiple clients acess terminal at the same time
-        emit("response",message,broadcast=True)
+        target = message["target"]
+        self.clis[target].run_cmd(message["cmd"])
 
 class MininetManager:
 
@@ -128,11 +131,12 @@ class MininetManager:
         # Create Mininet runner
         self.init_mininet()
 
-        # Create API endpoint
-        self.create_api()
-
         # Create websocket for mininet terminal
         self.create_websocket()
+
+        # Create API endpoint, uses websocket reference so has to be called last
+        self.create_api()
+
     
     def init_mininet(self):
         # Topology will be filled from controller. 
@@ -147,9 +151,9 @@ class MininetManager:
 
     def create_api(self):
         self.api = Api(self.app)
-        self.api.add_resource(LoadTopology, '/topology/load', resource_class_kwargs={"netsim": self.mn_runner})
-        self.api.add_resource(GetTopology, '/topology/get', resource_class_kwargs={"netsim": self.mn_runner})
-        self.api.add_resource(SwitchesOnline, '/switches/online', resource_class_kwargs={"netsim": self.mn_runner})
+        self.api.add_resource(LoadTopology, '/topology/load', resource_class_kwargs={"netsim": self.mn_runner,"ws":self.socketio})
+        self.api.add_resource(GetTopology, '/topology/get', resource_class_kwargs={"netsim": self.mn_runner,"ws":self.socketio})
+        self.api.add_resource(SwitchesOnline, '/switches/online', resource_class_kwargs={"netsim": self.mn_runner,"ws":self.socketio})
 
     def create_websocket(self):
 
