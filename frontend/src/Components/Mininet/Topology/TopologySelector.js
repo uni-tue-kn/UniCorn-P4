@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios'
 
-import { Button, FormControl, TextField, Box, MenuItem, Checkbox, FormControlLabel} from '@mui/material';
+import { Button, FormControl, CircularProgress,TextField, Box, MenuItem, Checkbox, FormControlLabel} from '@mui/material';
 import { useSnackbar } from '../../../Contexts/SnackbarContext';
 import { useSwitch } from '../../../Contexts/SwitchContext';
 
@@ -127,14 +127,22 @@ export default function TopologySelector() {
                     }
                     label="Try to connect switches from topology"
                 />
-                <Button
+                {
+                    // Show loading indicator if topology is loading,
+                    // otherwise show load topology button
+                    loading ? 
+                    <CircularProgress />
+                    :
+                    <Button
                     variant="contained"
                     color='primary'
                     type='submit'
                     onClick={loadTopology}
                     sx={{ marginLeft: 'auto' }}
-                >Load Topology
-                </Button>
+                    >Load Topology
+                    </Button>
+                }
+                
             </Box>
         </FormControl>
     )
