@@ -8,13 +8,13 @@ import time
 
 from flask import Flask
 from flask_restful import Api
-from flask_socketio import SocketIO,emit
+from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from threading import Event, Thread
 
 import json
 from .netsim.netsim import MininetRunner
-
+import re
 
 
 # Uses mininets Node class interfaces to open a terminal on a passed node, send commands and return output
@@ -32,22 +32,21 @@ class NodeCLI:
     def register_shell(self):
         # Ensure that shell is running on node
         self.node.startShell()
-        self.thread = Thread(target=self.read_output)
-        self.thread.start()
 
     def run_cmd(self, cmd):
         # Runs command, does not wait for output
-        self.thread = Thread(target=self.read_output)
-        self.thread.start()
-        self.node.write(cmd + '\n' )
-    
-    def read_output(self):
-        while not self.stop_event.is_set():
-            output = self.node.readline()
-            if output:
-                self.handle_output(output)
-            else:
-                break
+        self.node.sendCmd(cmd)
+        self.wait_output()
+
+    # NOTE: THIS IS A MODIFIED VERSION OF p4_mininet.node.waitOutput
+    # It is modified to use the following funciton instead of monitor
+    # All credits belong to original authors
+    def wait_output(self):
+        while self.node.waiting:
+            data = self.node.monitor( findPid=True )
+            self.handle_output( data )
+        # Command finished, all data has already been emitted over WS
+        return 
 
     def handle_output(self, data):
         # Send data over websocket to clients
@@ -56,15 +55,15 @@ class NodeCLI:
             "data": data
         }
         # TODO: each node should use their own channel, not just response
-        self.socket.emit("response",json.dumps(json_obj))
-        
+        self.socket.emit("response", json.dumps(json_obj))
+
     def stop(self):
         # Stop output thread
         self.stop_event.set()
         # Wait for thread to stop
         self.thread.join()
 
-    
+
 # TODO: ensure that terminal is synchronized across multiple users
 class WebsocketManager:
 
@@ -81,7 +80,6 @@ class WebsocketManager:
         # Register message handlers for Websocket
         self.register_handlers()
 
-
     def register_handlers(self):
         self.socket.on_event('message', self.handle_message)
 
@@ -92,7 +90,6 @@ class WebsocketManager:
             else:
                 print("ERROR, no topology loaded")
 
-        
         # Stop CLIs that are still running
         for name, cli in self.clis.items():
             cli.stop()
@@ -105,11 +102,12 @@ class WebsocketManager:
             # Check if node is a Host machine
             if isinstance(node, P4Host):
                 # Create CLI instance for host
-                self.clis[node.name] = NodeCLI(node,self.socket)
+                self.clis[node.name] = NodeCLI(node, self.socket)
 
-    def handle_message(self,message):
+    def handle_message(self, message):
         target = message["target"]
         self.clis[target].run_cmd(message["cmd"])
+
 
 class MininetManager:
 
@@ -137,9 +135,8 @@ class MininetManager:
         # Create API endpoint, uses websocket reference so has to be called last
         self.create_api()
 
-    
     def init_mininet(self):
-        # Topology will be filled from controller. 
+        # Topology will be filled from controller.
         # TODO set default value for this?
         topology_file = None
         # TODO move this into configuration file
@@ -151,23 +148,19 @@ class MininetManager:
 
     def create_api(self):
         self.api = Api(self.app)
-        self.api.add_resource(LoadTopology, '/topology/load', resource_class_kwargs={"netsim": self.mn_runner,"ws":self.socketio})
-        self.api.add_resource(GetTopology, '/topology/get', resource_class_kwargs={"netsim": self.mn_runner,"ws":self.socketio})
-        self.api.add_resource(SwitchesOnline, '/switches/online', resource_class_kwargs={"netsim": self.mn_runner,"ws":self.socketio})
+        self.api.add_resource(LoadTopology, '/topology/load', resource_class_kwargs={
+                              "netsim": self.mn_runner, "ws": self.socketio})
+        self.api.add_resource(GetTopology, '/topology/get', resource_class_kwargs={
+                              "netsim": self.mn_runner, "ws": self.socketio})
+        self.api.add_resource(SwitchesOnline, '/switches/online',
+                              resource_class_kwargs={"netsim": self.mn_runner, "ws": self.socketio})
 
     def create_websocket(self):
 
         # TODO: this catches the "AssertionError: write() before start_respons" error, the socket still establishes
         # Handlign should be done better than this
-        socketio = SocketIO(self.app,logger=True,cors_allowed_origins="*")
-        self.socketio = WebsocketManager(socketio,self.mn_runner)
-        
+        socketio = SocketIO(self.app, logger=True, cors_allowed_origins="*")
+        self.socketio = WebsocketManager(socketio, self.mn_runner)
+
     def run(self):
         self.app.run(debug=True, host="0.0.0.0", port=5001)
-
-        
-        
-        
-
-       
-
