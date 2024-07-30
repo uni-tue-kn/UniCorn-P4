@@ -11,7 +11,7 @@ import { useTopology } from '../../../Contexts/TopologyContext';
 
 export default function TopologySelector() {
     const { callSnackbar } = useSnackbar();
-    const { knownTopologies, setCurrentTopologyName, currentTopologyName } = useTopology();
+    const { knownTopologies, setLoadedHosts, setCurrentTopologyName, currentTopologyName } = useTopology();
 
     const { switchesOnline, switches, getSwitches, deleteSwitch, getSwitchesOnline, setCurrentSwitchID, getHistorySwitches} = useSwitch();
 
@@ -34,13 +34,14 @@ export default function TopologySelector() {
         })
         .then(res => {
             setCurrentTopologyName(selectedTopology);
+            // Store list of loaded hosts
+            let hosts = res.data.hosts;
+            console.log("HOSTS",hosts);
+            setLoadedHosts(hosts);
             getSwitchesOnline();
             callSnackbar("success", "Updated topology to " + selectedTopology);
 
             const switches_in_topology = Object.keys(res.data.switches);
-
-            
-
             // Disconnect switches and optionally connect switches from topology
             let new_switches = [];
             switchesOnline["switches_online"].map((s) => {

@@ -16,6 +16,7 @@ export function TopologyProvider({ children }) {
     // State thas saves list of known Topologies
     const [knownTopologies, setKnownTopologies] = useState([]);
     const [loadedTopology, setLoadedTopology] = useState("");
+    const [loadedHosts, setLoadedHosts] = useState([]);
 
     // Topology that is currently loaded
     // Will try to fetch this from local storage, is set to null if none is stored
@@ -68,7 +69,7 @@ export function TopologyProvider({ children }) {
     useEffect(getTopologies, []);
 
     return (
-        <TopologyContext.Provider value={{knownTopologies, getTopologies, currentTopologyName, setCurrentTopologyName,loadTopologyByName,loadedTopology}}>
+        <TopologyContext.Provider value={{knownTopologies, getTopologies, currentTopologyName, setCurrentTopologyName,loadTopologyByName,loadedTopology,loadedHosts,setLoadedHosts}}>
             {children}
         </TopologyContext.Provider>
     )

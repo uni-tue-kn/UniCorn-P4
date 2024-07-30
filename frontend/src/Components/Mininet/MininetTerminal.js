@@ -1,18 +1,67 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Terminal, { ColorMode, TerminalOutput } from 'react-terminal-ui';
 import { io } from 'socket.io-client';
 
+import { useTopology } from '../../Contexts/TopologyContext';
 
 export default function MininetTerminal() {
 
   const greeting = "You can interact with the mininet CLI over this terminal.\nEnter 'help' to get a list of available commands!\nThe Ctrl-C interrupt is unavailable here, so enter c or C to interrupt the last command.";
+  const { loadedHosts} = useTopology();
 
-
-  const [terminalLineData, setTerminalLineData] = useState([greeting]);
+  const [terminalLineData, setTerminalLineData] = useState({"old":[]});
   const [currentNode, setCurrentNode] = useState("h1");
 
   const [socket, setSocket] = useState(null);
-  const [messageHistory, setMessageHistory] = useState([greeting]);
+  const [messageHistory, setMessageHistory] = useState({"old":[]});
+
+  const terminalLineDataRef = useRef(terminalLineData);
+  const messageHistoryRef = useRef(messageHistory);
+  const changeTerminalLineDataRef = useRef(setTerminalLineData);
+  const changeMessageHistoryRef = useRef(setMessageHistory);
+
+  // TODO: this should get moved to a context, otherwise the terminals clear input when page is left
+  function appendLineData(host, newEntry) {
+
+    if ( !(host in terminalLineData) ) {
+      console.log("ENTRY: ",newEntry, "for invbalid host: ",host)
+      console.log(terminalLineData)
+      console.log("--------------------------------")
+      return
+    }
+    console.log("NEW ENTRY",newEntry,terminalLineData,host);
+
+    // Update key host of state dict
+    setTerminalLineData({
+      ...terminalLineData,
+      [host]: [...terminalLineData[host], newEntry]
+    });
+
+    // Update key host of state dict
+    setMessageHistory({
+      ...messageHistory,
+      [host]: [...messageHistory[host], newEntry]
+    });
+
+  }
+
+
+  // Update when loaded hosts changes
+  useEffect(() => {
+    console.log("UPDATING HOST TERMINALS",loadedHosts);
+
+    const updatedData = {};
+    const updatedHistory = {};
+
+    loadedHosts.forEach(element => {
+      updatedData[element] = [greeting];
+      updatedHistory[element] = [greeting];
+    });
+
+    setTerminalLineData(updatedData);
+    setMessageHistory(updatedHistory);
+    
+  },[loadedHosts]);
 
   useEffect(() => {
 
@@ -25,40 +74,40 @@ export default function MininetTerminal() {
     // Save the socket instance
     setSocket(newSocket);
 
-    // Handle incoming messages
-    newSocket.on('response', handleResponse);
+    //newSocket.on('response', handleResponse);
 
     // Clean up the connection when the component unmounts
     return () => {
       newSocket.close();
     };
-  }, []);
+  },[]);
 
-  // Change terminal when node is changed
+  // When data changes, set new handle response function for socket callback
   useEffect(() => {
-
-  },[currentNode]);
-
-  function handleResponse(message) {
-    
-    const parsed = JSON.parse(message)
-    console.log("RESPONSE",parsed);
-    // If response message is for curretn terminal
-    // Add Message to history and display
-    if (parsed.name === currentNode) {
-      setMessageHistory(oldArray => [...oldArray,parsed.data]);
-      setTerminalLineData(oldArray => [...oldArray,parsed.data]);
+    if (!(socket === null)) {
+      // Unregister any old listener
+      socket.removeAllListeners("response");
+      // Add the new listener
+      // Handle response will have the correct references to the terminalLine and history states
+      socket.on('response', handleResponse);
     }
-    
-  }
+  },[terminalLineData,messageHistory,socket])
 
-  function handleInput(text) {
+  const handleResponse = useCallback((message) => {
+    const parsed = JSON.parse(message)
+    console.log("RESPONSE",parsed,terminalLineData);
+
+    appendLineData(parsed.name, parsed.data);
+
+  },[terminalLineData,messageHistory]);
+
+
+  function handleInput(host, text) {
     // Add Input to history and current terminal
-    setMessageHistory(oldArray => [...oldArray,"$ " + text]);
-    setTerminalLineData(oldArray => [...oldArray,"$ " + text]);
+    appendLineData(host, "$ " + text);
 
     const to_send = {
-      "target": currentNode,
+      "target": host,
       "cmd": text};
     
     // Send input to backend
@@ -68,11 +117,16 @@ export default function MininetTerminal() {
   // Main Terminal window
   return (
     <div className="container">
-      <Terminal name={currentNode} colorMode={ColorMode.Dark} onInput={handleInput}>
-        {terminalLineData.map((line, index) => (
-          <TerminalOutput key={index}>{line}</TerminalOutput>
+      {
+        loadedHosts.map((host,index) => (
+          <Terminal name={host} colorMode={ColorMode.Dark} onInput={(text) => handleInput(host, text)}>
+            {
+            // Add per host if it already exists in the data
+            (host in terminalLineData) && terminalLineData[host].map((line, index) => (
+              <TerminalOutput key={index}>{line}</TerminalOutput>
+          ))}
+          </Terminal>
         ))}
-      </Terminal>
     </div>
   )
 }
