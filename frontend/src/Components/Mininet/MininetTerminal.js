@@ -4,32 +4,29 @@ import { io } from 'socket.io-client';
 
 import { useTopology } from '../../Contexts/TopologyContext';
 
+// NOTE: Terminals are triggered and enabled based on the loadedHosts variable from the topology context
 export default function MininetTerminal() {
 
-  const greeting = "You can interact with the mininet CLI over this terminal.\nEnter 'help' to get a list of available commands!\nThe Ctrl-C interrupt is unavailable here, so enter c or C to interrupt the last command.";
+  // FIrst line displayed in terminals
+  const greeting = "Commands entered here are run directly on the mininet linux hosts.\nUse 'clear' to empty the current terminal and Ctrl-c to interrupt the last command.\n";
+
+  // What hosts can be accessed by the terminal
   const { loadedHosts} = useTopology();
 
-  const [terminalLineData, setTerminalLineData] = useState({"old":[]});
-  const [currentNode, setCurrentNode] = useState("h1");
+  // Data storage for display and history
+  const [terminalLineData, setTerminalLineData] = useState({});
+  const [messageHistory, setMessageHistory] = useState({});
 
+  // Websocket to backend
   const [socket, setSocket] = useState(null);
-  const [messageHistory, setMessageHistory] = useState({"old":[]});
-
-  const terminalLineDataRef = useRef(terminalLineData);
-  const messageHistoryRef = useRef(messageHistory);
-  const changeTerminalLineDataRef = useRef(setTerminalLineData);
-  const changeMessageHistoryRef = useRef(setMessageHistory);
 
   // TODO: this should get moved to a context, otherwise the terminals clear input when page is left
   function appendLineData(host, newEntry) {
 
     if ( !(host in terminalLineData) ) {
       console.log("ENTRY: ",newEntry, "for invbalid host: ",host)
-      console.log(terminalLineData)
-      console.log("--------------------------------")
       return
     }
-    console.log("NEW ENTRY",newEntry,terminalLineData,host);
 
     // Update key host of state dict
     setTerminalLineData({
@@ -48,8 +45,6 @@ export default function MininetTerminal() {
 
   // Update when loaded hosts changes
   useEffect(() => {
-    console.log("UPDATING HOST TERMINALS",loadedHosts);
-
     const updatedData = {};
     const updatedHistory = {};
 
