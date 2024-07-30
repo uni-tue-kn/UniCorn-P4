@@ -11,6 +11,7 @@ from flask_restful import Api
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from threading import Event, Thread
+from mininet.log import info
 
 import json
 from .netsim.netsim import MininetRunner
@@ -35,17 +36,20 @@ class NodeCLI:
 
     def run_cmd(self, cmd):
         # Runs command, does not wait for output
+        print("Starting command '{}' on host {}".format(cmd,self.node.name))
         self.node.sendCmd(cmd)
         self.wait_output()
+        print("Finished command '{}' on host {}".format(cmd,self.node.name))
 
     # NOTE: THIS IS A MODIFIED VERSION OF p4_mininet.node.waitOutput
     # It is modified to use the following funciton instead of monitor
     # All credits belong to original authors
     def wait_output(self):
         while self.node.waiting:
-            data = self.node.monitor( findPid=True )
+            data = self.node.monitor( findPid=False )
             self.handle_output( data )
         # Command finished, all data has already been emitted over WS
+        
         return 
 
     def handle_output(self, data):
@@ -57,12 +61,8 @@ class NodeCLI:
         # TODO: each node should use their own channel, not just response
         self.socket.emit("response", json.dumps(json_obj))
 
-    def stop(self):
-        # Stop output thread
-        self.stop_event.set()
-        # Wait for thread to stop
-        self.thread.join()
-
+    def interrupt(self):
+        self.node.sendInt();
 
 # TODO: ensure that terminal is synchronized across multiple users
 class WebsocketManager:
@@ -105,8 +105,13 @@ class WebsocketManager:
                 self.clis[node.name] = NodeCLI(node, self.socket)
 
     def handle_message(self, message):
+
         target = message["target"]
-        self.clis[target].run_cmd(message["cmd"])
+
+        if ("interrupt" in message):
+            self.clis[target].interrupt()
+        else:
+            self.clis[target].run_cmd(message["cmd"])
 
 
 class MininetManager:

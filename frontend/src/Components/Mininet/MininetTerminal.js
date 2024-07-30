@@ -8,7 +8,7 @@ import { useTopology } from '../../Contexts/TopologyContext';
 export default function MininetTerminal() {
 
   // FIrst line displayed in terminals
-  const greeting = "Commands entered here are run directly on the mininet linux hosts.\nUse 'clear' to empty the current terminal and Ctrl-c to interrupt the last command.\n";
+  const greeting = "Commands entered here are run directly on the mininet linux hosts.\nSend an interrupt via the red button (top left corner).\nType 'clear' to empty the current terminal.\n----\n\n";
 
   // What hosts can be accessed by the terminal
   const { loadedHosts } = useTopology();
@@ -19,6 +19,24 @@ export default function MininetTerminal() {
 
   // Websocket to backend
   const [socket, setSocket] = useState(null);
+
+  function clearTerminal(host) {
+    if (!(host in terminalLineData)) {
+      console.log("Cannot clear terminal for invalid host: ", host)
+      return
+    }
+
+    // Only clear host key of terminal data, not history
+    setTerminalLineData(
+      (previousState) => {
+        return {
+          ...previousState,
+          [host]: [greeting]
+        }
+      }
+    );
+
+  }
 
   // TODO: this should get moved to a context, otherwise the terminals clear input when page is left
   function appendLineData(host, newEntry) {
@@ -102,6 +120,13 @@ export default function MininetTerminal() {
 
 
   function handleInput(host, text) {
+
+    // CLear terminal is only handled in frontend, do not send
+    if (text === "clear") {
+      clearTerminal(host);
+      return
+    }
+
     // Add Input to history and current terminal
     appendLineData(host, "$ " + text);
 
