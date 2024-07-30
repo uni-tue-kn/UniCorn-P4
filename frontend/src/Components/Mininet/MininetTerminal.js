@@ -11,7 +11,7 @@ export default function MininetTerminal() {
   const greeting = "Commands entered here are run directly on the mininet linux hosts.\nUse 'clear' to empty the current terminal and Ctrl-c to interrupt the last command.\n";
 
   // What hosts can be accessed by the terminal
-  const { loadedHosts} = useTopology();
+  const { loadedHosts } = useTopology();
 
   // Data storage for display and history
   const [terminalLineData, setTerminalLineData] = useState({});
@@ -23,23 +23,29 @@ export default function MininetTerminal() {
   // TODO: this should get moved to a context, otherwise the terminals clear input when page is left
   function appendLineData(host, newEntry) {
 
-    if ( !(host in terminalLineData) ) {
-      console.log("ENTRY: ",newEntry, "for invbalid host: ",host)
+    if (!(host in terminalLineData)) {
+      console.log("ENTRY: ", newEntry, "for invbalid host: ", host)
       return
     }
+    // Update key host of state dict
+    setTerminalLineData(
+      (previousState) => {
+        return {
+          ...previousState,
+          [host]: [...previousState[host], newEntry]
+        }
+      }
+    );
 
     // Update key host of state dict
-    setTerminalLineData({
-      ...terminalLineData,
-      [host]: [...terminalLineData[host], newEntry]
-    });
-
-    // Update key host of state dict
-    setMessageHistory({
-      ...messageHistory,
-      [host]: [...messageHistory[host], newEntry]
-    });
-
+    setMessageHistory(
+      (previousState) => {
+        return {
+          ...previousState,
+          [host]: [...previousState[host], newEntry]
+        }
+      }
+    );
   }
 
 
@@ -55,8 +61,8 @@ export default function MininetTerminal() {
 
     setTerminalLineData(updatedData);
     setMessageHistory(updatedHistory);
-    
-  },[loadedHosts]);
+
+  }, [loadedHosts]);
 
   useEffect(() => {
 
@@ -75,7 +81,13 @@ export default function MininetTerminal() {
     return () => {
       newSocket.close();
     };
-  },[]);
+  }, []);
+
+  function handleResponse(message) {
+    const parsed = JSON.parse(message)
+    appendLineData(parsed.name, parsed.data);
+
+  }
 
   // When data changes, set new handle response function for socket callback
   useEffect(() => {
@@ -86,15 +98,7 @@ export default function MininetTerminal() {
       // Handle response will have the correct references to the terminalLine and history states
       socket.on('response', handleResponse);
     }
-  },[terminalLineData,messageHistory,socket])
-
-  const handleResponse = useCallback((message) => {
-    const parsed = JSON.parse(message)
-    console.log("RESPONSE",parsed,terminalLineData);
-
-    appendLineData(parsed.name, parsed.data);
-
-  },[terminalLineData,messageHistory]);
+  }, [handleResponse])
 
 
   function handleInput(host, text) {
@@ -103,24 +107,37 @@ export default function MininetTerminal() {
 
     const to_send = {
       "target": host,
-      "cmd": text};
-    
+      "cmd": text
+    };
+
     // Send input to backend
     socket.send(to_send);
   }
 
+  function handleInterrupt(host) {
+    const to_send = {
+      "interrupt": true,
+      "target": host
+    };
+    socket.send(to_send);
+
+    appendLineData(host, "SENDING INTERRUPT");
+  }
+
   // Main Terminal window
   return (
-    <div className="container">
+    <div className="container" style={{ padding: 5 + "px" }}>
       {
-        loadedHosts.map((host,index) => (
-          <Terminal name={host} colorMode={ColorMode.Dark} onInput={(text) => handleInput(host, text)}>
-            {
-            // Add per host if it already exists in the data
-            (host in terminalLineData) && terminalLineData[host].map((line, index) => (
-              <TerminalOutput key={index}>{line}</TerminalOutput>
-          ))}
-          </Terminal>
+        loadedHosts.map((host, index) => (
+          <div className="container" style={{ padding: 5 + "px" }}>
+            <Terminal name={host} colorMode={ColorMode.Dark} redBtnCallback={(event) => handleInterrupt(host)} onInput={(text) => handleInput(host, text)}>
+              {
+                // Add per host if it already exists in the data
+                (host in terminalLineData) && terminalLineData[host].map((line, index) => (
+                  <TerminalOutput key={index}>{line}</TerminalOutput>
+                ))}
+            </Terminal>
+          </div>
         ))}
     </div>
   )
