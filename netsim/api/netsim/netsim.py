@@ -194,16 +194,21 @@ class MininetRunner:
         self.net = None
         P4Switch.device_id = 0
         P4RuntimeSwitch.next_grpc_port = 50051
+        
+        self.hosts = []
+        self.switches = {}
+        self.links = []
 
     def run(self):
         """ Sets up the mininet instance, programs the switches,
             and starts the mininet CLI. This is the main method to run after
             initializing the object.
         """
-        self.parse_topology_file()
-        
         # Clean up existing topologies
-        self.destroy_topology()   
+        self.destroy_topology()  
+        
+        self.parse_topology_file()
+ 
         self.logger("Started topology!")
         
         # Initialize mininet with the topology specified by the config
@@ -361,30 +366,4 @@ class MininetRunner:
             print('')
 
         CLI(self.net)
-
-
-# TODO remove
-def get_args():
-    cwd = os.getcwd()
-    default_logs = os.path.join(cwd, 'logs')
-    default_pcaps = os.path.join(cwd, 'pcaps')
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-q', '--quiet', help='Suppress log messages.',
-                        action='store_true', required=False, default=False)
-    parser.add_argument('-t', '--topo', help='Path to topology json',
-                        type=str, required=False, default='./topology.json')
-    parser.add_argument('-l', '--log-dir', type=str, required=False, default=default_logs)
-    parser.add_argument('-p', '--pcap-dir', type=str, required=False, default=default_pcaps)
-    return parser.parse_args()
-
-
-# TODO remove
-if __name__ == '__main__':
-    # from mininet.log import setLogLevel
-    # setLogLevel("info")
-
-    args = get_args()
-    mininet = MininetRunner(args.topo, args.log_dir, args.pcap_dir, args.quiet)
-
-    mininet.run()
-
+        

@@ -71,6 +71,14 @@ class Controller:
         self.switch_configs[switch_id].shutdown()
         # Remove reference
         del self.switch_configs[switch_id]
+        
+    def deleteAllSwitchConnections(self):
+        """Stops all active switch connections and removes their reference from internal storage.
+        """
+        for switch_id, s in self.switch_configs.items():
+            s.shutdown()
+        # Remove references
+        self.switch_configs = {}    
 
     def initialize(self, switch_id, p4_info_file, bmv2_file, keep_entries):
         """Initializes switch with given config.
