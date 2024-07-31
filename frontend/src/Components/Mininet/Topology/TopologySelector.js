@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios'
 
-import { Button, FormControl, TextField, Box, MenuItem, Checkbox, FormControlLabel} from '@mui/material';
-import { useSnackbar } from '../../Contexts/SnackbarContext';
-import { useSwitch } from '../../Contexts/SwitchContext';
+import { Button, FormControl, CircularProgress,TextField, Box, MenuItem, Checkbox, FormControlLabel} from '@mui/material';
+import { useSnackbar } from '../../../Contexts/SnackbarContext';
+import { useSwitch } from '../../../Contexts/SwitchContext';
 
-import { useTopology } from '../../Contexts/TopologyContext';
+import { useTopology } from '../../../Contexts/TopologyContext';
 
 //import { handleSwitch } from '../SwitchConnections/SwitchDashboard/AddNewSwitch'
 
 export default function TopologySelector() {
     const { callSnackbar } = useSnackbar();
-    const { knownTopologies, setCurrentTopologyName, currentTopologyName } = useTopology();
+    const { knownTopologies, setLoadedHosts, setCurrentTopologyName, currentTopologyName } = useTopology();
 
     const { switchesOnline, switches, getSwitches, deleteSwitch, getSwitchesOnline, setCurrentSwitchID, getHistorySwitches} = useSwitch();
 
@@ -34,11 +34,14 @@ export default function TopologySelector() {
         })
         .then(res => {
             setCurrentTopologyName(selectedTopology);
+            // Store list of loaded hosts
+            let hosts = res.data.hosts;
+            console.log("HOSTS",hosts);
+            setLoadedHosts(hosts);
             getSwitchesOnline();
             callSnackbar("success", "Updated topology to " + selectedTopology);
 
             const switches_in_topology = Object.keys(res.data.switches);
-
             // Disconnect switches and optionally connect switches from topology
             let new_switches = [];
             switchesOnline["switches_online"].map((s) => {
@@ -54,6 +57,8 @@ export default function TopologySelector() {
                     console.log("Create switch " + s.name + " " + s.grpc_port)
                 }
             })
+
+            
 
             if (new_switches.length !== switches_in_topology.length) {
                 let warning_msg = "Not all switches from the topology could be loaded. Try connecting them manually."
@@ -81,9 +86,9 @@ export default function TopologySelector() {
             })
         })
         .catch(err => {
-            console.log(err);
             setLoading(false);
-            callSnackbar("error", err || "There was an error during loading a new topology!" + err);
+            console.log(err);
+            callSnackbar("error", "There was an error during loading a new topology! '" + err.message + "'" + " Check the log of the mininet docker container!");
         });
 
     }
@@ -122,14 +127,22 @@ export default function TopologySelector() {
                     }
                     label="Try to connect switches from topology"
                 />
-                <Button
+                {
+                    // Show loading indicator if topology is loading,
+                    // otherwise show load topology button
+                    loading ? 
+                    <CircularProgress />
+                    :
+                    <Button
                     variant="contained"
                     color='primary'
                     type='submit'
                     onClick={loadTopology}
                     sx={{ marginLeft: 'auto' }}
-                >Load Topology
-                </Button>
+                    >Load Topology
+                    </Button>
+                }
+                
             </Box>
         </FormControl>
     )

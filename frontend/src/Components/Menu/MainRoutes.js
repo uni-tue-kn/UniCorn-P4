@@ -8,6 +8,7 @@ import TableContent from '../Tables/TableContent';
 import MenuHistory from '../SwitchStates/History/MenuHistory';
 import MenuSaved from '../SwitchStates/Saved/MenuSaved';
 import NotFound from './NotFound';
+import Mininet from '../Mininet/Mininet';
 
 //import { useTableInfo } from '../../Contexts/InfoContext';
 import { useTable } from '../../Contexts/TableContext';
@@ -39,6 +40,10 @@ function MainRoutes() {
         path='/saved'
         element={<MenuSaved />}
       />
+      <Route
+        path='/mininet'
+        element={<Mininet />}
+        />
       {tableRoutes(tableInfo)}
       <Route 
         path="*" 

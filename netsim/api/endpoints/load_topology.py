@@ -21,6 +21,10 @@ class LoadTopology(Endpoint):
                 "links": self.netsim.links,
                 "file_name": self.netsim.topo_file
             }            
+
+            # Create CLIs for all nodes
+            self.ws.init_clis()
+
         except Exception as e:
             return f"Something went wrong when creating topology :( Error: {e}", 500
         return topo, 200

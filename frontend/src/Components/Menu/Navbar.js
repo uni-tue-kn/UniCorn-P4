@@ -67,7 +67,7 @@ function Navbar() {
                         alignItems: 'center',
                         justifyContent: 'flex-end',
                         px: [1],
-                        height: '100px', 
+                        height: '130px', 
                     }}
                 >
                 </Toolbar>
