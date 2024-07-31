@@ -11,7 +11,6 @@ class LoadTopology(Endpoint):
         args = parser.parse_args()
                 
         try:
-            # TODO make this async so that frontend does not block?
             self.netsim.topo_file = args.topology_file
             self.netsim.run()
             
@@ -32,6 +31,7 @@ class LoadTopology(Endpoint):
     def delete(self):
         try:
             self.netsim.destroy_topology()
+            self.netsim.topo_file = None
             topo = {
                 "hosts": self.netsim.hosts,
                 "switches": self.netsim.switches,

@@ -7,7 +7,7 @@ import './TopologyRenderer.css';
 export default function TopologyRenderer() {
 
     const svg_ref = useRef();
-    const { loadedTopology } = useTopology();
+    const { loadedTopology, getLoadedTopology, loadTopologyByName } = useTopology();
     const [layoutedTopology, setLayoutedTopology] = useState({});
 
     const icon_offset = {
@@ -22,8 +22,19 @@ export default function TopologyRenderer() {
     };
 
     function setupRender() {
+        getLoadedTopology();
+
         // Skip if no topology is loaded
-        if (loadedTopology.length < 1) { return }
+        if (loadedTopology.length < 1) {
+            // Clear all
+            // Get reference to SVG object
+            const svg = d3.select(svg_ref.current)
+                .attr('preserveAspectRatio', 'xMidYMid meet');
+
+            // Ensure that the object is empty
+            svg.selectAll("*").remove();
+            return;
+        }
         var topology = loadedTopology;
 
         // D3 requires an object with keys and values
@@ -117,9 +128,9 @@ export default function TopologyRenderer() {
                         .style("font-size", "0.4em")
                         .attr("x", node.x)
                         .attr("y", node.y - 8);
-                        // Set viewbox of SVG such that it scales correctly
+                    // Set viewbox of SVG such that it scales correctly
                     let bbox = svg.node().getBBox();
-                     svg.attr("viewBox", `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+                    svg.attr("viewBox", `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
                 })
                 // Store topology layout to reload if necessary
                 // TODO: implement loading from stored
@@ -133,7 +144,7 @@ export default function TopologyRenderer() {
     // TODO: add loading animation
     return (
         <div id="TopologyContainer">
-            <svg id="TopologyRender" ref={svg_ref} style={{flexGrow: 1}}> </svg>
+            <svg id="TopologyRender" ref={svg_ref} style={{ flexGrow: 1 }}> </svg>
         </div>
     )
 }

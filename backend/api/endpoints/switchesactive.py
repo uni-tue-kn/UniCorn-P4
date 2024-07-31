@@ -36,7 +36,6 @@ class SwitchesActive(Endpoint):
                 self.controller.switch_configs[switch_config["device_id"]].db_id = new_switch.id
             except IntegrityError:
                 self.db.session.rollback()
-                print("Entry in SwitchConfigs already exists")
                 existing_switch = SwitchConfigs.query.filter_by(name= new_switch.name, address = new_switch.address, device_id= new_switch.device_id).first()
                 self.controller.switch_configs[switch_config["device_id"]].db_id = existing_switch.id
         except Exception as e:
@@ -45,11 +44,10 @@ class SwitchesActive(Endpoint):
         
     def delete(self):
         parser = reqparse.RequestParser()
-        parser.add_argument('device_id', required = True, type=int)
+        parser.add_argument('device_id', required = False, type=int)
         args = parser.parse_args()
-        self.controller.deleteSwitchConnection(args['device_id'])
-        
-
-
-
-
+        if 'device_id' in args.keys() and args["device_id"]:
+            self.controller.deleteSwitchConnection(args['device_id'])
+        else:
+            self.controller.deleteAllSwitchConnections()
+                
