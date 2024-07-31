@@ -92,7 +92,7 @@ class WebsocketManager:
 
         # Stop CLIs that are still running
         for name, cli in self.clis.items():
-            cli.stop()
+            cli.node.stop()
 
         # Delete old dictionary
         self.clis = {}
