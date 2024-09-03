@@ -17,6 +17,7 @@ export function TopologyProvider({ children }) {
     const [knownTopologies, setKnownTopologies] = useState([]);
     const [loadedTopology, setLoadedTopology] = useState("");
     const [loadedHosts, setLoadedHosts] = useState([]);
+    const [loadedSwitches, setLoadedSwitches] = useState([]);
 
     // Topology that is currently loaded in Mininet
     const [currentTopologyName, setCurrentTopologyName] = useState("");
@@ -26,6 +27,7 @@ export function TopologyProvider({ children }) {
         if (currentTopologyName === "") {
             setLoadedTopology("");
             setLoadedHosts([]);
+            setLoadedSwitches([]);
             return;
         }
 
@@ -40,7 +42,8 @@ export function TopologyProvider({ children }) {
             .then(res => {
                 // Store topology Data
                 setLoadedTopology(res.data[currentTopologyName]);
-                setLoadedHosts(res.data[currentTopologyName]["hosts"])
+                setLoadedHosts(res.data[currentTopologyName]["hosts"]);
+                setLoadedSwitches(Object.keys(res.data[currentTopologyName]["switches"]));
             })
             .catch(err => {
                 callSnackbar("error", "Failed to load topology with name: " + currentTopologyName)
@@ -92,7 +95,7 @@ export function TopologyProvider({ children }) {
     useEffect(loadTopologyByName, [currentTopologyName]);
 
     return (
-        <TopologyContext.Provider value={{ knownTopologies, getTopologies, currentTopologyName, setCurrentTopologyName, loadTopologyByName, getLoadedTopology, loadedTopology, loadedHosts, setLoadedHosts, setLoadedTopology }}>
+        <TopologyContext.Provider value={{ knownTopologies, getTopologies, currentTopologyName, setCurrentTopologyName, loadTopologyByName, getLoadedTopology, loadedTopology, loadedHosts, setLoadedHosts, loadedSwitches, setLoadedSwitches, setLoadedTopology }}>
             {children}
         </TopologyContext.Provider>
     )

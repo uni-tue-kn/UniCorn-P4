@@ -2,7 +2,7 @@ from .endpoints.load_topology import LoadTopology
 from .endpoints.get_topology import GetTopology
 from .endpoints.switchesonline import SwitchesOnline
 from .netsim.netsim import MininetRunner
-from .netsim.utils.p4_mininet import P4Host
+from .netsim.utils.p4_mininet import P4Host, P4Switch
 import time
 
 
@@ -100,7 +100,7 @@ class WebsocketManager:
         # Iterate over all nodes in network
         for node in self.net.values():
             # Check if node is a Host machine
-            if isinstance(node, P4Host):
+            if isinstance(node, P4Host) or isinstance(node, P4Switch):
                 # Create CLI instance for host
                 self.clis[node.name] = NodeCLI(node, self.socket)
 

@@ -4,14 +4,14 @@ import { io } from 'socket.io-client';
 
 import { useTopology } from '../../Contexts/TopologyContext';
 
-// NOTE: Terminals are triggered and enabled based on the loadedHosts variable from the topology context
+// NOTE: Terminals are triggered and enabled based on the loadedHosts and loadedSwitches variable from the topology context
 export default function MininetTerminal() {
 
   // FIrst line displayed in terminals
   const greeting = "Commands entered here are run directly on the mininet linux hosts.\nSend an interrupt via the red button (top left corner).\nType 'clear' to empty the current terminal.\n----\n\n";
 
   // What hosts can be accessed by the terminal
-  const { loadedHosts } = useTopology();
+  const { loadedHosts, loadedSwitches } = useTopology();
 
   // Data storage for display and history
   const [terminalLineData, setTerminalLineData] = useState({});
@@ -77,10 +77,15 @@ export default function MininetTerminal() {
       updatedHistory[element] = [greeting];
     });
 
+    loadedSwitches.forEach(element => {
+      updatedData[element] = [greeting];
+      updatedHistory[element] = [greeting];
+    });    
+
     setTerminalLineData(updatedData);
     setMessageHistory(updatedHistory);
 
-  }, [loadedHosts]);
+  }, [loadedHosts, loadedSwitches]);
 
   useEffect(() => {
 
@@ -154,6 +159,18 @@ export default function MininetTerminal() {
     <div className="container" style={{ padding: 5 + "px" }}>
       {
         loadedHosts.map((host, index) => (
+          <div className="container" style={{ padding: 5 + "px" }}>
+            <Terminal name={host} colorMode={ColorMode.Dark} redBtnCallback={(event) => handleInterrupt(host)} onInput={(text) => handleInput(host, text)}>
+              {
+                // Add per host if it already exists in the data
+                (host in terminalLineData) && terminalLineData[host].map((line, index) => (
+                  <TerminalOutput key={index}>{line}</TerminalOutput>
+                ))}
+            </Terminal>
+          </div>
+        ))}
+        {
+        loadedSwitches.map((host, index) => (
           <div className="container" style={{ padding: 5 + "px" }}>
             <Terminal name={host} colorMode={ColorMode.Dark} redBtnCallback={(event) => handleInterrupt(host)} onInput={(text) => handleInput(host, text)}>
               {
