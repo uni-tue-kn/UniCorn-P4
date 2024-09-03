@@ -13,18 +13,18 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: UniCorn-P4 CI
-      run: cd docker && docker-compose build
+      run: cd docker && docker compose build
 
     - name: Run Backend Container
-      run: docker-compose up -d backend
+      run: docker compose up -d backend
       working-directory: docker
 
     - name: Run Frontend Container
-      run: docker-compose up -d frontend
+      run: docker compose up -d frontend
       working-directory: docker
 
     - name: Run Mininet Container
-      run: docker-compose up -d netsim
+      run: docker compose up -d netsim
       working-directory: docker      
 
     - name: Wait for Containers to Start
