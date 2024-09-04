@@ -11,6 +11,8 @@ class LoadTopology(Endpoint):
         args = parser.parse_args()
                 
         try:
+            self.clear_topology()
+            
             self.netsim.topo_file = args.topology_file
             self.netsim.run()
             
@@ -29,7 +31,11 @@ class LoadTopology(Endpoint):
         return topo, 200
 
     def delete(self):
+        return self.clear_topology()
+
+    def clear_topology(self):
         try:
+            self.ws.close_clis()
             self.netsim.destroy_topology()
             self.netsim.topo_file = None
             topo = {

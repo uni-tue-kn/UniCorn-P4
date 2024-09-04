@@ -83,19 +83,24 @@ class WebsocketManager:
     def register_handlers(self):
         self.socket.on_event('message', self.handle_message)
 
+    def close_clis(self):
+        # Stop CLIs that are still running
+        for name, cli in self.clis.items():
+            cli.node.stop() 
+
+        # Delete old dictionary
+        self.clis = {}
+        self.net = None
+
+
     def init_clis(self):
+        self.close_clis()
+
         if self.net is None:
             if self.mn_runner.net is not None:
                 self.net = self.mn_runner.net
             else:
                 print("ERROR, no topology loaded")
-
-        # Stop CLIs that are still running
-        for name, cli in self.clis.items():
-            cli.node.stop()
-
-        # Delete old dictionary
-        self.clis = {}
 
         # Iterate over all nodes in network
         for node in self.net.values():
