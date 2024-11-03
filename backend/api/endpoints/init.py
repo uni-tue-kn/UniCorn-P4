@@ -38,6 +38,8 @@ class Initialize(Endpoint):
         p4_info_file_arg = args['p4_info_file']
         bmv2_file_arg = args['bmv2_file']
         state_id_arg = args['state_id']
+        
+        warning_msg = ""
 
         try:
             self.controller.initialize(switch_id = switch_id_arg, p4_info_file = p4_info_file_arg, bmv2_file = bmv2_file_arg, keep_entries = args['keep_entries'])
@@ -65,9 +67,18 @@ class Initialize(Endpoint):
                 
                 # re-write the old entries to the switch
                 table_entries = reinitialized_state.table_entries
+                changed_tables = []
                 for table in table_entries:
                     for entry in table_entries[table]:
-                        self.controller.postTableEntry(switch_id = switch_id_arg, entry = entry["switch_entry"], is_json = False)
+                        try:
+                            self.controller.postTableEntry(switch_id = switch_id_arg, entry = entry["switch_entry"], is_json = False)
+                        except grpc.RpcError:
+                            changed_tables.append(table)
+                            # Skip this table
+                            continue
+                if changed_tables:
+                    changed_tables_string = ", ".join(changed_tables)
+                    warning_msg += f"MAT structure of tables {changed_tables_string} changed from saved state. Entries are not loaded."
 
             # state doesnt exist -> create a new one    
             else:
@@ -96,6 +107,7 @@ class Initialize(Endpoint):
             return f"Failed to initialize Switch. GRPC Connection is not available: {e}", 500
         except Exception as e:
             return f"An error occured during switch initialization: {e}", 500
-
-
-             
+        
+        if warning_msg:
+            return warning_msg, 200
+        

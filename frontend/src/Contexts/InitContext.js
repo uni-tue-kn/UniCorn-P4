@@ -38,7 +38,6 @@ export function InitProvider({ children }) {
     useEffect(updateInitializedFiles, [currentSwitchID]);
 
     function initialize(event, p4_info_file, bmv2_file, keep_entries = false, id = null) {
-        console.log(id);
         axios
             .post("/init", {
                 switch_id:currentSwitchID,
@@ -47,9 +46,13 @@ export function InitProvider({ children }) {
                 keep_entries: keep_entries,
                 state_id: id
             })
-            .then(() => {
+            .then(res => {
+                if (res.data){
+                    callSnackbar("warning", "Initialization was successful! " + res.data);                    
+                } else {
+                    callSnackbar("success", "Initialization was successful!");
+                }
                 updateInitializedFiles();
-                callSnackbar("success", "Initialization was successful!");
             })
             .catch(err => {
                 console.log(err);
