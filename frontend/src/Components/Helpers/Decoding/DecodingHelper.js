@@ -80,7 +80,8 @@ export function decodeTableEntries(tableEntries, decoding, tableInfo, tableName)
         //Decode action values
         if (switch_entry.action_params != null) {
           Object.entries(switch_entry.action_params).forEach(([param, value]) => {
-            switch_entry.action_params[param] = decode(value, tableDecoding.action[switch_entry.action_name][param]);
+            // Default to numerical decoding if there is no decode entry present
+            switch_entry.action_params[param] = decode(value, (tableDecoding.action[switch_entry.action_name]?.[param]) ?? "");
           });
         }
 
