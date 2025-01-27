@@ -16,15 +16,15 @@ jobs:
       run: cd docker && docker compose build
 
     - name: Run Backend Container
-      run: docker compose up -d unituekn/unicornp4-backend:latest
+      run: docker compose up -d unicornp4-backend
       working-directory: docker
 
     - name: Run Frontend Container
-      run: docker compose up -d unituekn/unicornp4-frontend:latest
+      run: docker compose up -d unicornp4-frontend
       working-directory: docker
 
     - name: Run Mininet Container
-      run: docker compose up -d unituekn/unicornp4-netsim:latest
+      run: docker compose up -d unicornp4-netsim
       working-directory: docker      
 
     - name: Wait for Containers to Start

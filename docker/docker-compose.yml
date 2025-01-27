@@ -3,8 +3,8 @@ services:
     # NOTE: both backend and netsim run with network_mode host
     # This means, that all ports are directly accesible on the host machine.
     # Otherwise, you would have to manually declare the ports
-    backend:
-        container_name: unituekn/unicornp4-backend:latest
+    unicornp4-backend:
+        container_name: unicornp4-backend
         image: unituekn/unicornp4-backend:latest
         build:
             context: ../
@@ -18,13 +18,13 @@ services:
             # - /path/to/your/another/p4_files/:/app/controller/p4_files/[subdirectory]
         network_mode: host
     
-    netsim:
+    unicornp4-netsim:
         # Required to add virtual interfaces for network simulation
         privileged: true
         # Required for some linux distributions
         cap_add:
             - NET_ADMIN
-        container_name: unituekn/unicornp4-netsim:latest
+        container_name: unicornp4-netsim
         image: unituekn/unicornp4-netsim:latest
         build:
             context: ../
@@ -36,8 +36,8 @@ services:
 
         
         
-    frontend:
-        container_name: unituekn/unicornp4-frontend:latest
+    unicornp4-frontend:
+        container_name: unicornp4-frontend
         image: unituekn/unicornp4-frontend:latest
         build:
             context: ../
