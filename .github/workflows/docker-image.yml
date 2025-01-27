@@ -13,18 +13,18 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: UniCorn-P4 CI
-      run: cd docker && docker-compose build
+      run: cd docker && docker compose build
 
     - name: Run Backend Container
-      run: docker-compose up -d backend
+      run: docker compose up -d backend
       working-directory: docker
 
     - name: Run Frontend Container
-      run: docker-compose up -d frontend
+      run: docker compose up -d frontend
       working-directory: docker
 
     - name: Run Mininet Container
-      run: docker-compose up -d netsim
+      run: docker compose up -d netsim
       working-directory: docker      
 
     - name: Wait for Containers to Start
@@ -49,20 +49,20 @@ jobs:
     # Step 4: Tag and push the backend image
     - name: Tag and Push Backend Image
       run: |
-        docker tag unicorn-backend:latest unituekn/unicorn-backend:latest
-        docker push unituekn/unicorn-backend:latest
+        docker tag unicorn-backend:latest unituekn/unicornp4-backend:latest
+        docker push unituekn/unicornp4-backend:latest
       working-directory: docker
 
     # Step 5: Tag and push the frontend image
     - name: Tag and Push Frontend Image
       run: |
-        docker tag unicorn-frontend:latest unituekn/unicorn-frontend:latest
-        docker push unituekn/unicorn-frontend:latest
+        docker tag unicorn-frontend:latest unituekn/unicornp4-frontend:latest
+        docker push unituekn/unicornp4-frontend:latest
       working-directory: docker
 
     # Step 6: Tag and push the mininet image
     - name: Tag and Push Mininet Image
       run: |
-        docker tag unicorn-netsim:latest unituekn/unicorn-netsim:latest
-        docker push unituekn/unicorn-netsim:latest
+        docker tag unicorn-netsim:latest unituekn/unicornp4-netsim:latest
+        docker push unituekn/unicornp4-netsim:latest
       working-directory: docker      
