@@ -4,7 +4,8 @@ services:
     # This means, that all ports are directly accesible on the host machine.
     # Otherwise, you would have to manually declare the ports
     backend:
-        container_name: backend
+        container_name: unituekn/unicornp4-backend:latest
+        image: unituekn/unicornp4-backend:latest
         build:
             context: ../
             dockerfile: docker/backend/Dockerfile
@@ -23,7 +24,8 @@ services:
         # Required for some linux distributions
         cap_add:
             - NET_ADMIN
-        container_name: netsim
+        container_name: unituekn/unicornp4-netsim:latest
+        image: unituekn/unicornp4-netsim:latest
         build:
             context: ../
             dockerfile: docker/netsim/Dockerfile
@@ -35,7 +37,8 @@ services:
         
         
     frontend:
-        container_name: frontend
+        container_name: unituekn/unicornp4-frontend:latest
+        image: unituekn/unicornp4-frontend:latest
         build:
             context: ../
             dockerfile: docker/frontend/Dockerfile
