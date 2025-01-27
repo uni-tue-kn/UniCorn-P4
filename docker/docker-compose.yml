@@ -43,7 +43,7 @@ services:
             context: ../
             dockerfile: docker/frontend/Dockerfile
         depends_on:
-            - backend
+            - unicornp4-backend
         ports:
 
             # - 80:3000 For developement use the one below
