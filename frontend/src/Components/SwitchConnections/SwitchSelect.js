@@ -7,7 +7,7 @@ import LanOutlinedIcon from '@mui/icons-material/LanOutlined';
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import RouterOutlinedIcon from '@mui/icons-material/RouterOutlined';
 import styled from '@emotion/styled';
-import AddSwitch from './AddSwitch';
+import AddNewSwitch from './SwitchDashboard/AddNewSwitch';
 
 import { useSwitch } from '../../Contexts/SwitchContext';
 
@@ -90,7 +90,7 @@ function SelectSwitch() {
           <AddIcon sx={{ color: 'white' }} />
         </IconButton>
       </Stack>
-      <AddSwitch open={open} setOpen={setOpen}></AddSwitch>
+      <AddNewSwitch open={open} setOpen={setOpen}></AddNewSwitch>
     </>
   )
 }
