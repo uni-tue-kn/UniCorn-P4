@@ -49,20 +49,20 @@ jobs:
     # Step 4: Tag and push the backend image
     - name: Tag and Push Backend Image
       run: |
-        docker tag unicorn-backend:latest unituekn/unicornp4-backend:latest
+        docker tag unicornp4-backend:latest unituekn/unicornp4-backend:latest
         docker push unituekn/unicornp4-backend:latest
       working-directory: docker
 
     # Step 5: Tag and push the frontend image
     - name: Tag and Push Frontend Image
       run: |
-        docker tag unicorn-frontend:latest unituekn/unicornp4-frontend:latest
+        docker tag unicornp4-frontend:latest unituekn/unicornp4-frontend:latest
         docker push unituekn/unicornp4-frontend:latest
       working-directory: docker
 
     # Step 6: Tag and push the mininet image
     - name: Tag and Push Mininet Image
       run: |
-        docker tag unicorn-netsim:latest unituekn/unicornp4-netsim:latest
+        docker tag unicornp4-netsim:latest unituekn/unicornp4-netsim:latest
         docker push unituekn/unicornp4-netsim:latest
       working-directory: docker      
