@@ -99,7 +99,7 @@ class SwitchManager:
                 keep_entries=keep_entries
             )
         except Exception as e:
-            raise Exception("Could not configure switch, probably caused by faulty configuration entered in frontend. Check data plane logs (e.g. Mininet) for more information. Original Error: {}".format(e))
+            raise Exception("Could not configure switch, device ID mismath? Check data plane logs (e.g. Mininet) for more information. Original Error: {}".format(e))
         # Store new config in internal storage
         self.p4_helper = p4_helper
         self.table_info = self.p4_helper.get_table_info()
