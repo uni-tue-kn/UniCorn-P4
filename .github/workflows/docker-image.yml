@@ -37,4 +37,32 @@ jobs:
       run: curl --fail http://localhost:3000 || (echo "Frontend test failed" && exit 1)
 
     - name: Test Mininet
-      run: curl --fail http://localhost:5001/switches/online || (echo "Mininet test failed" && exit 1)      
+      run: curl --fail http://localhost:5001/switches/online || (echo "Mininet test failed" && exit 1)
+
+    # Step 3: Log in to Docker Hub
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    # Step 4: Tag and push the backend image
+    - name: Tag and Push Backend Image
+      run: |
+        docker tag unicorn-backend:latest unituekn/unicornp4-backend:latest
+        docker push unituekn/unicornp4-backend:latest
+      working-directory: docker
+
+    # Step 5: Tag and push the frontend image
+    - name: Tag and Push Frontend Image
+      run: |
+        docker tag unicorn-frontend:latest unituekn/unicornp4-frontend:latest
+        docker push unituekn/unicornp4-frontend:latest
+      working-directory: docker
+
+    # Step 6: Tag and push the mininet image
+    - name: Tag and Push Mininet Image
+      run: |
+        docker tag unicorn-netsim:latest unituekn/unicornp4-netsim:latest
+        docker push unituekn/unicornp4-netsim:latest
+      working-directory: docker      
