@@ -6,7 +6,7 @@ import SaveStateDialog from '../SwitchStates/Dialogs/SaveStateDialog';
 
 import axios from 'axios';
 import { Box, Stack, Typography, Paper, Chip } from '@mui/material';
-import { TextField, MenuItem, FormControl, FormGroup, FormControlLabel, Checkbox, Button, IconButton, Tooltip } from '@mui/material'
+import { TextField, MenuItem, FormControl, FormGroup, FormControlLabel, Checkbox, Button, Tooltip } from '@mui/material'
 import { TableContainer, Table, TableHead, TableBody, TableRow } from '@mui/material'
 
 import { StyledTableCell } from '../Helpers/DisplayHelper';
@@ -16,14 +16,12 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DownloadIcon from '@mui/icons-material/Download';
 import CloseIcon from '@mui/icons-material/Close';
-import SaveIcon from '@mui/icons-material/Save';
 import LibraryAddIcon from '@mui/icons-material/LibraryAdd';
-import MoveDownIcon from '@mui/icons-material/MoveDown';
 
 // Object to manage the p4-program files
 const initialFileState = {
-    "p4_info": null,
-    "bmv2": null
+    "p4_info": [],
+    "bmv2": []
 };
 
 function Initialization() {

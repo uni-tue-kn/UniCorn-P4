@@ -25,6 +25,8 @@ def create_app():
     api.add_resource(Tables, '/tables', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(Initialize, '/init', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(FileNames, '/p4files', resource_class_kwargs={"db": db, "controller": exampleController})
+    api.add_resource(Compile, '/compile', resource_class_kwargs={"db": db, "controller": exampleController})
+    api.add_resource(P4Source, '/p4src', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(SwitchesActive, '/switches/active', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(SwitchesKnown, '/switches/known', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(SwitchesFromTopology, '/switches/from_topology', resource_class_kwargs={"db": db, "controller": exampleController})

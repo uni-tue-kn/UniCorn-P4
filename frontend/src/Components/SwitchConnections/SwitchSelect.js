@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Tabs, Tab, IconButton, Stack, Divider, Typography, Button } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -6,6 +6,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import LanOutlinedIcon from '@mui/icons-material/LanOutlined';
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import RouterOutlinedIcon from '@mui/icons-material/RouterOutlined';
+import CodeIcon from '@mui/icons-material/Code';
 import styled from '@emotion/styled';
 import AddNewSwitch from './SwitchDashboard/AddNewSwitch';
 
@@ -23,6 +24,10 @@ function SelectSwitch() {
   const [open, setOpen] = useState(false);
   // False ensures that no tab is selected at first
   const [selectedTab, setSelectedTab] = useState(false);
+
+  useEffect(() => {
+    setSelectedTab(currentSwitchID);
+  }, [currentSwitchID]);
 
   const handleChange = (event, id) => {
     setCurrentSwitchID(id);
@@ -46,7 +51,7 @@ function SelectSwitch() {
     maxHeight: 48,
     minHeight: 48,
     color: 'white',
-    backgroundColor: (selected ? theme.palette.secondary.main : theme.palette.primary.light),
+    backgroundColor: (selected ? theme.palette.secondary.light : theme.palette.primary.light),
     boxShadow: (selected ? theme.shadows[4] : theme.shadows[0]),
     borderRight: '1px solid',
     borderColor: theme.palette.divider,
@@ -63,8 +68,11 @@ function SelectSwitch() {
     <>
       <Stack direction='row' spacing={1} sx={{padding: 10 + "px"}}>
       <Button startIcon={<HubOutlinedIcon />} sx={{  color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/mininet" ? 'secondary.light' : 'primary.light') }}
-          component={Link} to="/mininet" >Mininet</Button>
+          component={Link} to="/mininet" onClick={handleMenu} >Mininet</Button>
         <Divider orientation="vertical" flexItem />
+        <Button startIcon={<CodeIcon />} sx={{  color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/compile" ? 'secondary.light' : 'primary.light') }}
+          component={Link} to="/compile" onClick={handleMenu} >P4 Compile</Button>
+        <Divider orientation="vertical" flexItem />        
         <Button startIcon={<LanOutlinedIcon />} sx={{  color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/switches" ? 'secondary.light' : 'primary.light') }}
           component={Link} to="/switches" onClick={handleMenu}>Switch Menu</Button>
         <Divider orientation="vertical" flexItem />
