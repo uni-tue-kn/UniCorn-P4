@@ -1,7 +1,6 @@
 import glob
 from ..database.TableStates import *
 from .Endpoint import Endpoint
-import re
 
 
 # Returns possible p4info and bmv2 files in the folder for initializing

@@ -1,5 +1,7 @@
 from .decoding import Decoding
 from .files import FileNames
+from .p4_source import P4Source
+from .compile import Compile
 from .history import HistoryStates
 from .init import Initialize
 from .saved import SavedStates

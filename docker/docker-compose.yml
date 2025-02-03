@@ -14,7 +14,7 @@ services:
             - ../netsim:/netsim
             # TODO: enter the path of your folder with compiled p4 programs (p4 info (.txt) and bmv2 (.json) files) -> /app/controller/p4_files/
             # IMPORTANT: Assure that there are no other files in the structure as this application does not check their contents.
-            - ../p4-files:/p4/basic
+            - ../p4-files:/p4/
             # - /path/to/your/another/p4_files/:/app/controller/p4_files/[subdirectory]
         network_mode: host
     
@@ -31,11 +31,9 @@ services:
             dockerfile: docker/netsim/Dockerfile
         volumes:
             - ../netsim:/app/netsim
-            - ../p4-files:/p4/basic
+            - ../p4-files:/p4/
         network_mode: host
-
-        
-        
+      
     unicornp4-frontend:
         container_name: unicornp4-frontend
         image: unituekn/unicornp4-frontend:latest
@@ -52,7 +50,7 @@ services:
             - 3000:3000
         volumes:
             - ../frontend/src:/app/src
+            - ../p4-files:/p4/
         environment:
             - BASE_URL=http://localhost/
 
-    

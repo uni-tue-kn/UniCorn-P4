@@ -3,6 +3,7 @@ import React from 'react'
 import { Routes, Route } from 'react-router';
 
 import SwitchMenu from '../SwitchConnections/SwitchDashboard/SwitchMenu';
+import Compile from '../Development/Compile';
 import Dashboard from '../Dashboard/Dashboard';
 import TableContent from '../Tables/TableContent';
 import MenuHistory from '../SwitchStates/History/MenuHistory';
@@ -28,6 +29,10 @@ function MainRoutes() {
         path='/switches'
         element={<SwitchMenu />}
       />
+      <Route
+        path='/compile'
+        element={<Compile />}
+      />      
       <Route
         path='/dashboard'
         element={<Dashboard />}
