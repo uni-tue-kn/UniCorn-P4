@@ -1,5 +1,3 @@
-import React, { useState } from 'react'
-
 import { entryHandler, sortingHandler } from '../Helpers/HandleHelper';
 
 import { sortFilterInput } from '../Helpers/SortFilter/SortFilterInput'

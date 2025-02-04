@@ -9,7 +9,7 @@ import { useSwitch } from '../../Contexts/SwitchContext';
 
 import { postEntryInput } from '../Helpers/PostHelper';
 
-import { Stack, Divider, Button, IconButton } from '@mui/material'
+import { Button, IconButton } from '@mui/material'
 import {Dialog, DialogActions, DialogContent, DialogTitle} from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close';
 
