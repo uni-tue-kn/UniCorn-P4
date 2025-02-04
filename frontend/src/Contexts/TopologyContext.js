@@ -67,7 +67,7 @@ export function TopologyProvider({ children }) {
                 }
             })
             .catch(err => {
-                callSnackbar("error", "Failed to get active topology")
+                //callSnackbar("error", "Failed to get active topology")
                 console.log(err);
             });
     }
