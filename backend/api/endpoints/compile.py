@@ -20,9 +20,12 @@ class Compile(Endpoint):
 
         result = subprocess.run(compile_command.split(" "), capture_output=True, text=True)
 
-        # TODO delete .p4i file for failure
-
         if result.returncode == 0:
             return make_response(jsonify({'command': str(result.args), "stdout": str(result.stdout)}), 200)            
         else:
+            # Delete .p4i file for failure
+            try:
+                os.remove(f"{args.file}i")
+            except:
+                pass
             return make_response(jsonify({'command': str(result.args), "stdout": str(result.stdout), "stderr": str(result.stderr)}), 500)            
