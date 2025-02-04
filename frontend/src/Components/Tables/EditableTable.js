@@ -70,8 +70,8 @@ function EditableTable({ tableName, tableEntries, updateTableEntries, filteredEn
     })
     .catch(err => {
       console.log(err);
-      callSnackbar("error", err.response.data.error || "There was an error while editing the entries");
-      setErrorRow(err.response.data.id != undefined ? err.response.data.id : null);;
+      callSnackbar("error", err.response?.data?.error || "There was an error while editing the entries");
+      setErrorRow(err.response?.data?.id != undefined ? err.response.data.id : null);
       updateTableEntries(tableName);
     })
   }

@@ -73,7 +73,7 @@ function SavedList() {
                 updateSavedStates();
             })
             .catch(err => {
-                callSnackbar("error", (err.response.data.error || "Failed to edit saved state"));
+                callSnackbar("error", (err.response?.data?.error || "Failed to edit saved state"));
                 console.log(err);
             });
         }

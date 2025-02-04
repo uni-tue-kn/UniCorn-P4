@@ -79,7 +79,7 @@ function ReadableTable({ tableName, tableEntries, updateTableEntries, filteredEn
                 })
                 .catch(err => {
                     console.log(err);
-                    callSnackbar("error", err.response.data.error || "There was an error while editing the entry");
+                    callSnackbar("error", err.response?.data?.error || "There was an error while editing the entry");
                     updateTableEntries(tableName);
                 })
         }
@@ -99,7 +99,7 @@ function ReadableTable({ tableName, tableEntries, updateTableEntries, filteredEn
                 updateTableEntries(tableName);
             })
             .catch(err => {
-                callSnackbar("error", err.response.data.error || "There was an error while deleting the entry");
+                callSnackbar("error", err.response?.data?.error || "There was an error while deleting the entry");
                 console.log(err)
             });
     }

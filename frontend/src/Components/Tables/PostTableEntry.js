@@ -50,7 +50,7 @@ function PostTableEntry({ tableName, updateTableEntries, toggleAdding, needsPrio
       toggleAdding();
     })
     .catch(err => {
-      callSnackbar("error", err.response.data.error || "There was an error while posting the entry");
+      callSnackbar("error", err.response?.data?.error || "There was an error while posting the entry");
       console.log(err)
     })
   }

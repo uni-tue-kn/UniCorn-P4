@@ -7,9 +7,6 @@ import { useSwitch } from '../../../Contexts/SwitchContext';
 import { useSnackbar } from '../../../Contexts/SnackbarContext';
 import EditSwitch from './EditSwitch';
 
-import { returnFullDate } from '../../Helpers/DateHelper';
-import { switchInput } from '../../Helpers/InputHelper';
-
 import ListItemIcon from '@mui/material/ListItemIcon';
 import Collapse from '@mui/material/Collapse';
 import ExpandLess from '@mui/icons-material/ExpandLess';
@@ -18,12 +15,11 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import LinkOffOutlinedIcon from '@mui/icons-material/LinkOffOutlined';
 import AddLinkOutlinedIcon from '@mui/icons-material/AddLinkOutlined';
-import LinkIcon from '@mui/icons-material/Link';
 import CircularProgress from '@mui/material/CircularProgress';
 
 function SwitchHistory() {
 
-    const { switches, getSwitches, currentSwitchID, setCurrentSwitchID, historySwitches, getHistorySwitches } = useSwitch();
+    const { getSwitches, setCurrentSwitchID, historySwitches, getHistorySwitches } = useSwitch();
     const { callSnackbar} = useSnackbar();
 
     const [loadingID, setLoadingID] = useState(null);
@@ -80,7 +76,7 @@ function SwitchHistory() {
                 setLoadingID(null);
             })
             .catch(err => {
-                callSnackbar("error", err.response.data.error || "There was an error while adding the switch");
+                callSnackbar("error", err.response?.data?.error || "There was an error while adding the switch");
                 console.log(err);
                 setLoadingID(null);
             })

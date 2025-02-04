@@ -47,16 +47,12 @@ export function InitProvider({ children }) {
                 state_id: id
             })
             .then(res => {
-                if (res.data){
-                    callSnackbar("warning", "Initialization was successful! " + res.data);                    
-                } else {
-                    callSnackbar("success", "Initialization was successful!");
-                }
+                callSnackbar("success", "Initialization was successful!");
                 updateInitializedFiles();
             })
             .catch(err => {
                 console.log(err);
-                callSnackbar("error", err.response.data.error || "There was an error during the initialization!" + err.response.data);
+                callSnackbar("error", err.response?.data.error || "There was an error during the initialization!" + err.response.data);
             });
     }
 

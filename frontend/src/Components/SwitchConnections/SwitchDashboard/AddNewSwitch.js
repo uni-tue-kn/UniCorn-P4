@@ -67,7 +67,7 @@ function AddNewSwitch({ open, setOpen }) {
                 closeAdd(event);
             })
             .catch(err => {
-                callSnackbar("error", err.response.data.error || "There was an error while adding the switch");
+                callSnackbar("error", err.response?.data?.error || "There was an error while adding the switch");
                 console.log(err);
                 setLoading(false);
             })

@@ -51,7 +51,7 @@ export default function TableContent({ tableName }) {
         setRequestedTableName(tableName);
       })
       .catch(err => {
-        callSnackbar("error", err.response.data.error || "There was an error while fetching the table entries");
+        callSnackbar("error", err.response?.data?.error || "There was an error while fetching the table entries");
         console.log(err);
       });
   }
