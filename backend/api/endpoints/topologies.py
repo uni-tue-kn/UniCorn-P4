@@ -11,8 +11,7 @@ class Topologies(Endpoint):
 
     def get(self):
 
-        # TODO: move this to a configuration file
-        topo_dir = "/netsim/"
+        topo_dir = "/topologies"
 
         # Req Parameters:
         # - name: Name of topologies to fetch. If emtpy, return list of available topologies
@@ -22,8 +21,6 @@ class Topologies(Endpoint):
 
         # Get all JSON files in Mininet Dir
         topologies = glob.glob(topo_dir+'**/*.json', recursive=True)
-        # Remove the root directory from every entry for easier handling by user
-        topologies = [path.replace(topo_dir,"") for path in topologies]
 
         # If name arg is set, return queried topology. Else return list of topologies
         topology_name = args["name"]
@@ -35,7 +32,7 @@ class Topologies(Endpoint):
                 index = topologies.index(topology_name)
                 # Load topology from JSON file
                 topology = None
-                with open(topo_dir + topologies[index],"r",encoding="utf-8") as infile:
+                with open(topologies[index],"r",encoding="utf-8") as infile:
                     topology = json.load(infile)
                 
                 # Handle failed file load, this should not happen.

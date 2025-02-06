@@ -24,11 +24,12 @@ RUN apt-get install -y p4lang-bmv2 mininet p4lang-p4c
 # Clean up APT when done
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt /requirements.txt
-RUN pip3 install -r requirements.txt
-
 RUN mkdir /app
 RUN mkdir /p4
 WORKDIR /app
+
+# Copy the app files to the container
+COPY backend/ /app
+RUN pip3 install -r /app/requirements.txt
 
 ENTRYPOINT ["python3", "-u",  "/app/main.py"]

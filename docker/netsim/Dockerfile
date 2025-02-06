@@ -24,13 +24,14 @@ RUN apt-get install -y p4lang-bmv2 mininet ethtool iputils-ping
 # Clean up APT when done
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Ensure that necessary python libraries are installed
-COPY netsim/requirements.txt /requirements.txt
-RUN pip3 install -r requirements.txt
-
 RUN mkdir /app
 RUN mkdir /p4
 RUN mn -c
 WORKDIR /app/netsim
 
-ENTRYPOINT ["python3", "/app/netsim/main.py"]
+# Copy the app files to the container
+COPY netsim /app
+# Ensure that necessary python libraries are installed
+RUN pip3 install -r /app/requirements.txt
+
+ENTRYPOINT ["python3", "/app/main.py"]

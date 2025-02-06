@@ -129,12 +129,18 @@ control MyIngress(inout headers hdr,
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
+    action something(bit<32> parameter){
+        hdr.ipv4.ttl = 64;
+    }
+
     table ipv4_lpm {
         key = {
             hdr.ipv4.dstAddr: lpm;
+            hdr.ethernet.srcAddr: exact;
         }
         actions = {
             ipv4_forward;
+            something;
             drop;
             NoAction;
         }
@@ -154,6 +160,7 @@ control MyIngress(inout headers hdr,
     table arp_match {
         key = {
             standard_metadata.ingress_port: exact;
+            hdr.ethernet.srcAddr: exact;
         }
         actions = {
             arp_forward;

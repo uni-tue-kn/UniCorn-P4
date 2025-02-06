@@ -10,12 +10,12 @@ services:
             context: ../
             dockerfile: docker/backend/Dockerfile
         volumes:
-            - ../backend:/app
-            - ../netsim:/netsim
-            # TODO: enter the path of your folder with compiled p4 programs (p4 info (.txt) and bmv2 (.json) files) -> /app/controller/p4_files/
+            # TODO: enter the path of your folder with compiled p4 programs (p4 info (.txt) and bmv2 (.json) files)
             # IMPORTANT: Assure that there are no other files in the structure as this application does not check their contents.
-            - ../p4-files:/p4/
-            # - /path/to/your/another/p4_files/:/app/controller/p4_files/[subdirectory]
+            - /path/to/p4-files:/p4/
+            # Topologies:
+            # TODO: change me
+            - /path/to/topologies:/topologies
         network_mode: host
     
     unicornp4-netsim:
@@ -30,8 +30,8 @@ services:
             context: ../
             dockerfile: docker/netsim/Dockerfile
         volumes:
-            - ../netsim:/app/netsim
-            - ../p4-files:/p4/
+            # TODO: change me
+            - /path/to/topologies:/topologies
         network_mode: host
       
     unicornp4-frontend:
@@ -47,10 +47,10 @@ services:
             # - 80:3000 For developement use the one below
             # React has port 3000 hardcoded for a websocket to dynamically reload the page
             # Remapping this port to 80 in expose breaks this feature
-            - 3000:3000
+            - 3000:3000     
         volumes:
-            - ../frontend/src:/app/src
-            - ../p4-files:/p4/
+            # TODO: change me
+            - /path/to/topologies:/topologies
         environment:
             - BASE_URL=http://localhost/
 
