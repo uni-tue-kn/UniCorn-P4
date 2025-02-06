@@ -19,7 +19,7 @@ RUN curl -fsSL https://ftp.gwdg.de/pub/opensuse/repositories/home:/p4lang/Debian
 RUN apt-get update
 
 # Install the p4lang-bmv2 package
-RUN apt-get install -y p4lang-bmv2 mininet p4lang-p4c
+RUN apt-get install -y p4lang-p4c
 
 # Clean up APT when done
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
