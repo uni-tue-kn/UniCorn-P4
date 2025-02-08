@@ -7,6 +7,7 @@ import Compile from '../Development/Compile';
 import Dashboard from '../Dashboard/Dashboard';
 import TableContent from '../Tables/TableContent';
 import MenuHistory from '../SwitchStates/History/MenuHistory';
+import MenuLogs from '../SwitchStates/Logs/MenuLogs'
 import MenuSaved from '../SwitchStates/Saved/MenuSaved';
 import NotFound from './NotFound';
 import Mininet from '../Mininet/Mininet';
@@ -37,6 +38,10 @@ function MainRoutes() {
         path='/dashboard'
         element={<Dashboard />}
       />
+      <Route
+        path='/logs'
+        element={<MenuLogs />}
+      />      
       <Route
         path='/history'
         element={<MenuHistory />}

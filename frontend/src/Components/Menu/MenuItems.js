@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useState } from 'react'
 import { useSwitch } from '../../Contexts/SwitchContext';
 import { useTable } from '../../Contexts/TableContext';
@@ -12,6 +12,7 @@ import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import GradeIcon from '@mui/icons-material/Grade';
 import HistoryIcon from '@mui/icons-material/History';
+import FileCopyIcon from '@mui/icons-material/FileCopy';
 
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 
@@ -85,6 +86,11 @@ function MenuItems() {
         </List>
       </Collapse>
       <Divider />
+      <ListItemLink
+        to='/logs'
+        icon={<FileCopyIcon />}
+        primary="Logs"
+      />
       <ListItemLink
         to='/history'
         icon={<HistoryIcon />}

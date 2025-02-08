@@ -1,9 +1,9 @@
 from .endpoints.load_topology import LoadTopology
 from .endpoints.get_topology import GetTopology
 from .endpoints.switchesonline import SwitchesOnline
+from .endpoints.logs import LogFile
 from .netsim.netsim import MininetRunner
 from .netsim.utils.p4_mininet import P4Host, P4Switch
-import time
 
 
 from flask import Flask
@@ -11,11 +11,9 @@ from flask_restful import Api
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from threading import Event, Thread
-from mininet.log import info
 
 import json
 from .netsim.netsim import MininetRunner
-import re
 
 
 # Uses mininets Node class interfaces to open a terminal on a passed node, send commands and return output
@@ -164,6 +162,8 @@ class MininetManager:
                               "netsim": self.mn_runner, "ws": self.socketio})
         self.api.add_resource(SwitchesOnline, '/switches/online',
                               resource_class_kwargs={"netsim": self.mn_runner, "ws": self.socketio})
+        self.api.add_resource(LogFile, '/topology/logs',
+                                resource_class_kwargs={"netsim": self.mn_runner, "ws": self.socketio})
 
     def create_websocket(self):
 
