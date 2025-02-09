@@ -86,7 +86,7 @@ function EditSwitch({ open, setOpen, editConfig, id }) {
                     {switchInput(switchConfig, switchesOnline, handleSwitch, handleDropdownSwitchSelected)}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={closeEdit}>Cancel</Button>
+                    <Button onClick={closeEdit} sx={{ backgroundColor: '#cecece'}}>Cancel</Button>
                     <Button variant="contained" color="primary" type="submit">Submit Edit</Button>
                 </DialogActions>
             </form>

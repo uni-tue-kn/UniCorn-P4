@@ -10,7 +10,7 @@ function DashboardSaved() {
     return (
         <Box id='Dashboard Saved'>
             <Stack direction='column' spacing={2}>
-                <Typography color='primary' variant='h6' gutterBottom>Saved</Typography>
+                <Typography color='primary.text' variant='h6' gutterBottom>Saved</Typography>
                 <SavedList />
             </Stack>
         </Box>

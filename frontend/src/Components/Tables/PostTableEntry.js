@@ -76,7 +76,7 @@ function PostTableEntry({ tableName, updateTableEntries, toggleAdding, needsPrio
           {postEntryInput(tableInfo, tableName, postEntryData, handlePost, needsPriority)}
         </DialogContent>
         <DialogActions>
-          <Button variant='outlined' onClick={toggleAdding}>Cancel</Button>
+          <Button variant='outlined' sx={{ backgroundColor: '#cecece'}} onClick={toggleAdding}>Cancel</Button>
           <Button variant='contained' type="submit">Add Entry</Button>
         </DialogActions>
         </form>

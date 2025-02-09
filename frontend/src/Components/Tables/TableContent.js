@@ -130,8 +130,8 @@ export default function TableContent({ tableName }) {
                   <Stack direction='row' spacing={2} >
                     <Button variant='contained' startIcon={< AddIcon />} size='large' sx={{ width: 250 }} disabled={editing || inlineEditing} onClick={toggleAdding}>Add new Entry</Button>
                     <Button variant='contained' endIcon={< EditIcon />} size='large' sx={{ width: 250 }} disabled={tableEntries.length === 0 || editing || inlineEditing} onClick={toggleEditing}>Edit Table Entries</Button>
-                    <Button variant='outlined' startIcon={ <SortIcon />} endIcon={<SearchIcon />} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "sort&filter")} >Sort & Filter</Button>
-                    <Button variant='outlined' endIcon={<SettingsIcon />} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "decoding")} >Decoding Options</Button>
+                    <Button variant='outlined' startIcon={ <SortIcon />} sx={{ backgroundColor: '#cecece'}} endIcon={<SearchIcon />} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "sort&filter")} >Sort & Filter</Button>
+                    <Button variant='outlined' endIcon={<SettingsIcon />} sx={{ backgroundColor: '#cecece'}} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "decoding")} >Decoding Options</Button>
                   </Stack>
                   <Button variant='contained' endIcon={<LibraryAddIcon />} disabled={(editing || inlineEditing) || initializedFiles.state_id === null} onClick={(event) => handleSaveClick(event)}>
                     Save state

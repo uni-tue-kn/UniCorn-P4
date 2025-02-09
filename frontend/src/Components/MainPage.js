@@ -1,5 +1,4 @@
 import React from 'react';
-import { createTheme, ThemeProvider } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
 import Container from '@mui/material/Container';
@@ -12,20 +11,7 @@ import Navbar from './Menu/Navbar';
 
 import { useSnackbar } from '../Contexts/SnackbarContext';
 import { useAPI } from '../Contexts/APIContext';
-
 import MainRoutes from './Menu/MainRoutes';
-
-//const mdTheme = createTheme();
-const mdTheme = createTheme({
-  palette: {
-    primary: {
-      main: '#1d103c', // Change this to your desired primary color
-    },
-    secondary: {
-      main: '#00887c', // Change this to your desired secondary color
-    },
-  },
-});
 
 function DashboardContent() {
 
@@ -40,7 +26,6 @@ function DashboardContent() {
   }
 
   return (
-    <ThemeProvider theme={mdTheme}>
       <Box sx={{ display: 'flex' }}>
         <Navbar></Navbar>
         <Box
@@ -80,12 +65,8 @@ function DashboardContent() {
               {snackbarState.content}
             </Alert>
           }
-
         </Snackbar>
-
-
       </Box>
-    </ThemeProvider>
   );
 }
 

@@ -82,7 +82,8 @@ export default function TopologyRenderer() {
             .append("svg")
             // Set icon to either host or switch svg
             .html((node) => { return (node.type === "host" ? HostIcon() : SwitchIcon()) })
-            .attr("id", (node) => { return node.id });
+            .attr("id", (node) => { return node.id })
+            .style("fill", "#666666");
 
         // Create links
         const links = svg.selectAll("links")
@@ -125,6 +126,7 @@ export default function TopologyRenderer() {
                 network.nodes.forEach((node) => {
                     svg.append("text")
                         .text(node.id)
+                        .style("fill", "#666666")
                         .style("font-size", "0.4em")
                         .attr("x", node.x)
                         .attr("y", node.y - 8);
@@ -150,7 +152,7 @@ export default function TopologyRenderer() {
 }
 
 function SwitchIcon() {
-    return '<svg fill="#000000" width="15px" height="15px" viewBox="0 0 36 36" version="1.1" preserveAspectRatio="xMidYMid meet"> \
+    return '<svg width="15px" height="15px" viewBox="0 0 36 36" version="1.1" preserveAspectRatio="xMidYMid meet"> \
             <path d="M33.91,18.47,30.78,8.41A2,2,0,0,0,28.87,7H7.13A2,2,0,0,0,5.22,8.41L2.09,18.48a2,2,0,0,0-.09.59V27a2,2,0,0,0,2,2H32a2,2,0,0,0,2-2V19.06A2,2,0,0,0,33.91,18.47ZM32,27H4V19.06L7.13,9H28.87L32,19.06Z" class="clr-i-outline clr-i-outline-path-1"></path><rect x="7.12" y="22" width="1.8" height="3" class="clr-i-outline clr-i-outline-path-2"></rect><rect x="12.12" y="22" width="1.8" height="3" class="clr-i-outline clr-i-outline-path-3"></rect><rect x="17.11" y="22" width="1.8" height="3" class="clr-i-outline clr-i-outline-path-4"></rect><rect x="22.1" y="22" width="1.8" height="3" class="clr-i-outline clr-i-outline-path-5"></rect><rect x="27.1" y="22" width="1.8" height="3" class="clr-i-outline clr-i-outline-path-6"></rect><rect x="6.23" y="18" width="23.69" height="1.4" class="clr-i-outline clr-i-outline-path-7"></rect> \
             <rect x="0" y="0" width="36" height="36" fill-opacity="0" /> \
         </svg>';

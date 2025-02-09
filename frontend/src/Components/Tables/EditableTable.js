@@ -99,7 +99,7 @@ function EditableTable({ tableName, tableEntries, updateTableEntries, filteredEn
         <StyledTableCell sx={{ padding: 0 }} colSpan={2}>{editActionInput(tableInfo, tableName, findEntry(entry.id, editTableData).switch_entry, handleEdit, entry.id, true)}</StyledTableCell>
         {needsPriority && <StyledTableCell>{priorityInput(findEntry(entry.id, editTableData).switch_entry, handleEdit, entry.id, true)}</StyledTableCell>}
         <StyledTableCell align='center'>
-          <Button variant='outlined' color='warning' onClick={(event) => handleDelete(event, entry.id)} endIcon={< DeleteIcon />}>Undo</Button>
+          <Button variant='outlined' sx={{ backgroundColor: '#cecece'}} color='warning' onClick={(event) => handleDelete(event, entry.id)} endIcon={< DeleteIcon />}>Undo</Button>
         </StyledTableCell>
       </StyledTableRow>
     )
@@ -112,7 +112,7 @@ function EditableTable({ tableName, tableEntries, updateTableEntries, filteredEn
         <StyledTableCell sx={{ padding: 0 }} colSpan={2}>{editActionInput(tableInfo, tableName, findEntry(entry.id, editTableData).switch_entry, handleEdit, entry.id)}</StyledTableCell>
         {needsPriority && <StyledTableCell>{priorityInput(findEntry(entry.id, editTableData).switch_entry, handleEdit, entry.id)}</StyledTableCell>}
         <StyledTableCell align='center'>
-          <Button variant='outlined' onClick={(event) => handleDelete(event, entry.id)} endIcon={< DeleteIcon />}>Delete</Button>
+          <Button variant='outlined' sx={{ backgroundColor: '#cecece'}} onClick={(event) => handleDelete(event, entry.id)} endIcon={< DeleteIcon />}>Delete</Button>
         </StyledTableCell>
       </StyledTableRow >
     )
@@ -123,7 +123,7 @@ function EditableTable({ tableName, tableEntries, updateTableEntries, filteredEn
       <Stack spacing={2}>
         {displayTable(editableRow, filteredEntries, needsPriority)}
         <Stack spacing={2} direction='row'>
-          <Button variant='outlined' name="cancelEdit" endIcon={< CloseIcon />} onClick={(event) => handleCancelClick(event)}>Cancel</Button>
+          <Button variant='outlined' sx={{ backgroundColor: '#cecece'}} name="cancelEdit" endIcon={< CloseIcon />} onClick={(event) => handleCancelClick(event)}>Cancel</Button>
           <Button variant='contained' name="submitEdit" endIcon={< SaveIcon />} onClick={submitEdit}>Save</Button>
         </Stack>
       </Stack>

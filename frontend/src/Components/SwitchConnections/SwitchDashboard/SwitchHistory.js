@@ -94,7 +94,7 @@ function SwitchHistory() {
             <Stack direction='column' spacing={2}>
                 <Stack direction='row' spacing={1}>
                     <LinkOffOutlinedIcon sx={{ color: 'darkred' }} />
-                    <Typography color='primary' variant='h6'>Known Switches</Typography>
+                    <Typography color='primary.text' variant='h6'>Known Switches</Typography>
                 </Stack>
                 {historySwitches.length > 0 ?
                 

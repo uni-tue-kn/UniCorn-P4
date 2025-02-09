@@ -103,7 +103,7 @@ function AddNewSwitch({ open, setOpen }) {
                     {switchInput(switchConfig, switchesOnline, handleSwitch, handleDropdownSwitchSelected)}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={closeAdd}>Cancel</Button>
+                    <Button onClick={closeAdd} sx={{ backgroundColor: '#cecece'}}>Cancel</Button>
                     {loading ? 
                     <IconButton disabled>
                         <CircularProgress size={20} /> 

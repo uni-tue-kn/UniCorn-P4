@@ -10,7 +10,7 @@ function DashboardHistory() {
     return (
         <Box id='Dashboard History'>
             <Stack direction='column' spacing={2}>
-                <Typography color='primary' variant='h6' gutterBottom>History</Typography>
+                <Typography color='primary.text' variant='h6' gutterBottom>History</Typography>
                 <HistoryList fullHistory={false} />
             </Stack>
         </Box>

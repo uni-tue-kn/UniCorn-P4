@@ -27,7 +27,6 @@ const initialFileState = {
 function Initialization() {
 
     const { initializedFiles, initialize } = useInit();
-    const { callSnackbar } = useSnackbar();
 
     // Fetch the name of the p4-files in the project from the api every time on load
     const [fileNames, setFileNames] = useState(initialFileState);
@@ -90,7 +89,7 @@ function Initialization() {
         <Box id='Dashboard Initialization'>
             <Stack direction='column' spacing={2}>
                 <Stack direction='row' spacing={2} justifyContent='space-between'>
-                    <Typography color='primary' variant='h6'>Initialization</Typography>
+                    <Typography color='primary.text' variant='h6'>Initialization</Typography>
                     <Tooltip title="Takes a snapshot of the current state and saves it as a new state">
                         <Button
                             disabled={initializedFiles?.p4_info_file == null}

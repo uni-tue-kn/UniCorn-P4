@@ -95,8 +95,8 @@ function SaveStateDialog({ open, setOpen }) {
       {!(overwrite)
         ?
         <DialogActions>
-          <Button onClick={(event) => closeDialog(event)}>Cancel</Button>
-          <Button onClick={(event) => submitDialog(event, true)}>Save</Button>
+          <Button onClick={(event) => closeDialog(event)} variant='outlined' sx={{backgroundColor: '#cecece'}}>Cancel</Button>
+          <Button onClick={(event) => submitDialog(event, true)} variant='contained'>Save</Button>
         </DialogActions>
         :
         <DialogActions>

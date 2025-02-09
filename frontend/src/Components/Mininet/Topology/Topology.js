@@ -6,7 +6,7 @@ export default function Topology() {
 
     return(
         <Stack direction='column' spacing={2}>
-                <Typography color='primary' variant='h6'>Saved Topologies</Typography>
+                <Typography color='primary.text' variant='h6'>Saved Topologies</Typography>
                 <TopologySelector></TopologySelector>
                 <TopologyRenderer></TopologyRenderer>
             </Stack>

@@ -120,7 +120,7 @@ function ReadableTable({ tableName, tableEntries, updateTableEntries, filteredEn
                     alignItems="center"
                     spacing={1}
                 >
-                    <Button variant='outlined' name='cancel' endIcon={< CloseIcon />} size='small' sx={{ width: 100 }} onClick={handleCancelClick}>Cancel</Button>
+                    <Button variant='outlined' name='cancel' endIcon={< CloseIcon />} size='small' sx={{ width: 100, backgroundColor: '#cecece' }} onClick={handleCancelClick}>Cancel</Button>
                     <Button variant='contained' name='save' endIcon={< SaveIcon />} size='small' sx={{ width: 100 }} type="submit">Save</Button>
                 </Stack>
             </StyledTableCell>
@@ -142,13 +142,13 @@ function ReadableTable({ tableName, tableEntries, updateTableEntries, filteredEn
                     >
                         <Button
                             variant='outlined' name='edit_entry'
-                            endIcon={< EditIcon />} size='small' sx={{ width: 100 }}
+                            endIcon={< EditIcon />} size='small' sx={{ width: 100, backgroundColor: '#cecece'}}
                             onClick={(event) => handleEditClick(event, entry.id)}
                         >
                             Edit
                         </Button>
                         <Button variant='outlined' name='delete_entry'
-                            endIcon={< DeleteIcon />} size='small' sx={{ width: 100 }}
+                            endIcon={< DeleteIcon />} size='small' sx={{ width: 100, backgroundColor: '#cecece'}}
                             onClick={(event) => submitDelete(event, entry.id)}
                         >
                             Delete

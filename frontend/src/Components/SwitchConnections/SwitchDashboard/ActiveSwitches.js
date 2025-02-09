@@ -13,11 +13,8 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import Collapse from '@mui/material/Collapse';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
 import LinkOutlinedIcon from '@mui/icons-material/LinkOutlined';
 import ClearIcon from '@mui/icons-material/Clear';
-import CheckIcon from '@mui/icons-material/Check';
 
 
 function ActiveSwitches() {
@@ -53,7 +50,7 @@ function ActiveSwitches() {
                 <Stack direction='row' spacing={2} justifyContent='space-between'>
                     <Stack direction='row' spacing={1}>
                         <LinkOutlinedIcon sx={{ color: 'green' }} />
-                        <Typography color='primary' variant='h6'>Connected Switches</Typography>
+                        <Typography color='primary.text' variant='h6'>Connected Switches</Typography>
                     </Stack>
                     <Button
                         size='small'
