@@ -69,10 +69,10 @@ function SelectSwitch() {
   return (
     <>
       <Stack direction='row' spacing={1} sx={{ padding: 10 + "px" }}>
-        <Button startIcon={<HubOutlinedIcon />} sx={{ color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/mininet" ? 'secondary.light' : 'primary.light') }}
+        <Button startIcon={<HubOutlinedIcon />} sx={{ color: 'white', backgroundColor: (location.pathname === "/mininet" ? 'secondary.light' : 'primary.light') }}
           component={Link} to="/mininet" onClick={handleMenu} >Mininet</Button>
         <Divider orientation="vertical" flexItem />
-        <Button startIcon={<CodeIcon />} sx={{ color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/compile" ? 'secondary.light' : 'primary.light') }}
+        <Button startIcon={<CodeIcon />} sx={{ color: 'white', backgroundColor: (location.pathname === "/compile" ? 'secondary.light' : 'primary.light') }}
           component={Link} to="/compile" onClick={handleMenu} >P4 Compile</Button>
         <Divider orientation="vertical" flexItem />
         <Button startIcon={<LanOutlinedIcon />} sx={{ color: 'white', backgroundColor: (location.pathname === "/" || location.pathname === "/switches" ? 'secondary.light' : 'primary.light') }}
