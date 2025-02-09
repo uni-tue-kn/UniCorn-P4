@@ -145,11 +145,9 @@ class MininetManager:
 
     def init_mininet(self):
         # Topology will be filled from controller.
-        # TODO set default value for this?
         topology_file = None
-        # TODO move this into configuration file
-        log_dir = "/app/netsim/logs"
-        pcap_dir = "/app/netsim/pcaps"
+        log_dir = "/topologies/logs"
+        pcap_dir = "/topologies/pcaps"
         quiet = False
 
         self.mn_runner = MininetRunner(topology_file, log_dir, pcap_dir, quiet)
