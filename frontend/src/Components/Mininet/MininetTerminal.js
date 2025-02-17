@@ -42,7 +42,7 @@ export default function MininetTerminal() {
   function appendLineData(host, newEntry) {
 
     if (!(host in terminalLineData)) {
-      console.log("ENTRY: ", newEntry, "for invbalid host: ", host)
+      console.log("ENTRY: ", newEntry, "for invalid host: ", host)
       return
     }
     // Update key host of state dict

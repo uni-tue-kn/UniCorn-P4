@@ -54,7 +54,7 @@ function decode(value, decodingType) {
 export function decodeTableEntries(tableEntries, decoding, tableInfo, tableName) {
   if (tableEntries != undefined) {
     const tableDecoding = decoding[tableName];
-    {
+    if (tableDecoding) {
       (tableEntries).forEach(entry => {
         const switch_entry = entry.switch_entry;
 
@@ -117,40 +117,43 @@ function toNumber(string, decoding) {
 // Backend should only get integers in the request bodies
 export function encodeNumerics(switch_entry, decoding, tableInfo, tableName) {
   const tableDecoding = decoding[tableName];
-  let encoded_entry = switch_entry;
+  if (tableDecoding) {
+    let encoded_entry = switch_entry;
 
-  //Encode match values
-  Object.entries(switch_entry.match_fields).forEach(([key, value]) => {
-    let keyDecoding = tableDecoding.match[key];
-    if (keyDecoding == "binary" || keyDecoding == "hexadecimal") {
-      const match_type = tableInfo[tableName].match_fields[key].match_type;
-      switch (match_type) {
-        case 1:
-        case 2:
-          encoded_entry.match_fields[key] = toNumber(value, keyDecoding);
-          break;
-        case 3:
-          encoded_entry.match_fields[key][0] = toNumber(value[0], keyDecoding);
-          break;
-        case 4:
-        case 5:
-          encoded_entry.match_fields[key][0] = toNumber(value[0], keyDecoding);
-          encoded_entry.match_fields[key][1] = toNumber(value[1], keyDecoding);
-          break;
-      }
-    }
-  });
-
-  //Encode action values
-  if (switch_entry.action_params != null) {
-    Object.entries(switch_entry.action_params).forEach(([param, value]) => {
-      let paramDecoding = tableDecoding.action[encoded_entry.action_name][param];
-      if (paramDecoding == "binary" || paramDecoding == "hexadecimal") {
-        encoded_entry.action_params[param] = toNumber(value, paramDecoding);
+    //Encode match values
+    Object.entries(switch_entry.match_fields).forEach(([key, value]) => {
+      let keyDecoding = tableDecoding.match[key];
+      if (keyDecoding == "binary" || keyDecoding == "hexadecimal") {
+        const match_type = tableInfo[tableName].match_fields[key].match_type;
+        switch (match_type) {
+          case 1:
+          case 2:
+            encoded_entry.match_fields[key] = toNumber(value, keyDecoding);
+            break;
+          case 3:
+            encoded_entry.match_fields[key][0] = toNumber(value[0], keyDecoding);
+            break;
+          case 4:
+          case 5:
+            encoded_entry.match_fields[key][0] = toNumber(value[0], keyDecoding);
+            encoded_entry.match_fields[key][1] = toNumber(value[1], keyDecoding);
+            break;
+        }
       }
     });
+
+    //Encode action values
+    if (switch_entry.action_params != null) {
+      Object.entries(switch_entry.action_params).forEach(([param, value]) => {
+        let paramDecoding = tableDecoding.action[encoded_entry.action_name][param];
+        if (paramDecoding == "binary" || paramDecoding == "hexadecimal") {
+          encoded_entry.action_params[param] = toNumber(value, paramDecoding);
+        }
+      });
+    }
+    return encoded_entry
   }
-  return encoded_entry
+  return switch_entry
 }
 
 export function encodeNumericsArray(entry_array, decoding, tableInfo, tableName) {
