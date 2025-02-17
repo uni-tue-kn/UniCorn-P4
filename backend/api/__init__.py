@@ -4,6 +4,7 @@ from .database import db
 from flask import Flask
 from flask_restful import Resource, Api, reqparse
 from flask_cors import CORS
+import os
 
 from controller.controller import Controller
 exampleController = Controller()
@@ -12,10 +13,12 @@ def create_app():
     app = Flask(__name__)
     CORS(app, methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
     app.config['CORS_HEADERS'] = 'application/json'
-    # TODO error handling for non-existing database file
-    #app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////app/api/database/p4db.db'
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///../api/database/p4db.db'
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////database/p4db.db'
     db.init_app(app)
+    
+    with app.app_context():
+        if not os.path.exists("/database/p4db.db"):
+            db.create_all()    
 
     api = Api(app)
     
