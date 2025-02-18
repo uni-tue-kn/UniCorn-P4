@@ -37,6 +37,7 @@ def create_app():
     api.add_resource(SwitchesKnown, '/switches/known', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(SwitchesFromTopology, '/switches/from_topology', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(Topologies,'/topologies', resource_class_kwargs={"db": db, "controller": exampleController})
+    api.add_resource(CounterValue,'/counters', resource_class_kwargs={"db": db, "controller": exampleController})
 
     return app
 

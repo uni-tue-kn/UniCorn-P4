@@ -84,6 +84,8 @@ class P4InfoHelper(object):
         for t in self.p4info.tables:
             pre = t.preamble
             table_name = pre.name
+            #table_id = pre.id
+            #blueprint["table_id"] = table_id
             blueprint[table_name] = []
         return blueprint
     
@@ -124,6 +126,7 @@ class P4InfoHelper(object):
             tableInfo = {}
             table_name = pre.name
             tableInfo["table_name"] = table_name
+            #tableInfo["table_id"] = pre.id
 
             match_fields = {}
             for mf in t.match_fields:
@@ -302,3 +305,29 @@ class P4InfoHelper(object):
 
                 action.params.extend(action_params_pb)
         return table_entry
+    
+    def get_counters(self):
+        counters = {}
+        for c in self.p4info.counters:
+            counter = {}
+            pre = c.preamble
+            counter["name"] = pre.name
+            counter["id"] = pre.id
+            counter["alias"] = pre.alias
+            counter["unit"] = c.spec.unit  # TODO unit 2 means PACKETS, make enum
+            counter["size"] = c.size
+            counters[pre.name] = counter
+        return counters
+        
+    def get_direct_counters(self):
+        counters = {}
+        for c in self.p4info.direct_counters:
+            counter = {}
+            pre = c.preamble
+            counter["name"] = pre.name
+            counter["id"] = pre.id
+            counter["alias"] = pre.alias
+            counter["unit"] = c.spec.unit  # TODO unit 2 means PACKETS, make enum
+            counter["table_id"] = c.direct_table_id
+            counters[pre.name] = counter
+        return counters

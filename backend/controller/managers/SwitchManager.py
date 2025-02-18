@@ -4,6 +4,7 @@ import logging
 from ..utils.bmv2 import Bmv2SwitchConnection
 from ..utils.helper import P4InfoHelper
 from grpc import RpcError
+from google.protobuf.json_format import MessageToDict
 
 class SwitchManager:
     # TODO: refactor to pass dataclass here
@@ -135,11 +136,14 @@ class SwitchManager:
                 self.p4_helper = P4InfoHelper(p4_info_file=p4_info)
                 loaded_config["p4_info_helper"] = self.p4_helper
                 loaded_config["table_info"] = self.p4_helper.get_table_info()
-
+                loaded_config["counters"] = self.p4_helper.get_counters()
+                loaded_config["direct_counters"] = self.p4_helper.get_direct_counters()
             else:
                 # No config loaded, set keys to none
                 loaded_config["p4_info_helper"] = None
                 loaded_config["table_info"] = None
+                loaded_config["counters"] = None
+                loaded_config["direct_counters"] = None
 
             # All other fields are not read
             # TODO: why is this set here? Maybe it can be removed through refactoring
@@ -155,7 +159,8 @@ class SwitchManager:
             loaded_config["bmv2_file"] = self.bmv2_file
             loaded_config["p4_info_helper"] = self.p4_helper
             loaded_config["table_info"] = self.p4_helper.get_table_info()
-
+            loaded_config["counters"] = self.p4_helper.get_counters()
+            loaded_config["direct_counters"] = self.p4_helper.get_direct_counters()
         return loaded_config
 
     def as_json(self):
@@ -237,3 +242,30 @@ class SwitchManager:
             else:
                 self.bmv2.DeleteTableEntry(old.get_entry_obj())
                 self.bmv2.WriteTableEntry(new.get_entry_obj())
+                
+    def get_counter_values(self, counter_id=None, index=None):
+        result = self.bmv2.ReadCounters(counter_id=counter_id, index=index)
+        for r in result:
+            counter_dict = MessageToDict(r)
+            entries = {"counterID": counter_dict["entities"][0]['counterEntry']['counterId'], "entries": []}
+            for e in counter_dict["entities"]:
+                index = e['counterEntry']['index'].get('index', 0)
+                packets = e['counterEntry']['data'].get('packetCount', 0)
+                bytes = e['counterEntry']['data'].get('byteCount', 0)
+                entry = {"index": index, "packets": packets, "bytes": bytes}
+                entries["entries"].append(entry)
+        return entries
+    
+    def get_direct_counter_values(self, table_id=None):
+        result = self.bmv2.ReadDirectCounters(table_id=table_id)
+        for r in result:
+            entries = {"table_id": table_id, "entries": []}
+            counter_dict = MessageToDict(r)
+            if "entities" in counter_dict.keys():
+                for e in counter_dict["entities"]:
+                    match = e['directCounterEntry']['tableEntry']['match']
+                    packets = e['directCounterEntry']['data'].get('packetCount', 0)
+                    bytes = e['directCounterEntry']['data'].get('byteCount', 0)
+                    entry = {"match": match, "packets": packets, "bytes": bytes}
+                    entries["entries"].append(entry)
+        return entries    

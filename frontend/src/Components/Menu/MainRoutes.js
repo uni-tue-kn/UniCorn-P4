@@ -14,10 +14,13 @@ import Mininet from '../Mininet/Mininet';
 
 //import { useTableInfo } from '../../Contexts/InfoContext';
 import { useTable } from '../../Contexts/TableContext';
+import { useCounter } from '../../Contexts/CounterContext';
+import CounterContent from '../Counters/CounterContent';
 
 
 function MainRoutes() {
   const { tableInfo } = useTable();
+  const { counterInfo } = useCounter();
 
   return (
     <Routes>
@@ -55,6 +58,7 @@ function MainRoutes() {
         element={<Mininet />}
         />
       {tableRoutes(tableInfo)}
+      {counterRoutes(counterInfo)}
       <Route 
         path="*" 
         element={<NotFound />} 
@@ -69,7 +73,20 @@ function tableRoutes(tableInfo) {
       Object.entries(tableInfo).map(([table_name, table_data]) => (
         <Route
           path={'/tables/' + table_name}
-          element={<TableContent tableName={table_name} />}
+          element={<TableContent tableName={table_name} tableID={table_data.table_id} />}
+        />
+      ))
+    )
+  }
+}
+
+function counterRoutes(counterInfo) {
+  if (counterInfo != undefined) {
+    return (
+      Object.entries(counterInfo).map(([counter_name, counter_data]) => (
+        <Route
+          path={'/counters/' + counter_name}
+          element={<CounterContent counterId={counter_data.id} counterName={counter_name} />}
         />
       ))
     )

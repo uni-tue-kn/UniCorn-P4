@@ -15,6 +15,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import FileCopyIcon from '@mui/icons-material/FileCopy';
 
 import { Link as RouterLink, useLocation } from 'react-router-dom'
+import { useCounter } from '../../Contexts/CounterContext';
 
 function MenuItems() {
 
@@ -23,11 +24,18 @@ function MenuItems() {
 
   const { currentSwitchID } = useSwitch();
   const { tableInfo } = useTable();
+  const { counterInfo } = useCounter();
 
   const [open, setOpen] = useState(false);
+  const [openCounter, setOpenCounter] = useState(false);
 
   const handleClick = () => {
     setOpen(!open);
+  };
+
+
+  const handleClickCounter = () => {
+    setOpenCounter(!openCounter);
   };
 
   //Based on https://mui.com/material-ui/guides/routing/
@@ -66,6 +74,20 @@ function MenuItems() {
     }
   }
 
+  const counterSelection = () => {
+    if (counterInfo != undefined) {
+      return (
+        Object.entries(counterInfo).map(([counter_name, counter_data]) => (
+          <ListItemLink
+            sx={{ pl: 5 }}
+            to={'/counters/' + counter_name}
+            primary={counter_name} >
+          </ListItemLink>
+        ))
+      )
+    }
+  }
+
   return (
     <List component="nav">
       <ListItemLink
@@ -85,6 +107,21 @@ function MenuItems() {
           {tableSelection()}
         </List>
       </Collapse>
+
+      <ListItemButton onClick={handleClickCounter} disabled={currentSwitchID === null || tableInfo === null}>
+        <ListItemIcon>
+          <TableRowsIcon />
+        </ListItemIcon>
+        <ListItemText primary="Counters" />
+        {openCounter ? <ExpandLess /> : <ExpandMore />}
+      </ListItemButton>
+      <Collapse in={openCounter} timeout="auto" unmountOnExit>
+        <List component="div" disablePadding>
+          {counterSelection()}
+        </List>
+      </Collapse>
+
+
       <Divider />
       <ListItemLink
         to='/logs'

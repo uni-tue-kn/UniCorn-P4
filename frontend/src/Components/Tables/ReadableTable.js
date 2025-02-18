@@ -5,7 +5,7 @@ import { useTable } from '../../Contexts/TableContext';
 import { useSnackbar } from '../../Contexts/SnackbarContext';
 import { useSwitch } from '../../Contexts/SwitchContext';
 
-import { displayMatchKeys, displayTable, displayActionParams, displayActionData, needsPriority } from '../Helpers/DisplayHelper';
+import { displayMatchKeys, displayTable, displayActionData, displayCounterValue } from '../Helpers/DisplayHelper';
 import { editActionInput, editMatchInput, findEntry } from '../Helpers/EditHelper';
 import { StyledTableRow, StyledTableCell } from '../Helpers/DisplayHelper';
 import { encodeNumerics } from '../Helpers/Decoding/DecodingHelper';
@@ -132,6 +132,7 @@ function ReadableTable({ tableName, tableEntries, updateTableEntries, filteredEn
             <StyledTableRow>
                 <StyledTableCell sx={{ padding: 0 }} colSpan={2}>{displayMatchKeys(entry, tableInfo, tableName)}</StyledTableCell>
                 <StyledTableCell sx={{ padding: 0 }} colSpan={2}>{displayActionData(entry)}</StyledTableCell>
+                {entry.counters ? <StyledTableCell sx={{ padding: 0 }} colSpan={2}>{displayCounterValue(entry)}</StyledTableCell> : null}
                 {needsPriority && <StyledTableCell>{entry.switch_entry.priority}</StyledTableCell>}
                 <StyledTableCell align='center'>
                     <Stack

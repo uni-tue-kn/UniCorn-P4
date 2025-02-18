@@ -10,3 +10,4 @@ from .switchesknown import SwitchesKnown
 from .tables import Tables
 from .topologies import Topologies
 from .switchesfromtopology import SwitchesFromTopology
+from .counters import CounterValue

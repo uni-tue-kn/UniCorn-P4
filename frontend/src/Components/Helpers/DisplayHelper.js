@@ -64,6 +64,9 @@ export function displayTable(rowFunction, tableEntries, needsPriority = false, e
                     <TableRow>
                         <TopTableHeadCell sx={{borderRight: 1, width: '40%', textAlign: 'center' }} colSpan={2}>Match</TopTableHeadCell>
                         <TopTableHeadCell sx={{borderLeft: 1, borderRight: 1, width: '40%', textAlign: 'center'}} colSpan={2}>Action</TopTableHeadCell>
+                        {tableEntries[0].counters ? 
+                            <TopTableHeadCell sx={{borderLeft: 1, borderRight: 1, width: '40%', textAlign: 'center'}} colSpan={2}>Counter</TopTableHeadCell>
+                        : null }
                         {needsPriority && <TopTableHeadCell sx={{borderLeft: 1 , borderRight: 1, width: '10%'}} ></TopTableHeadCell>}
                         {editable && <TopTableHeadCell sx={{borderLeft: 1 , width: '10%'}} align='center'  ></TopTableHeadCell>}
                     </TableRow>
@@ -72,6 +75,12 @@ export function displayTable(rowFunction, tableEntries, needsPriority = false, e
                         <StyledTableCell sx={{borderRight: 1}} width='20%' >Value</StyledTableCell>
                         <StyledTableCell sx={{borderLeft: 1}} width='20%' >Name</StyledTableCell>
                         <StyledTableCell  width='20%' sx={{borderRight: 1}} >Parameters</StyledTableCell>
+                        {tableEntries[0].counters ? 
+                        <>                          
+                        <StyledTableCell sx={{borderLeft: 1}} width='20%' >Packets</StyledTableCell>
+                        <StyledTableCell  width='20%' sx={{borderRight: 1}} >Bytes</StyledTableCell>
+                        </>
+                        : null }
                         {needsPriority && <StyledTableCell  sx={{borderLeft: 1, borderRight: 1}} >Priority</StyledTableCell>}
                         {editable && <StyledTableCell  sx={{borderLeft: 1}} align='center'>Options</StyledTableCell>}
                     </TableRow>
@@ -125,6 +134,20 @@ export function displayActionData(entry){
         </Table>
     )
 }
+
+export function displayCounterValue(entry){
+    return(
+        <Table sx={{border: 0, tableLayout: 'fixed'}}>
+            <TableBody>
+                <InlineTableRow>
+                    <InlineTableCell>{entry.counters.packets}</InlineTableCell>
+                    <InlineTableCell>{entry.counters.bytes}</InlineTableCell>
+                </InlineTableRow>
+            </TableBody>
+        </Table>
+    )
+}
+
 export function displayMatchKeys(entry, tableInfo, tableName) {
     return (
         <Table sx={{border: 0, tableLayout: 'fixed'}}>

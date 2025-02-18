@@ -15,7 +15,6 @@ class UpdateError(Exception):
 # TODO: no type checking at all ._. at least some should be done at this level
 class Controller:
     def __init__(self):
-        # TODO: change to switch_managers
         self.switch_configs = {}
 
     def getSwitchConnections(self):

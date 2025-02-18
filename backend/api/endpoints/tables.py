@@ -34,6 +34,18 @@ class Tables(Endpoint):
                 self.db.session.add(state_to_edit)
                 self.db.session.commit()
 
+            try:
+                # Try to retrieve direct counter values, if there are any. 
+                direct_counters = current_switch_config.get_loaded_config()["direct_counters"]
+                if direct_counters:
+                    table_id = current_switch_config.p4_helper.get_tables_id(args['table_name'])
+                    if any(entry.get("table_id") == table_id for entry in direct_counters.values()):
+                        # Merge them by index to each entry
+                        counter_values = self.controller.switch_configs[args['switch_id']].get_direct_counter_values(table_id=table_id)['entries']
+                        frontend_entries = [{**b_obj, "counters": {"packets": a_obj["packets"], "bytes": a_obj["bytes"]}} for a_obj, b_obj in zip(counter_values, frontend_entries)]
+                
+            except Exception as e:
+                print(e)
             return frontend_entries, 200
         except grpc.RpcError as e:
             return self.returnGrpcError(e)

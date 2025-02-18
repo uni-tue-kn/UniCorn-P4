@@ -6,6 +6,7 @@ import { SwitchProvider } from './SwitchContext'
 import { TopologyProvider } from './TopologyContext'
 import { APIProvider } from './APIContext'
 import { ThemeProviderWrapper } from './ThemeContext'
+import { CounterProvider } from './CounterContext'
 
 function ContextProvider({ children }) {
   return (
@@ -16,7 +17,9 @@ function ContextProvider({ children }) {
             <TopologyProvider>
               <InitProvider>
                 <TableProvider>
+                  <CounterProvider>
                   {children}
+                  </CounterProvider>
                 </TableProvider>
               </InitProvider>
             </TopologyProvider>

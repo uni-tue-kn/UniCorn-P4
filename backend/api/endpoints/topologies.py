@@ -5,13 +5,13 @@ from .Endpoint import Endpoint
 import json
 
 import glob
-
+import os
 
 class Topologies(Endpoint):
 
     def get(self):
 
-        topo_dir = "/topologies"
+        topo_dir = os.environ.get('TOPO_DIR', "/topologies")
 
         # Req Parameters:
         # - name: Name of topologies to fetch. If emtpy, return list of available topologies

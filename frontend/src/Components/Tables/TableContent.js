@@ -26,7 +26,7 @@ import { filterEntries, sortEntries } from '../Helpers/SortFilter/SortFilterHelp
 import { useSwitch } from '../../Contexts/SwitchContext';
 
 
-export default function TableContent({ tableName }) {
+export default function TableContent({ tableName, tableID }) {
   const { tableInfo, decoding, setDecoding } = useTable();
   const { callSnackbar } = useSnackbar();
   const { initializedFiles } = useInit();
@@ -38,12 +38,12 @@ export default function TableContent({ tableName }) {
   // State to make sure, the table entries fetched from the api refer to the same table as this component
   const [requestedTableName, setRequestedTableName] = useState(null);
 
-  function updateTableEntries(tableName) {
+  function updateTableEntries(tableName, tableID) {
     axios
       .get("/tables", {
-        params: { 
+        params: {
           switch_id: currentSwitchID,
-          table_name: tableName 
+          table_name: tableName
         }
       })
       .then(res => {
@@ -56,8 +56,9 @@ export default function TableContent({ tableName }) {
       });
   }
 
-  useEffect(() => updateTableEntries(tableName), [tableName]);
-  useEffect(() => updateTableEntries(tableName), [currentSwitchID]);
+
+  useEffect(() => updateTableEntries(tableName, tableID), [tableName]);
+  useEffect(() => updateTableEntries(tableName, tableID), [currentSwitchID]);
 
   // Table modes 
   const [inlineEditing, setInlineEditing] = useState(false);
@@ -75,7 +76,6 @@ export default function TableContent({ tableName }) {
     setAdding(!adding);
   }
 
-  
   // State to handle if one of the options is opened or not
   const [optionsOpen, setOptionsOpen] = useState(false);
 
@@ -106,7 +106,6 @@ export default function TableContent({ tableName }) {
 
   if (requestedTableName == tableName) {
     const sortedEntries = sortEntries(tableEntries, sorting);
-    console.log(sortedEntries);
     const decodedEntries = decodeTableEntries(sortedEntries, decoding, tableInfo, tableName);
     const filteredEntries = filterEntries(decodedEntries, filtering)
     const needsPriority = checkForPriority(tableInfo, tableName)
@@ -124,14 +123,14 @@ export default function TableContent({ tableName }) {
         <Typography variant='h5' gutterBottom>{tableName}</Typography>
         <Grid container >
           <Grid item xs={12} xl={10}>
-            <Paper sx={{ padding: '32px', overflow: 'hidden'}} elevation={3}>
+            <Paper sx={{ padding: '32px', overflow: 'hidden' }} elevation={3}>
               <Stack direction='column' spacing={2} >
                 <Stack direction='row' spacing={2} justifyContent='space-between'>
                   <Stack direction='row' spacing={2} >
                     <Button variant='contained' startIcon={< AddIcon />} size='large' sx={{ width: 250 }} disabled={editing || inlineEditing} onClick={toggleAdding}>Add new Entry</Button>
                     <Button variant='contained' endIcon={< EditIcon />} size='large' sx={{ width: 250 }} disabled={tableEntries.length === 0 || editing || inlineEditing} onClick={toggleEditing}>Edit Table Entries</Button>
-                    <Button variant='outlined' startIcon={ <SortIcon />} sx={{ backgroundColor: '#cecece'}} endIcon={<SearchIcon />} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "sort&filter")} >Sort & Filter</Button>
-                    <Button variant='outlined' endIcon={<SettingsIcon />} sx={{ backgroundColor: '#cecece'}} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "decoding")} >Decoding Options</Button>
+                    <Button variant='outlined' startIcon={<SortIcon />} sx={{ backgroundColor: '#cecece' }} endIcon={<SearchIcon />} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "sort&filter")} >Sort & Filter</Button>
+                    <Button variant='outlined' endIcon={<SettingsIcon />} sx={{ backgroundColor: '#cecece' }} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "decoding")} >Decoding Options</Button>
                   </Stack>
                   <Button variant='contained' endIcon={<LibraryAddIcon />} disabled={(editing || inlineEditing) || initializedFiles.state_id === null} onClick={(event) => handleSaveClick(event)}>
                     Save state
@@ -143,7 +142,7 @@ export default function TableContent({ tableName }) {
                 <Collapse in={optionsOpen === "decoding" && !(editing || inlineEditing)} unmountOnExit>
                   <DecodingOptions tableName={tableName} tableInfo={tableInfo} decoding={decoding} setDecoding={setDecoding} />
                 </Collapse>
-                {editing ? 
+                {editing ?
                   < EditableTable {...commonProps} toggleEditing={toggleEditing} />
                   :
                   <ReadableTable {...commonProps} toggleInlineEditing={toggleInlineEditing} />}
