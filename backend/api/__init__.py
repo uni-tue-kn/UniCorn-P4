@@ -13,11 +13,14 @@ def create_app():
     app = Flask(__name__)
     CORS(app, methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
     app.config['CORS_HEADERS'] = 'application/json'
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////database/p4db.db'
+    
+    db_file = os.environ.get('DB_DIR', "/database/p4db.db")
+    
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_file}'
     db.init_app(app)
     
     with app.app_context():
-        if not os.path.exists("/database/p4db.db"):
+        if not os.path.exists(db_file):
             db.create_all()    
 
     api = Api(app)

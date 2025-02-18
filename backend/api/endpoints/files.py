@@ -1,6 +1,7 @@
 import glob
 from ..database.TableStates import *
 from .Endpoint import Endpoint
+import os
 
 
 # Returns possible p4info and bmv2 files in the folder for initializing
@@ -9,7 +10,7 @@ class FileNames(Endpoint):
 
         # Root dir for file locations
         # TODO: move this to a configuration file!
-        p4_dir = "/p4/"
+        p4_dir = os.environ.get('P4_DIR', "/p4")
         
         p4info_files = glob.glob(p4_dir + '**/*.txt', recursive=True)
         json_files = glob.glob(p4_dir + '**/*.json', recursive=True)
