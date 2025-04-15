@@ -4,16 +4,16 @@ import { IPv6 } from "ip-num/IPNumber";
 // Decoding Functions (number -> x)
 // -----------------------------------------
 function numberToBinary(number) {
-  return number.toString(2);
+  return parseInt(number).toString(2);
 }
 
 function numberToHex(number) {
-  return number.toString(16);
+  return parseInt(number).toString(16);
 }
 
 function numberToIPv4(number) {
   try {
-    return IPv4.fromNumber(number).toString();
+    return IPv4.fromNumber(parseInt(number)).toString();
   } catch (error) {
     return number;
   }
@@ -21,7 +21,7 @@ function numberToIPv4(number) {
 
 function numberToIPv6(number) {
   try {
-    return IPv6.fromBigInt(number).toString();
+    return IPv6.fromBigInt(BigInt(number)).toString();
   } catch (error) {
     return number;
   }

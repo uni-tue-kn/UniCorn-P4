@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import JSONbig from 'json-bigint';
 
 import EditableTable from './EditableTable'
 import ReadableTable from './ReadableTable';
@@ -41,6 +42,14 @@ export default function TableContent({ tableName, tableID }) {
   function updateTableEntries(tableName, tableID) {
     axios
       .get("/tables", {
+        transformResponse: [function (data) {
+          try {
+            return JSONbig({ storeAsString: true }).parse(data);
+          } catch (err) {
+            console.error("Failed to parse big int JSON:", err);
+            return data;
+          }
+        }],
         params: {
           switch_id: currentSwitchID,
           table_name: tableName
