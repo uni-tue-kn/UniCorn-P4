@@ -24,9 +24,19 @@ This package contains several helper functions for encoding to and decoding from
 - Ethernet address strings
 """
 
-mac_pattern = re.compile("^([\da-fA-F]{2}:){5}([\da-fA-F]{2})$")
-#mac_pattern = re.compile(r'(?:[0-9a-fA-F]:?){12}')
-
+mac_pattern = re.compile(r'^(?:[0-9a-fA-F]:?){12}$')
+ipv4_pattern = re.compile(r'''
+    ^
+    (?:
+      (25[0-5]|      # 250–255
+       2[0-4][0-9]|  # 200–249
+       1[0-9]{2}|    # 100–199
+       [1-9]?[0-9])  # 0–99
+      \.
+    ){3}
+    (25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])
+    $
+''', re.VERBOSE)
 
 def matchesMac(mac_addr_string):
     return mac_pattern.match(mac_addr_string) is not None
@@ -42,11 +52,8 @@ def decodeMac(encoded_mac_addr):
     return ":".join(hex(s)[2:] for s in encoded_mac_addr)
 
 
-ipv4_pattern = re.compile("^(\d{1,3}\.){3}(\d{1,3})$")
-
-
 def matchesIPv4(ip_addr_string):
-    return ipv4_pattern.match(ip_addr_string) is not None
+    return ipv4_pattern.match(ip_addr_string) is not None  
 
 
 def encodeIPv4(ip_addr_string):
@@ -107,7 +114,6 @@ def encode(x, bitwidth):
 # Added functions for generic control plane:
 
 def matchesIPv6(ip_addr_string):
-    #return ipv6_pattern.match(ip_addr_string) is not None
     try:
         ipaddress.IPv6Address(ip_addr_string)
         return True
