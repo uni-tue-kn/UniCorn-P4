@@ -25,6 +25,7 @@ This package contains several helper functions for encoding to and decoding from
 """
 
 mac_pattern = re.compile("^([\da-fA-F]{2}:){5}([\da-fA-F]{2})$")
+#mac_pattern = re.compile(r'(?:[0-9a-fA-F]:?){12}')
 
 
 def matchesMac(mac_addr_string):
@@ -93,7 +94,10 @@ def encode(x, bitwidth):
             # Assume that the string is already encoded
             encoded_bytes = x
     elif type(x) == int:
-        encoded_bytes = encodeNum(x, bitwidth)  
+        encoded_bytes = encodeNum(x, bitwidth)           
+    elif type(x) == float:
+        # Happens only for large integers, e.g., numeric IPv6 addresses
+        encoded_bytes = encodeNum(int(x), bitwidth)           
     else:
         raise Exception("Encoding objects of %r is not supported" % type(x))   
     assert len(encoded_bytes) == byte_len
@@ -112,7 +116,3 @@ def matchesIPv6(ip_addr_string):
 
 def encodeIPv6(ip_addr_string):
     return socket.inet_pton(socket.AF_INET6, ip_addr_string)
-
-
-
-
