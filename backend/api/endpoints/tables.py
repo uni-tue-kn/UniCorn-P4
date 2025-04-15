@@ -73,9 +73,9 @@ class Tables(Endpoint):
         try:
             self.controller.removeTableEntry(args['switch_id'], entry = args['entry'])
         except grpc.RpcError as e:
-            return self.returnGrpcError
+            return self.returnGrpcError(e)
         except Exception as e:
-            return make_response(jsonify({'error': e}), 500)
+            return make_response(jsonify({'error': str(e)}), 500)
 
     def patch(self):
         parser = reqparse.RequestParser()
