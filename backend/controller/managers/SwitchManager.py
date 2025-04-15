@@ -208,6 +208,10 @@ class SwitchManager:
                 # Convert prefix_len to a mask
                 p4info_match = self.p4_helper.get_match_field(table_name=entry.table_name, id=m.field_id)
                 bitwidth = p4info_match.bitwidth
+                
+                if m.lpm.prefix_len > bitwidth:
+                    raise ValueError("Prefix length exceeds bitwidth of field!")
+                
                 mask = int('1' * m.lpm.prefix_len + (bitwidth - m.lpm.prefix_len) * '0', 2)
                 # Apply the LPM Mask         
                 m.lpm.value = (int_value & mask).to_bytes(len(m.lpm.value), byteorder='big')
