@@ -196,7 +196,7 @@ class SwitchManager:
     @check_init
     def write_table_entry(self,entry):
         entry_object = entry.get_entry_obj()
-                
+
         m = entry_object.match
         # Iterate RepeatedCompositeFieldContainer
         # bytes("", 'latin1') is required to check if this is the corresponding matching type
@@ -206,7 +206,9 @@ class SwitchManager:
                 # Convert bytes to an integer
                 int_value = int.from_bytes(m.lpm.value, byteorder='big')
                 # Convert prefix_len to a mask
-                mask = int('1' * m.lpm.prefix_len + (32 - m.lpm.prefix_len) * '0', 2)
+                p4info_match = self.p4_helper.get_match_field(table_name=entry.table_name, id=m.field_id)
+                bitwidth = p4info_match.bitwidth
+                mask = int('1' * m.lpm.prefix_len + (bitwidth - m.lpm.prefix_len) * '0', 2)
                 # Apply the LPM Mask         
                 m.lpm.value = (int_value & mask).to_bytes(len(m.lpm.value), byteorder='big')
             elif m.ternary.value != bytes("", 'latin1'):
@@ -240,8 +242,8 @@ class SwitchManager:
             if (old.match_fields == new.match_fields and old.priority == new.priority):
                 self.bmv2.ModifyTableEntry(new.get_entry_obj())
             else:
-                self.bmv2.DeleteTableEntry(old.get_entry_obj())
-                self.bmv2.WriteTableEntry(new.get_entry_obj())
+                self.delete_table_entry(old)
+                self.write_table_entry(new)
                 
     def get_counter_values(self, counter_id=None, index=None):
         result = self.bmv2.ReadCounters(counter_id=counter_id, index=index)
@@ -268,4 +270,5 @@ class SwitchManager:
                     bytes = e['directCounterEntry']['data'].get('byteCount', 0)
                     entry = {"match": match, "packets": packets, "bytes": bytes}
                     entries["entries"].append(entry)
-        return entries    
+        return entries
+    
