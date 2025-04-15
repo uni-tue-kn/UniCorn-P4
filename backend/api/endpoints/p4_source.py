@@ -8,7 +8,7 @@ class P4Source(Endpoint):
     def get(self):
 
         # Root dir for file locations
-        p4_dir = os.environ.get('P4_DIR', "/p4")
+        p4_dir = os.environ.get('P4_DIR', "/p4/")
         
         p4src_files = glob.glob(p4_dir + '**/*.p4', recursive=True)
             
