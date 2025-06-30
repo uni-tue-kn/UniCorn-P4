@@ -145,7 +145,7 @@ export function encodeNumerics(switch_entry, decoding, tableInfo, tableName) {
     //Encode action values
     if (switch_entry.action_params != null) {
       Object.entries(switch_entry.action_params).forEach(([param, value]) => {
-        let paramDecoding = tableDecoding.action[encoded_entry.action_name][param];
+        let paramDecoding = tableDecoding.action?.[encoded_entry.action_name]?.[param] ?? "";
         if (paramDecoding == "binary" || paramDecoding == "hexadecimal") {
           encoded_entry.action_params[param] = toNumber(value, paramDecoding);
         }
