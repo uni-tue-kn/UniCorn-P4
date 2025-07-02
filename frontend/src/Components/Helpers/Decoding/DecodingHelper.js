@@ -1,5 +1,4 @@
-import { IPv4 } from "ip-num/IPNumber";
-import { IPv6 } from "ip-num/IPNumber";
+import { IPv4, IPv6 } from "ip-num";
 
 // Decoding Functions (number -> x)
 // -----------------------------------------
