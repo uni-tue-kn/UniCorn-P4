@@ -5,6 +5,10 @@ netsim/pcaps/*.pcap
 frontend/build/
 package-lock.json
 frontend/node_modules
+p4-files/
+topologies/logs
+topologies/pcaps
+database/p4db.db
 
 # dependencies
 /node_modules

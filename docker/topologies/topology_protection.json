@@ -1,0 +1,15 @@
+{
+    "hosts": [
+        "h1",
+        "h2"
+    ],
+    "switches": {
+        "s1": { "cli_input": "s1_cli.txt"},
+	"s2": { },
+        "s3": { "cli_input": "s3_cli.txt"}
+    },
+    "links": [
+        ["h1", "s1"],  ["h2", "s3"],  ["s1", "s2"],
+        ["s3","s2"],  ["s1", "s3"]
+    ]
+}
