@@ -10,16 +10,14 @@ services:
             context: ../
             dockerfile: docker/backend/Dockerfile
         volumes:
-            # TODO: enter the path of your folder with compiled p4 programs (p4 info (.txt) and bmv2 (.json) files)
             # IMPORTANT: Assure that there are no other files in the structure as this application does not check their contents.
-            - /path/to/p4-files:/p4/
-            # TODO: change me
-            # Database: 
-            - /path/to/database:/database/
-            # Topologies:
-            # TODO: change me
-            - /path/to/topologies:/topologies
+            - ./p4-files:/p4/
+            - ./database:/database/
+            - ./topologies:/topologies
         network_mode: host
+        environment:
+            - P4_DIR=/p4/
+            - TOPO_DIR=/topologies
     
     unicornp4-netsim:
         # Required to add virtual interfaces for network simulation
@@ -33,8 +31,7 @@ services:
             context: ../
             dockerfile: docker/netsim/Dockerfile
         volumes:
-            # TODO: change me
-            - /path/to/topologies:/topologies
+            - ./topologies:/topologies
         network_mode: host
       
     unicornp4-frontend:
@@ -52,8 +49,7 @@ services:
             # Remapping this port to 80 in expose breaks this feature
             - 3000:3000     
         volumes:
-            # TODO: change me
-            - /path/to/topologies:/topologies
+            - ./topologies:/topologies
         environment:
             - BASE_URL=http://localhost/
 
