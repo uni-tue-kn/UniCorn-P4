@@ -14,6 +14,8 @@ import Brightness7Icon from '@mui/icons-material/Brightness7';
 import { useTheme } from '../../Contexts/ThemeContext';
 
 
+import { useLocation } from 'react-router-dom';
+
 import MenuItems from './MenuItems';
 import SwitchSelect from '../SwitchConnections/SwitchSelect';
 
@@ -21,24 +23,28 @@ import logo from '../../assets/unicorn_p4_logo_cut.png'; // Adjust the path as n
 
 // Based on https://github.com/mui/material-ui/tree/v5.11.13/docs/data/material/getting-started/templates/dashboard
 
+const drawerWidth = 240;
+
+const AppBar = styled(MuiAppBar)(
+    ({ theme }) => ({
+        zIndex: theme.zIndex.drawer + 1
+    })
+);
+
+const Drawer = styled(MuiDrawer)({
+    '& .MuiDrawer-paper': {
+        position: 'relative',
+        whiteSpace: 'nowrap',
+        width: drawerWidth,
+        boxSizing: 'border-box',
+    },
+});
+
 function Navbar() {
     const { darkMode, toggleDarkMode } = useTheme(); // Get dark mode state
-    const drawerWidth = 240;
-
-    const AppBar = styled(MuiAppBar)(
-        ({ theme }) => ({
-            zIndex: theme.zIndex.drawer + 1
-        })
-    );
-
-    const Drawer = styled(MuiDrawer)({
-        '& .MuiDrawer-paper': {
-            position: 'relative',
-            whiteSpace: 'nowrap',
-            width: drawerWidth,
-            boxSizing: 'border-box',
-        },
-    });
+    const location = useLocation();
+    const hideSidebarRoutes = ['/', '/mininet', '/compile', '/switches'];
+    const showSidebar = !hideSidebarRoutes.includes(location.pathname);
 
     return (
         <>
@@ -71,19 +77,23 @@ function Navbar() {
             </Toolbar>
             <SwitchSelect />
           </AppBar>
-          <Drawer variant="permanent" open={true}>
-            <Toolbar
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'flex-end',
-                px: [1],
-                height: '130px',
-              }}
-            />
-            <Divider />
-            <MenuItems />
-          </Drawer>
+          {showSidebar ? (
+            <Drawer variant="permanent" open={true}>
+              <Toolbar
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  px: [1],
+                  height: '130px',
+                }}
+              />
+              <Divider />
+              <MenuItems />
+            </Drawer>
+          ) : (
+            <Box sx={{ minWidth: 24 }} />
+          )}
         </>
       );
     }
