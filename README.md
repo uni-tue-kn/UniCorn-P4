@@ -38,6 +38,7 @@ Currently any P4 target that implementes the P4 Runtime API is supported, e.g., 
 UniCorn-P4 can be started via `docker-compose up` in the docker folder.
 This docker-compose file starts up the frontend, the backend, and the Mininet container.
 Place your topologies and P4 files in their corresponding folder in the `docker folder`.
+Once the container has started, navigate to `localhost:3000`.
 
 ## Working with UniCorn-P4
 
@@ -49,14 +50,11 @@ If you want to compile it manually, you can use the following command:
 ```bash
 p4c /path/to/p4_folder/basic.p4 --target bmv2 --arch v1model --p4runtime-files /path/to/p4_folder/basic.p4info.txt -o /path/to/p4_folder/
 ```
-Place the `basic.p4info.txt` and `basic.json` file into the `/p4-files/` directory of this repository.
 You may create subfolders for distinct projects there containing your compiled P4 files.
 
-*Note: The path of the `/p4-files/` directory can be changed in the docker-compose file.*
 ### 2. Switch Configuration
-Head to `http://localhost:3000` for the UniCorn-P4 GUI in your browser.
 #### 2a. Optional: Create the virtual topology using Mininet
-Put a topology file into the `netsim/` directory, e.g.,
+Example topology file, placed in `docker/topologies/topology.json`:
 ```json
 {
     "hosts": [
