@@ -8,10 +8,15 @@
 
 - [Overview](#overview)
 - [Supported Targets and Data Plane APIs](#supported-targets-and-data-plane-apis)
-- [Installation & Start Instructions](#installation--start-instructions)
+- [Installation \& Start Instructions](#installation--start-instructions)
 - [Working with UniCorn-P4](#working-with-unicorn-p4)
-- [Changelog](./CHANGELOG.md)
-- [Preview](#preview-of-unicorn-p4)
+  - [1. Compiling your P4 Program](#1-compiling-your-p4-program)
+  - [2. Switch Configuration](#2-switch-configuration)
+    - [2a. Optional: Create the virtual topology using Mininet](#2a-optional-create-the-virtual-topology-using-mininet)
+    - [2b. Connecting your Switches](#2b-connecting-your-switches)
+    - [3. Loading a P4 Program onto a Switch](#3-loading-a-p4-program-onto-a-switch)
+    - [4. Managing MAT Entries](#4-managing-mat-entries)
+- [Preview of UniCorn-P4](#preview-of-unicorn-p4)
 
 ## Overview
 This repository contains the source code for a universal P4 controller for rapid prototyping of P4 programs in data plane programming.
@@ -30,14 +35,16 @@ Currently any P4 target that implementes the P4 Runtime API is supported, e.g., 
 
 ## Installation & Start Instructions
 
-UniCorn-P4 can be started via `docker-compose up` in the docker folder. The initial build may take a few minutes.
+UniCorn-P4 can be started via `docker-compose up` in the docker folder.
 This docker-compose file starts up the frontend, the backend, and the Mininet container.
 
 ## Working with UniCorn-P4
 
 ### 1. Compiling your P4 Program
 UniCorn-P4 requires the generated P4 runtime file and the intermediate representation file from the compilation command.
-Compile your P4 program like following:
+For convenience, the frontend features a compiler interface for the BMv2 model.
+
+If you want to compile it manually, you can use the following command:
 ```bash
 p4c /path/to/p4_folder/basic.p4 --target bmv2 --arch v1model --p4runtime-files /path/to/p4_folder/basic.p4info.txt -o /path/to/p4_folder/
 ```
