@@ -18,4 +18,4 @@ class CounterValue(Endpoint):
             counter_values = self.controller.switch_configs[args['switch_id']].get_counter_values(counter_id=args.counter_id)
             return make_response(jsonify({'data': str(counter_values)}), 200)            
         except Exception as e:
-            return make_response(jsonify({'error': e, 'data': ''}), 500)            
+            return make_response(jsonify({'error': str(e), 'data': ''}), 500)            

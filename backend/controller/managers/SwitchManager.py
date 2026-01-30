@@ -73,8 +73,7 @@ class SwitchManager:
             logging.error(err_text)
             raise Exception(err_text)
         except Exception as e:
-            err_text = "Error ocurred during switch setup: {}".format(
-                e.debug_error_string())
+            err_text = "Error ocurred during switch setup: {}".format(str(e))
             logging.error(err_text)
             raise Exception(err_text)
 
