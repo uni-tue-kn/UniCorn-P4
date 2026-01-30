@@ -42,7 +42,7 @@ export default function TopologySelector() {
                 console.log("HOSTS", hosts);
                 setLoadedHosts(hosts);
                 getSwitchesOnline();
-                callSnackbar("success", "Updated topology to " + currentTopologyName);
+                callSnackbar("success", "Updated topology to " + selectedTopology);
 
                 const switches_in_topology = Object.keys(res.data.switches);
                 // Disconnect switches and optionally connect switches from topology
