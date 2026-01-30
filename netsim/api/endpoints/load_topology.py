@@ -15,12 +15,13 @@ class LoadTopology(Endpoint):
             
             self.netsim.topo_file = args.topology_file
             self.netsim.run()
-            
+
             topo = {
                 "hosts": self.netsim.hosts,
                 "switches": self.netsim.switches,
                 "links": self.netsim.links,
-                "file_name": self.netsim.topo_file
+                "file_name": self.netsim.topo_file,
+                "switches_online": self.netsim.switch_mappings
             }            
 
             # Create CLIs for all nodes

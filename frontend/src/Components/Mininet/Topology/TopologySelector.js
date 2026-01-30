@@ -46,9 +46,10 @@ export default function TopologySelector() {
 
                 const switches_in_topology = Object.keys(res.data.switches);
                 // Disconnect switches and optionally connect switches from topology
+                // Use switches_online from the response directly instead of React
+                // state, which may be stale at this point.
                 let new_switches = [];
-                switchesOnline["switches_online"].forEach((s) => {
-                    // Assert that the switches from online are contained in the selected topology
+                (res.data.switches_online || []).forEach((s) => {
                     const newSwitchConfig = {
                         name: s.name,
                         address: "127.0.0.1:" + s.grpc_port,
