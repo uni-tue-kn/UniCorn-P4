@@ -167,8 +167,8 @@ class MininetManager:
 
         # TODO: this catches the "AssertionError: write() before start_respons" error, the socket still establishes
         # Handlign should be done better than this
-        socketio = SocketIO(self.app, logger=True, cors_allowed_origins="*")
-        self.socketio = WebsocketManager(socketio, self.mn_runner)
+        self._socketio = SocketIO(self.app, logger=True, cors_allowed_origins="*")
+        self.socketio = WebsocketManager(self._socketio, self.mn_runner)
 
     def run(self):
-        self.app.run(debug=True, host="0.0.0.0", port=5001)
+        self._socketio.run(self.app, host="0.0.0.0", port=5001, allow_unsafe_werkzeug=True)
