@@ -8,7 +8,7 @@ import { useTopology } from '../../Contexts/TopologyContext';
 export default function MininetTerminal() {
 
   // FIrst line displayed in terminals
-  const greeting = "Commands entered here are run directly on the mininet linux hosts.\nSend an interrupt via the red button (top left corner).\nType 'clear' to empty the current terminal.\n----\n\n";
+  const greeting = "Commands entered here are run directly on the mininet linux hosts.\nCtrl+C: Interrupt  |  Shift+Ctrl+V: Paste clipboard  |  Type 'clear' to empty terminal\n----\n\n";
 
   // What hosts can be accessed by the terminal
   const { loadedHosts, loadedSwitches } = useTopology();
@@ -144,6 +144,14 @@ export default function MininetTerminal() {
     socket.send(to_send);
   }
 
+  function handleKeyDown(host, event) {
+    if (event.ctrlKey && event.key === 'c') {
+      event.preventDefault();
+      event.stopPropagation();
+      handleInterrupt(host);
+    }
+  }
+
   function handleInterrupt(host) {
     const to_send = {
       "interrupt": true,
@@ -159,7 +167,7 @@ export default function MininetTerminal() {
     <div className="container" style={{ padding: 5 + "px" }}>
       {
         loadedHosts.map((host, index) => (
-          <div className="container" style={{ padding: 5 + "px" }}>
+          <div className="container" style={{ padding: 5 + "px" }} onKeyDownCapture={(e) => handleKeyDown(host, e)}>
             <Terminal name={host} colorMode={ColorMode.Dark} redBtnCallback={(event) => handleInterrupt(host)} onInput={(text) => handleInput(host, text)}>
               {
                 // Add per host if it already exists in the data
@@ -171,7 +179,7 @@ export default function MininetTerminal() {
         ))}
         {
         loadedSwitches.map((host, index) => (
-          <div className="container" style={{ padding: 5 + "px" }}>
+          <div className="container" style={{ padding: 5 + "px" }} onKeyDownCapture={(e) => handleKeyDown(host, e)}>
             <Terminal name={host} colorMode={ColorMode.Dark} redBtnCallback={(event) => handleInterrupt(host)} onInput={(text) => handleInput(host, text)}>
               {
                 // Add per host if it already exists in the data
