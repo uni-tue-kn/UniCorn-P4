@@ -7,13 +7,8 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
-# Add the p4lang repository
-#RUN echo 'deb http://download.opensuse.org/repositories/home:/p4lang/Debian_11/ /' > /etc/apt/sources.list.d/home:p4lang.list
-RUN echo 'deb https://ftp.gwdg.de/pub/opensuse/repositories/home:/p4lang/Debian_11/ /' > /etc/apt/sources.list.d/home:p4lang.list
-
-# Import the GPG key for the p4lang repository
-#RUN curl -fsSL https://download.opensuse.org/repositories/home:p4lang/Debian_11/Release.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/home_p4lang.gpg
-RUN curl -fsSL https://ftp.gwdg.de/pub/opensuse/repositories/home:/p4lang/Debian_11/Release.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/home_p4lang.gpg
+# Add the p4lang repository (trusted=yes to work around expired upstream GPG key)
+RUN echo 'deb [trusted=yes] https://ftp.gwdg.de/pub/opensuse/repositories/home:/p4lang/Debian_11/ /' > /etc/apt/sources.list.d/home:p4lang.list
 
 # Update the package lists
 RUN apt-get update
