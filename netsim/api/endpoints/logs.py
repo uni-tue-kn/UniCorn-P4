@@ -1,3 +1,5 @@
+import os
+
 from .Endpoint import Endpoint
 from flask import jsonify, make_response
 from flask_restful import reqparse
@@ -12,7 +14,11 @@ class LogFile(Endpoint):
         args = parser.parse_args()
 
         try:
-            with open(self.netsim.log_dir + "/" + args.file, 'r') as file:
+            # Sanitize filename to prevent path traversal
+            safe_name = os.path.basename(args.file)
+            file_path = os.path.join(self.netsim.log_dir, safe_name)
+
+            with open(file_path, 'r') as file:
                 data = file.read()
             if args.limit and args.limit > 0 and args.limit < 1000:
                 # TODO: Upper limit in general
