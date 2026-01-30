@@ -39,6 +39,7 @@ function SelectSwitch() {
 
   const handleMenu = () => {
     setSelectedTab(false);
+    setCurrentSwitchID(null);
   }
 
   const handleAddTab = () => {
