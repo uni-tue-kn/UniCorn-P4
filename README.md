@@ -37,6 +37,7 @@ Currently any P4 target that implementes the P4 Runtime API is supported, e.g., 
 
 UniCorn-P4 can be started via `docker-compose up` in the docker folder.
 This docker-compose file starts up the frontend, the backend, and the Mininet container.
+Place your topologies and P4 files in their corresponding folder in the `docker folder`.
 
 ## Working with UniCorn-P4
 
