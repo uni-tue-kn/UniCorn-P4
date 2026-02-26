@@ -25,75 +25,132 @@ export default function TopologySelector() {
     const [isDialogOpen, setIsDialogOpen] = useState(false);
 
     // Start the emulation of a topology in the mininet container
-    function loadTopology() {
+    function buildSwitchConfigsForTopology(topologySwitches, onlineSwitches) {
+        const switchesInTopology = Object.keys(topologySwitches || {});
+        let new_switches = [];
+
+        (onlineSwitches || []).forEach((s) => {
+            const newSwitchConfig = {
+                name: s.name,
+                address: "127.0.0.1:" + s.grpc_port,
+                device_id: s.dev_id,
+                proto_dump_file: s.name + "_proto.log"
+            }
+            if (switchesInTopology.includes(s.name)) {
+                new_switches.push(newSwitchConfig);
+                console.log("Create switch " + s.name + " " + s.grpc_port)
+            }
+        })
+
+        if (new_switches.length !== switchesInTopology.length) {
+            let warning_msg = "Not all switches from the topology could be loaded. Try connecting them manually."
+            callSnackbar("warning", warning_msg);
+            console.log(warning_msg);
+        }
+
+        return new_switches;
+    }
+
+    function connectSwitchesFromTopology(new_switches) {
+        return axios.post("/switches/from_topology", {
+            switch_configs: JSON.stringify(new_switches),
+            create_switches: createSwitches
+        }).then(() => {
+            getSwitches();
+            getHistorySwitches();
+            setLoading(false);
+        })
+            .catch(err => {
+                if (Object.keys(err).includes("response")) {
+                    callSnackbar("error", "There was an error while adding the switch: " + err.response.data + ". Try connecting it manually.");
+                } else {
+                    callSnackbar("error", "There was an error while adding the switch: " + err + ". Try connecting it manually.");
+                }
+                console.log(err);
+                setLoading(false);
+            })
+    }
+
+    function handleTopologyLoaded(topologyData, showRecoveredMessage = false) {
+        getLoadedTopology();
+        let hosts = topologyData.hosts || [];
+        console.log("HOSTS", hosts);
+        setLoadedHosts(hosts);
+        getSwitchesOnline();
+
+        if (showRecoveredMessage) {
+            callSnackbar("success", "Updated topology to " + selectedTopology + " (recovered after transport error)");
+        } else {
+            callSnackbar("success", "Updated topology to " + selectedTopology);
+        }
+
+        const new_switches = buildSwitchConfigsForTopology(topologyData.switches, topologyData.switches_online);
+        return connectSwitchesFromTopology(new_switches);
+    }
+
+    async function tryRecoverLoadAfterNetworkError(err) {
+        // Axios "Network Error" can happen even when Mininet already completed the
+        // topology load. Verify current topology and reconstruct the expected data.
+        if (err?.response || err?.message !== "Network Error") {
+            return false;
+        }
+
+        try {
+            const [loadedTopoRes, topoDefRes, switchesOnlineRes] = await Promise.all([
+                axios.get("http://127.0.0.1:5001/topology/get"),
+                axios.get("/topologies", {
+                    params: {
+                        name: selectedTopology
+                    }
+                }),
+                axios.get("http://127.0.0.1:5001/switches/online")
+            ]);
+
+            if (loadedTopoRes.data?.file_name !== selectedTopology) {
+                return false;
+            }
+
+            const topoDef = topoDefRes.data?.[selectedTopology];
+            if (!topoDef) {
+                return false;
+            }
+
+            handleTopologyLoaded({
+                hosts: topoDef.hosts || [],
+                switches: topoDef.switches || {},
+                switches_online: switchesOnlineRes.data?.switches_online || []
+            }, true);
+            return true;
+        } catch (recoveryErr) {
+            console.log("Topology load recovery failed", recoveryErr);
+            return false;
+        }
+    }
+
+    async function loadTopology() {
 
         setLoading(true);
 
         // TODO dont hardcode netsim API
-        axios
-            // Start up the topology in mininet
-            .post("http://127.0.0.1:5001/topology/load", {
-                topology_file: selectedTopology,
-            })
-            .then(res => {
-                getLoadedTopology();
-                // Store list of loaded hosts
-                let hosts = res.data.hosts;
-                console.log("HOSTS", hosts);
-                setLoadedHosts(hosts);
-                getSwitchesOnline();
-                callSnackbar("success", "Updated topology to " + selectedTopology);
+        try {
+            const res = await axios
+                // Start up the topology in mininet
+                .post("http://127.0.0.1:5001/topology/load", {
+                    topology_file: selectedTopology,
+                }, { timeout: 60000 });
 
-                const switches_in_topology = Object.keys(res.data.switches);
-                // Disconnect switches and optionally connect switches from topology
-                // Use switches_online from the response directly instead of React
-                // state, which may be stale at this point.
-                let new_switches = [];
-                (res.data.switches_online || []).forEach((s) => {
-                    const newSwitchConfig = {
-                        name: s.name,
-                        address: "127.0.0.1:" + s.grpc_port,
-                        device_id: s.dev_id,
-                        proto_dump_file: s.name + "_proto.log"
-                    }
-                    if (switches_in_topology.includes(s.name)) {
-                        new_switches.push(newSwitchConfig);
-                        console.log("Create switch " + s.name + " " + s.grpc_port)
-                    }
-                })
+            handleTopologyLoaded(res.data);
+        } catch (err) {
+            console.log(err);
 
+            const recovered = await tryRecoverLoadAfterNetworkError(err);
+            if (recovered) {
+                return;
+            }
 
-
-                if (new_switches.length !== switches_in_topology.length) {
-                    let warning_msg = "Not all switches from the topology could be loaded. Try connecting them manually."
-                    callSnackbar("warning", warning_msg);
-                    console.log(warning_msg);
-                }
-
-                // Disconnects all active switch connections and optionally connects the new ones from the topology
-                axios.post("/switches/from_topology", {
-                    switch_configs: JSON.stringify(new_switches),
-                    create_switches: createSwitches
-                }).then(res => {
-                    getSwitches();
-                    getHistorySwitches();
-                    setLoading(false);
-                })
-                    .catch(err => {
-                        if (Object.keys(err).includes("response")) {
-                            callSnackbar("error", "There was an error while adding the switch: " + err.response.data + ". Try connecting it manually.");
-                        } else {
-                            callSnackbar("error", "There was an error while adding the switch: " + err + ". Try connecting it manually.");
-                        }
-                        console.log(err);
-                        setLoading(false);
-                    })
-            })
-            .catch(err => {
-                setLoading(false);
-                console.log(err);
-                callSnackbar("error", "There was an error during loading a new topology! '" + err.message + "'" + " Check the log of the mininet docker container!");
-            });
+            setLoading(false);
+            callSnackbar("error", "There was an error during loading a new topology! '" + err.message + "'" + " Check the log of the mininet docker container!");
+        }
 
     }
 

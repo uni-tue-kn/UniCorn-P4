@@ -1,4 +1,5 @@
 from flask_restful import reqparse
+from threading import Thread
 
 from .Endpoint import Endpoint
 
@@ -24,12 +25,19 @@ class LoadTopology(Endpoint):
                 "switches_online": self.netsim.switch_mappings
             }            
 
-            # Create CLIs for all nodes
-            self.ws.init_clis()
+            # Initialize per-node CLIs in the background. This is not required
+            # for the topology itself and should not fail the load request.
+            Thread(target=self._init_clis_safe, daemon=True).start()
 
         except Exception as e:
             return f"Something went wrong when creating topology :( Error: {e}", 500
         return topo, 200
+
+    def _init_clis_safe(self):
+        try:
+            self.ws.init_clis()
+        except Exception as e:
+            print(f"WARNING: Failed to initialize node CLIs after topology load: {e}")
 
     def delete(self):
         return self.clear_topology()
