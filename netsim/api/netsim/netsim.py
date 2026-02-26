@@ -18,7 +18,7 @@
 # We encourage you to dissect this script to better understand the BMv2/Mininet
 # environment used by the P4 tutorial.
 #
-import os, json, argparse
+import os, json, re, argparse
 import subprocess
 from time import sleep
 
@@ -29,6 +29,14 @@ from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.link import TCLink
 from mininet.cli import CLI
+
+def extract_id(name):
+    """Extract the trailing numeric ID from a node name (e.g. 'h1' -> 1, 'host1' -> 1)."""
+    match = re.search(r'(\d+)$', name)
+    if match:
+        return int(match.group(1))
+    raise ValueError(f"Node name '{name}' does not end with a number.")
+
 
 def configureP4Switch(**switch_args):
     """ Helper class that is called by mininet to initialize
@@ -54,14 +62,16 @@ class ParsedTopo(Topo):
         host_links = []
         switch_links = []
         self.sw_port_mapping = {}
+        host_set = set(hosts)
+        switch_set = set(switches)
 
         for link in links:
-            if link['node1'][0] == 'h':
+            if link['node1'] in host_set:
                 host_links.append(link)
-            elif link['node1'][0] == 's':
+            elif link['node1'] in switch_set:
                 switch_links.append(link)
             else:
-                raise Exception("Nodes in topology.json must either start with h for host or s for switch.")
+                raise Exception(f"Node '{link['node1']}' is not listed in hosts or switches.")
 
         link_sort_key = lambda x: x['node1'] + x['node2']
         # Links must be added in a sorted order so bmv2 port numbers are predictable
@@ -75,8 +85,8 @@ class ParsedTopo(Topo):
         for link in host_links:
             host_name = link['node1']
             host_sw   = link['node2']
-            host_num = int(host_name[1:])
-            sw_num   = int(host_sw[1:])
+            host_num = extract_id(host_name)
+            sw_num   = extract_id(host_sw)
             host_ip = "10.0.%d.%d" % (sw_num, host_num)
             host_mac = '00:00:00:00:%02x:%02x' % (sw_num, host_num)
             # Each host IP should be /24, so all traffic will use the
@@ -257,8 +267,8 @@ class MininetRunner:
             if len(link) > 3:
                 link_dict['bandwidth'] = link[3]
 
-            if link_dict['node1'][0] == 'h':
-                assert link_dict['node2'][0] == 's', 'Hosts should be connected to switches, not ' + str(link_dict['node2'])
+            if link_dict['node1'] in self.hosts:
+                assert link_dict['node2'] in self.switches, 'Hosts should be connected to switches, not ' + str(link_dict['node2'])
             links.append(link_dict)
         return links
 
@@ -312,7 +322,7 @@ class MininetRunner:
 
             sw_iface = link.intf1 if link.intf1 != h_iface else link.intf2
             # phony IP to lie to the host about
-            host_id = int(host_name[1:])
+            host_id = extract_id(host_name)
             sw_ip = '10.0.%d.254' % host_id
 
             # Ensure each host's interface name is unique, or else
