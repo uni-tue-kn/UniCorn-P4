@@ -2,6 +2,7 @@ from flask_restful import reqparse
 from flask import jsonify, make_response, request
 
 import json
+import time
 from .Endpoint import Endpoint
 
 from ..database.TableStates import *
@@ -9,9 +10,38 @@ from ..database.SwitchConfigs import *
 
 
 class SwitchesFromTopology(Endpoint):
+    AUTOCONNECT_RETRIES = 6
+    AUTOCONNECT_RETRY_DELAY_SECONDS = 0.5
 
     def switch_exists_in_db(self, name, address, device_id):
         return db.session.query(SwitchConfigs.id).filter_by(name=name, address=address, device_id=device_id).first() is not None
+
+    def _is_retryable_autoconnect_error(self, err):
+        msg = str(err)
+        return (
+            "Connection refused" in msg
+            or "failed to connect to all addresses" in msg
+            or "grpc_status:14" in msg
+        )
+
+    def _add_switch_connection_with_retry(self, switch_config):
+        last_err = None
+        for attempt in range(self.AUTOCONNECT_RETRIES):
+            try:
+                self.controller.addSwitchConnection(switch_config)
+                return
+            except Exception as err:
+                last_err = err
+                if not self._is_retryable_autoconnect_error(err):
+                    raise
+                if attempt == self.AUTOCONNECT_RETRIES - 1:
+                    break
+                print(
+                    f"Autoconnect retry {attempt + 1}/{self.AUTOCONNECT_RETRIES - 1} "
+                    f"for switch {switch_config.get('name')} at {switch_config.get('address')}: {err}"
+                )
+                time.sleep(self.AUTOCONNECT_RETRY_DELAY_SECONDS)
+        raise last_err
 
     def post(self):
         
@@ -43,7 +73,7 @@ class SwitchesFromTopology(Endpoint):
                 self.db.session.commit()            
                 
                 for idx, switch in enumerate(switch_configs):
-                    self.controller.addSwitchConnection(switch)
+                    self._add_switch_connection_with_retry(switch)
                     self.controller.switch_configs[switch["device_id"]].db_id = new_switch_configs[idx].id
                 
             return make_response(jsonify(self.controller.getSwitchConnections()), 200)
