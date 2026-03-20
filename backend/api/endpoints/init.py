@@ -20,9 +20,9 @@ class Initialize(Endpoint):
         except KeyError:
             return {"error": f"Switch id={args['switch_id']} is not initialized"}
         # Translate state_id into readable state name
-        if initializedFiles["state_id"] != None:
+        if initializedFiles["state_id"] is not None:
            initializedState = TableStates.query.filter_by(id = initializedFiles["state_id"]).first()
-           initializedFiles["state_name"] = initializedState.name
+           initializedFiles["state_name"] = initializedState.name if initializedState is not None else None
         return initializedFiles
 
     def post(self):
@@ -110,4 +110,5 @@ class Initialize(Endpoint):
         
         if warning_msg:
             return warning_msg, 200
+        return "", 200
         

@@ -50,14 +50,19 @@ class SavedStates(Endpoint):
         parser.add_argument('name', required = False, type=str)
         args = parser.parse_args()
         state_to_edit = TableStates.query.filter_by(id = args['saved_state_id']).first()
-        other_state = TableStates.query.filter(TableStates.location == 'saved', TableStates.name == args['name'], id != args['saved_state_id']).first()
-        if other_state == None:
+        other_state = TableStates.query.filter(
+            TableStates.location == 'saved',
+            TableStates.name == args['name'],
+            TableStates.id != args['saved_state_id']
+        ).first()
+        if other_state is None:
             linked_states = TableStates.query.filter_by(name = state_to_edit.name)
             for state in linked_states:
                 state.name = args['name']
                 flag_modified(state, "name")
                 self.db.session.add(state)
                 self.db.session.commit()
+            return 200
         else:
             return make_response(jsonify({'error': 'There already exists a state with that name!'}), 400)        
 

@@ -12,7 +12,9 @@ class LoadTopology(Endpoint):
         args = parser.parse_args()
                 
         try:
-            self.clear_topology()
+            clear_result = self.clear_topology()
+            if isinstance(clear_result, tuple) and len(clear_result) == 2 and clear_result[1] != 200:
+                return clear_result
             
             self.netsim.topo_file = args.topology_file
             self.netsim.run()

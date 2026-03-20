@@ -196,6 +196,11 @@ class MininetRunner:
     def destroy_topology(self):
         # Cleanup mininet environment and old interfaces
         self.logger("Cleaning up old topologies")
+        if self.net is not None:
+            try:
+                self.net.stop()
+            except Exception as e:
+                self.logger(f"Graceful Mininet shutdown failed: {e}")
         with open(os.devnull, 'wb') as devnull:
             subprocess.check_call(['mn', '-c'], stdout=devnull, stderr=devnull)
         # Clean up existing device id and grpc port mappings
@@ -322,8 +327,8 @@ class MininetRunner:
 
             sw_iface = link.intf1 if link.intf1 != h_iface else link.intf2
             # phony IP to lie to the host about
-            host_id = extract_id(host_name)
-            sw_ip = '10.0.%d.254' % host_id
+            switch_id = extract_id(sw_iface.node.name)
+            sw_ip = '10.0.%d.254' % switch_id
 
             # Ensure each host's interface name is unique, or else
             # mininet cannot shutdown gracefully

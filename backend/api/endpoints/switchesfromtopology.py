@@ -16,6 +16,26 @@ class SwitchesFromTopology(Endpoint):
     def switch_exists_in_db(self, name, address, device_id):
         return db.session.query(SwitchConfigs.id).filter_by(name=name, address=address, device_id=device_id).first() is not None
 
+    def _switch_key(self, switch_config):
+        return (switch_config["name"], switch_config["address"], switch_config["device_id"])
+
+    def _get_or_create_switch_records(self, switch_configs):
+        records = {}
+        for switch in switch_configs:
+            key = self._switch_key(switch)
+            record = SwitchConfigs.query.filter_by(
+                name=switch["name"],
+                address=switch["address"],
+                device_id=switch["device_id"],
+            ).first()
+            if record is None:
+                record = SwitchConfigs(**switch)
+                self.db.session.add(record)
+                self.db.session.flush()
+            records[key] = record
+        self.db.session.commit()
+        return records
+
     def _is_retryable_autoconnect_error(self, err):
         msg = str(err)
         return (
@@ -47,11 +67,12 @@ class SwitchesFromTopology(Endpoint):
         
         data = request.get_json()
 
-        if 'switch_configs' not in data:
+        if data is None or 'switch_configs' not in data:
                 return jsonify({'error': 'No switch_configs key in JSON data'}), 400
         create_switches = data["create_switches"] if 'create_switches' in data else False
 
         switch_configs = json.loads(data['switch_configs'])
+        connected_device_ids = []
         
         # Disconnect all connected switches
         connections = self.controller.getSwitchConnections()
@@ -64,19 +85,17 @@ class SwitchesFromTopology(Endpoint):
         #self.db.session.commit()
         try:
             if create_switches:
-            # Connect the new ones
-                new_switch_configs = [SwitchConfigs(**switch) for switch in switch_configs]
-                
-                # Those entries are checkef for duplicates first in the database
-                new_switch_configs_for_db = [SwitchConfigs(**s) for s in switch_configs if not self.switch_exists_in_db(s["name"], s["address"], s["device_id"])]
-                db.session.add_all(new_switch_configs_for_db)
-                self.db.session.commit()            
+                switch_records = self._get_or_create_switch_records(switch_configs)
                 
                 for idx, switch in enumerate(switch_configs):
                     self._add_switch_connection_with_retry(switch)
-                    self.controller.switch_configs[switch["device_id"]].db_id = new_switch_configs[idx].id
+                    connected_device_ids.append(switch["device_id"])
+                    self.controller.switch_configs[switch["device_id"]].db_id = switch_records[self._switch_key(switch)].id
                 
             return make_response(jsonify(self.controller.getSwitchConnections()), 200)
             
         except Exception as e:
+                for device_id in connected_device_ids:
+                    if device_id in self.controller.switch_configs:
+                        self.controller.deleteSwitchConnection(device_id)
                 return f"There was an error adding a switch: {e}", 500
