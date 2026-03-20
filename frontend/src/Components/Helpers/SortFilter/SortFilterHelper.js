@@ -52,23 +52,27 @@ export function filterEntries(tableEntries, filtering) {
 }
 
 function includesValue(switch_value, filter_value) {
-    switch_value = String(switch_value);
+    switch_value = String(switch_value ?? "");
     filter_value = String(filter_value);
-    return switch_value.startsWith(filter_value) && switch_value.includes(filter_value);
+    return switch_value.startsWith(filter_value);
 }
 
 
 export function sortEntries(tableEntries, sorting) {
-    var sortedEntries = JSON.parse(JSON.stringify(tableEntries));
+    var sortedEntries = JSON.parse(JSON.stringify(tableEntries ?? []));
     if (sorting.match_key !== null) {
         sortedEntries.sort((entry_a, entry_b) => {
             const direction = sorting.descending ? 1 : -1;
-            if (entry_a.switch_entry.match_fields[sorting.match_key] < entry_b.switch_entry.match_fields[sorting.match_key]) {
+            const valueA = entry_a.switch_entry.match_fields?.[sorting.match_key];
+            const valueB = entry_b.switch_entry.match_fields?.[sorting.match_key];
+
+            if (valueA < valueB) {
                 return -1 * direction;
             }
-            else if (entry_a.switch_entry.match_fields[sorting.match_key] > entry_b.switch_entry.match_fields[sorting.match_key]) {
+            if (valueA > valueB) {
                 return 1 * direction;
             }
+            return 0;
         })
     }
     return sortedEntries;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import JSONbig from 'json-bigint';
 
@@ -10,7 +10,7 @@ import { useInit } from '../../Contexts/InitContext';
 import { useTable } from '../../Contexts/TableContext'
 import { useSnackbar } from '../../Contexts/SnackbarContext';
 
-import { Box, Grid, Paper, Stack, Typography, Button, Collapse, TextField, InputAdornment } from '@mui/material'
+import { Box, Grid, Paper, Stack, Typography, Button, Collapse } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import LibraryAddIcon from '@mui/icons-material/LibraryAdd';
@@ -39,7 +39,13 @@ export default function TableContent({ tableName, tableID }) {
   // State to make sure, the table entries fetched from the api refer to the same table as this component
   const [requestedTableName, setRequestedTableName] = useState(null);
 
-  function updateTableEntries(tableName, tableID) {
+  const updateTableEntries = useCallback((requestedName = tableName) => {
+    if (currentSwitchID == null) {
+      setTableEntries(null);
+      setRequestedTableName(null);
+      return;
+    }
+
     axios
       .get("/tables", {
         transformResponse: [function (data) {
@@ -52,22 +58,23 @@ export default function TableContent({ tableName, tableID }) {
         }],
         params: {
           switch_id: currentSwitchID,
-          table_name: tableName
+          table_name: requestedName
         }
       })
       .then(res => {
         setTableEntries(res.data);
-        setRequestedTableName(tableName);
+        setRequestedTableName(requestedName);
       })
       .catch(err => {
         callSnackbar("error", err.response?.data?.error || "There was an error while fetching the table entries");
         console.log(err);
       });
-  }
+  }, [callSnackbar, currentSwitchID, tableName]);
 
 
-  useEffect(() => updateTableEntries(tableName, tableID), [tableName]);
-  useEffect(() => updateTableEntries(tableName, tableID), [currentSwitchID]);
+  useEffect(() => {
+    updateTableEntries(tableName);
+  }, [tableID, tableName, currentSwitchID, updateTableEntries]);
 
   // Table modes 
   const [inlineEditing, setInlineEditing] = useState(false);
@@ -105,6 +112,24 @@ export default function TableContent({ tableName, tableID }) {
     descending: true
   });
 
+  useEffect(() => {
+    setFiltering({
+      table_name: tableName,
+      match_fields: {},
+      action_name: null,
+      action_params: {},
+      priority: null
+    });
+    setSorting({
+      match_key: null,
+      descending: true
+    });
+    setOptionsOpen(false);
+    setEditing(false);
+    setInlineEditing(false);
+    setAdding(false);
+  }, [tableName]);
+
   // State to manage if the save dialog is open or not
   const [saveOpen, setSaveOpen] = useState(false);
 
@@ -113,7 +138,7 @@ export default function TableContent({ tableName, tableID }) {
   }
 
 
-  if (requestedTableName == tableName) {
+  if (requestedTableName === tableName && tableEntries != null) {
     const sortedEntries = sortEntries(tableEntries, sorting);
     const decodedEntries = decodeTableEntries(sortedEntries, decoding, tableInfo, tableName);
     const filteredEntries = filterEntries(decodedEntries, filtering)
@@ -164,6 +189,7 @@ export default function TableContent({ tableName, tableID }) {
       </Box>
     )
   }
-}
 
+  return null;
+}
 

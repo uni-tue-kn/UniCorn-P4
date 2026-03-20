@@ -41,7 +41,7 @@ function SaveStateDialog({ open, setOpen }) {
         ask_for_overwrite: ask_for_overwrite
       })
       .then(res => {
-        if (res.data == "overwrite?") {
+        if (res.data === "overwrite?") {
           setOverwrite(true);
         }
         else {
@@ -87,7 +87,7 @@ function SaveStateDialog({ open, setOpen }) {
           fullWidth
           disabled={overwrite}
           variant="standard"
-          defaultValue={initializedFiles != null && initializedFiles.state_name}
+          value={name ?? ""}
           onChange={(event) => handleNameChange(event)}
         />
       </DialogContent>

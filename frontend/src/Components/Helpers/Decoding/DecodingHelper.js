@@ -110,8 +110,6 @@ function hexToNumber(hexstring) {
 
 function toNumber(string, decoding) {
   if (decoding == "binary") {
-    console.log(string);
-    console.log(binaryToNumber(string));
     return binaryToNumber(string);
   }
   else {
@@ -174,4 +172,3 @@ export function encodeNumericsArray(entry_array, decoding, tableInfo, tableName)
   });
   return encoded_entry_array;
 }
-

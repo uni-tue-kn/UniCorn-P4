@@ -34,7 +34,6 @@ function PostTableEntry({ tableName, updateTableEntries, toggleAdding, needsPrio
   const handlePost = (event) => {
     event.preventDefault();
     const newPostEntryData = entryHandler(event, postEntryData, tableInfo, tableName);
-    console.log(newPostEntryData)
     setPostEntryData(newPostEntryData);
   }
 

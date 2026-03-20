@@ -105,7 +105,7 @@ function ReadableTable({ tableName, tableEntries, updateTableEntries, filteredEn
     }
 
     const readableRow = (entry) => (
-        editEntryData.id == entry.id ? editableRow(entry) : readOnlyRow(entry)
+        editEntryData.id === entry.id ? editableRow(entry) : readOnlyRow(entry)
     )
 
     const editableRow = (entry) => (
@@ -175,4 +175,3 @@ function ReadableTable({ tableName, tableEntries, updateTableEntries, filteredEn
 }
 
 export default ReadableTable
-

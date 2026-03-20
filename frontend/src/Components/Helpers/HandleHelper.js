@@ -6,7 +6,11 @@ export function entryHandler(event, entryData, tableInfo, tableName) {
     // specific match key or parameter name
     const fieldId = event.target.id;
     // copy old data
-    const newEntryData = { ... entryData };
+    const newEntryData = {
+        ...entryData,
+        match_fields: { ...(entryData.match_fields || {}) },
+        action_params: entryData.action_params == null ? entryData.action_params : { ...entryData.action_params },
+    };
 
     switch (fieldName) {
         case "match_value":
@@ -14,12 +18,12 @@ export function entryHandler(event, entryData, tableInfo, tableName) {
             break;
         case "match_value1":
             // create new array for match key if it does not exist already
-            newEntryData.match_fields[fieldId] = newEntryData.match_fields[fieldId] || [];
+            newEntryData.match_fields[fieldId] = [...(newEntryData.match_fields[fieldId] || [])];
             newEntryData.match_fields[fieldId][0] = fieldValue;
             break;
         case "match_value2":
             // create new array for match key if it does not exist already
-            newEntryData.match_fields[fieldId] = newEntryData.match_fields[fieldId] || [];
+            newEntryData.match_fields[fieldId] = [...(newEntryData.match_fields[fieldId] || [])];
             if (tableInfo[tableName].match_fields[fieldId].match_type === 3){
                 newEntryData.match_fields[fieldId][1] = +fieldValue;
               }
@@ -28,7 +32,7 @@ export function entryHandler(event, entryData, tableInfo, tableName) {
             }
             break;
         case "action_name":
-            if (newEntryData.action_name != fieldValue) {
+            if (newEntryData.action_name !== fieldValue) {
                 // reset action params when new action was selected
                 newEntryData.action_params = null;
                 newEntryData.action_name = fieldValue;
@@ -59,4 +63,3 @@ export function sortingHandler(event, sorting) {
     }
     return newSorting;
 }
-

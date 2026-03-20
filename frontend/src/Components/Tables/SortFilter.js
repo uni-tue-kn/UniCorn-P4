@@ -6,9 +6,7 @@ import { useTable } from '../../Contexts/TableContext'
 
 function SortFilter({ tableName, filtering, setFiltering, sorting, setSorting, needsPriority }) {
   const { tableInfo } = useTable();
-  
 
-  console.log(sorting)
   const sortHandler = (event) => {
     const newSorting = sortingHandler(event, sorting);
     setSorting(newSorting);

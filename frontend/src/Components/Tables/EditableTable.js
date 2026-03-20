@@ -31,11 +31,11 @@ function EditableTable({ tableName, tableEntries, updateTableEntries, filteredEn
   //Initialize editTableData
   useEffect(() => {
     const newEditTableData = JSON.parse(JSON.stringify(tableEntries));
-    (newEditTableData).map(entry => {
+    newEditTableData.forEach(entry => {
       entry.deleted = false;
     });
     setEditTableData(newEditTableData);
-  }, []);
+  }, [tableEntries]);
 
 
   const handleEdit = (event, id) => {
@@ -71,7 +71,7 @@ function EditableTable({ tableName, tableEntries, updateTableEntries, filteredEn
     .catch(err => {
       console.log(err);
       callSnackbar("error", err.response?.data?.error || "There was an error while editing the entries");
-      setErrorRow(err.response?.data?.id != undefined ? err.response.data.id : null);
+      setErrorRow(err.response?.data?.id !== undefined ? err.response.data.id : null);
       updateTableEntries(tableName);
     })
   }
@@ -118,7 +118,7 @@ function EditableTable({ tableName, tableEntries, updateTableEntries, filteredEn
     )
   }
 
-  if (editTableData != undefined) {
+  if (editTableData !== undefined) {
     return (
       <Stack spacing={2}>
         {displayTable(editableRow, filteredEntries, needsPriority)}

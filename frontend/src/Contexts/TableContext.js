@@ -18,63 +18,45 @@ export function TableProvider({ children }) {
     const { initializedFiles } = useInit();
     const { currentSwitchID } = useSwitch();
 
+    useEffect(() => {
+        setTableInfo(initializedFiles?.table_info ?? null);
+    }, [initializedFiles]);
 
-    function updateTableInfo() {
-        if (initializedFiles != null) {
-            if (initializedFiles.table_info !== undefined){
-                setTableInfo(initializedFiles.table_info)
-            }
-       }
-
-    }
-
-    useEffect(updateTableInfo, [initializedFiles]);
-
-
-
-    function updateDecoding() {
-        if (currentSwitchID != null) {
-            if (initializedFiles != null) {
-                if (initializedFiles.table_info != null) {
-                    axios
-                        .get("/decoding", {
-                            params: { 
-                                switch_id: currentSwitchID,
-                                state_id: (initializedFiles.state_id || null) }
-                        })
-                        .then(res => {
-                            setDecoding(res.data);
-                        })
-                        .catch(err => {
-                            console.log(err);
-                        });
-                }
-            }
+    useEffect(() => {
+        if (currentSwitchID == null || initializedFiles?.table_info == null) {
+            setDecoding(null);
+            return;
         }
-    }
 
-    function postDecoding() {
-        if (initializedFiles != null) {
-            if (initializedFiles.state_id != null) {
-                if (decoding != undefined) {
-                    axios
-                        .post("/decoding", {
-                            state_id: initializedFiles.state_id,
-                            decoding: JSON.stringify(decoding)
-                        })
-                        .catch(err => {
-                            console.log(err);
-                        });
+        axios
+            .get("/decoding", {
+                params: {
+                    switch_id: currentSwitchID,
+                    state_id: (initializedFiles.state_id || null)
                 }
-            }
+            })
+            .then(res => {
+                setDecoding(res.data);
+            })
+            .catch(err => {
+                console.log(err);
+            });
+    }, [currentSwitchID, initializedFiles]);
+
+    useEffect(() => {
+        if (initializedFiles?.state_id == null || decoding === undefined || decoding === null) {
+            return;
         }
-    }
 
-    // Fetch decoding from the api every time a new state is initialized
-    useEffect(updateDecoding, [initializedFiles]);
-
-    // Post the new decoding to the api every time it changes
-    useEffect(postDecoding, [decoding]);
+        axios
+            .post("/decoding", {
+                state_id: initializedFiles.state_id,
+                decoding: JSON.stringify(decoding)
+            })
+            .catch(err => {
+                console.log(err);
+            });
+    }, [decoding, initializedFiles]);
 
     return (
         <TableContext.Provider value={{ tableInfo, setTableInfo, decoding, setDecoding }}>
