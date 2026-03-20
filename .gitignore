@@ -6,9 +6,11 @@ frontend/build/
 package-lock.json
 frontend/node_modules
 p4-files/
-topologies/logs
-topologies/pcaps
+docker/topologies/logs/*
+docker/topologies/pcaps/*
 database/p4db.db
+*.p4i
+*.p4info.txt
 
 # dependencies
 /node_modules
