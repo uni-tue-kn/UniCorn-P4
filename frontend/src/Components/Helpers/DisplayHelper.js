@@ -56,6 +56,7 @@ export const InlineTableRow = styled(TableRow)(({ theme }) => ({
 
 
 export function displayTable(rowFunction, tableEntries, needsPriority = false, editable = true) {
+    const hasCounters = Boolean(tableEntries?.[0]?.counters);
     return (
         <Paper sx={{  overflow: 'hidden' }}>
         <TableContainer sx={{maxHeight: 'calc(100vh - 325px)'}}>
@@ -64,7 +65,7 @@ export function displayTable(rowFunction, tableEntries, needsPriority = false, e
                     <TableRow>
                         <TopTableHeadCell sx={{borderRight: 1, width: '40%', textAlign: 'center' }} colSpan={2}>Match</TopTableHeadCell>
                         <TopTableHeadCell sx={{borderLeft: 1, borderRight: 1, width: '40%', textAlign: 'center'}} colSpan={2}>Action</TopTableHeadCell>
-                        {tableEntries[0].counters ? 
+                        {hasCounters ? 
                             <TopTableHeadCell sx={{borderLeft: 1, borderRight: 1, width: '40%', textAlign: 'center'}} colSpan={2}>Counter</TopTableHeadCell>
                         : null }
                         {needsPriority && <TopTableHeadCell sx={{borderLeft: 1 , borderRight: 1, width: '10%'}} ></TopTableHeadCell>}
@@ -75,7 +76,7 @@ export function displayTable(rowFunction, tableEntries, needsPriority = false, e
                         <StyledTableCell sx={{borderRight: 1}} width='20%' >Value</StyledTableCell>
                         <StyledTableCell sx={{borderLeft: 1}} width='20%' >Name</StyledTableCell>
                         <StyledTableCell  width='20%' sx={{borderRight: 1}} >Parameters</StyledTableCell>
-                        {tableEntries[0].counters ? 
+                        {hasCounters ? 
                         <>                          
                         <StyledTableCell sx={{borderLeft: 1}} width='20%' >Packets</StyledTableCell>
                         <StyledTableCell  width='20%' sx={{borderRight: 1}} >Bytes</StyledTableCell>
@@ -149,13 +150,23 @@ export function displayCounterValue(entry){
 }
 
 export function displayMatchKeys(entry, tableInfo, tableName) {
+    const currentTableInfo = tableInfo?.[tableName];
+    if (!currentTableInfo) {
+        return null;
+    }
+
     return (
         <Table sx={{border: 0, tableLayout: 'fixed'}}>
             <TableBody>
             {(Object.entries(entry.switch_entry.match_fields).map(([key, value]) => {
-                const match_type = tableInfo[tableName].match_fields[key].match_type;
+                const matchInfo = currentTableInfo.match_fields?.[key];
+                if (!matchInfo) {
+                    return null;
+                }
+
+                const match_type = matchInfo.match_type;
                 return (
-                    <InlineTableRow>
+                    <InlineTableRow key={key}>
                         <InlineTableCell  width='50%'>{key + " (" + displayMatchType(match_type) + ")"}</InlineTableCell>
                         <InlineTableCell  width='50%'>{displayMatchValues(value, match_type)}</InlineTableCell>
                     </InlineTableRow>
@@ -208,7 +219,11 @@ export function displayFile(file_path) {
 }
 
 export function checkForPriority(tableInfo, tableName) {
-    const match_fields = tableInfo[tableName].match_fields;
+    const match_fields = tableInfo?.[tableName]?.match_fields;
+    if (!match_fields) {
+        return false;
+    }
+
     const needsPriority = Object.values(match_fields).some(
         (match_field) => match_field.match_type === 4 || match_field.match_type === 5);
     return needsPriority;

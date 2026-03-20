@@ -111,7 +111,19 @@ export function getActionOptions(tableInfo, tableName) {
 export function actionParamsInput(tableInfo, tableName, entryData, handler, id = null, deleted = false, size = 'small') {
   if (entryData.action_name != undefined) {
     const selectedAction = entryData.action_name
-    const action_params = tableInfo[tableName].actions[selectedAction].params;
+    const selectedActionInfo = tableInfo[tableName].actions?.[selectedAction];
+
+    if (!selectedActionInfo) {
+      return (
+        <TextField
+          size={size}
+          value="Select action first!"
+          disabled
+        />
+      )
+    }
+
+    const action_params = selectedActionInfo.params;
     if (action_params.length > 0) {
       return (
         <Stack direction='column' spacing={2}>
@@ -246,4 +258,3 @@ export function switchInput(switchConfig, switchesOnline, handler, handlerDropdo
     </Stack>
   )
 }
-

@@ -5,17 +5,18 @@ export function filterEntries(tableEntries, filtering) {
         // Filter match values
         let includesMatch = true;
         Object.entries(filtering.match_fields).forEach(([key, value]) => {
+            const matchValue = switch_entry.match_fields?.[key];
             if (Array.isArray(value)) {
                 if (value[0]) {
-                    includesMatch = includesValue(switch_entry.match_fields[key][0], value[0]);
+                    includesMatch = includesValue(matchValue?.[0], value[0]);
                 }
                 if (value[1]) {
-                    includesMatch = includesValue(switch_entry.match_fields[key][1], value[1]);
+                    includesMatch = includesValue(matchValue?.[1], value[1]);
                 }
             }
             else {
                 if (value) {
-                    includesMatch = includesValue(switch_entry.match_fields[key], value);
+                    includesMatch = includesValue(matchValue, value);
                 }
             }
         })
@@ -33,7 +34,7 @@ export function filterEntries(tableEntries, filtering) {
             if (filtering.action_params != null) {
                 let includesParams = true
                 Object.entries(filtering.action_params).forEach(([param, value]) => {
-                    includesParams = includesValue(switch_entry.action_params[param], value);
+                    includesParams = includesValue(switch_entry.action_params?.[param], value);
                 })
                 if (!includesParams)
                     return false;

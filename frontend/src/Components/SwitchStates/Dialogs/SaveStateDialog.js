@@ -15,8 +15,8 @@ function SaveStateDialog({ open, setOpen }) {
 
   const [overwrite, setOverwrite] = useState(false);
 
-  const [name, setName] = useState(initializedFiles.state_name);
-  useEffect(() => setName(initializedFiles.state_name), [open]);
+  const [name, setName] = useState(initializedFiles?.state_name ?? null);
+  useEffect(() => setName(initializedFiles?.state_name ?? null), [open, initializedFiles]);
 
   const handleNameChange = (event) => {
     event.preventDefault();
@@ -30,7 +30,7 @@ function SaveStateDialog({ open, setOpen }) {
   }
 
   const submitDialog = (event, ask_for_overwrite) => {
-    submitSave(event, initializedFiles.state_id, name, ask_for_overwrite);
+    submitSave(event, initializedFiles?.state_id, name, ask_for_overwrite);
   }
 
   const submitSave = (event, id, name, ask_for_overwrite) => {

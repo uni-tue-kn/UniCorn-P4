@@ -141,7 +141,7 @@ export default function TableContent({ tableName, tableID }) {
                     <Button variant='outlined' startIcon={<SortIcon />} sx={{ backgroundColor: '#cecece' }} endIcon={<SearchIcon />} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "sort&filter")} >Sort & Filter</Button>
                     <Button variant='outlined' endIcon={<SettingsIcon />} sx={{ backgroundColor: '#cecece' }} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "decoding")} >Decoding Options</Button>
                   </Stack>
-                  <Button variant='contained' endIcon={<LibraryAddIcon />} disabled={(editing || inlineEditing) || initializedFiles.state_id === null} onClick={(event) => handleSaveClick(event)}>
+                  <Button variant='contained' endIcon={<LibraryAddIcon />} disabled={(editing || inlineEditing) || initializedFiles?.state_id === null || initializedFiles?.state_id === undefined} onClick={(event) => handleSaveClick(event)}>
                     Save state
                   </Button>
                 </Stack>
@@ -165,6 +165,5 @@ export default function TableContent({ tableName, tableID }) {
     )
   }
 }
-
 
 

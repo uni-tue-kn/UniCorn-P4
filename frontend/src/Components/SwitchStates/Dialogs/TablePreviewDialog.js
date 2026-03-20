@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { displayTable, displayActionData, displayMatchKeys, checkForPriority } from '../../Helpers/DisplayHelper';
 import { StyledTableCell, StyledTableRow } from '../../Helpers/DisplayHelper';
@@ -32,9 +32,15 @@ function TablePreviewDialog({ tablePreview, setTablePreview }) {
 
   const[decodingOpen, setDecodingOpen] = useState(false);
 
+  useEffect(() => {
+    setPreviewDecoding(tablePreview?.decoding ?? {});
+    setPreviewTableName(null);
+    setDecodingOpen(false);
+  }, [tablePreview]);
+
   if (tablePreview != undefined) {
     const tableInfo = tablePreview['table_info'];
-
+    const previewEntries = previewTableName != null ? (tablePreview.entries?.[previewTableName] ?? []) : [];
 
     const needsPriority = (previewTableName != null ? checkForPriority(tableInfo, previewTableName) : false);
 
@@ -48,7 +54,7 @@ function TablePreviewDialog({ tablePreview, setTablePreview }) {
       )
     }
     
-    const decodedEntries = decodeTableEntries(tablePreview['entries'][previewTableName], previewDecoding, tableInfo, previewTableName)
+    const decodedEntries = decodeTableEntries(previewEntries, previewDecoding, tableInfo, previewTableName) ?? previewEntries;
     return (
       <Dialog open={tablePreview != null} maxWidth='xl' fullWidth >
         <DialogTitle>
@@ -78,7 +84,7 @@ function TablePreviewDialog({ tablePreview, setTablePreview }) {
                 {previewTableName != null && <DecodingOptions tableName={previewTableName} tableInfo={tableInfo} decoding={previewDecoding} setDecoding={setPreviewDecoding} />}
               </Collapse>
             {previewTableName != null &&
-              ((tablePreview['entries'][previewTableName].length > 0) ?
+              ((previewEntries.length > 0) ?
                 displayTable(previewRow, decodedEntries, needsPriority, false) :
                 <Typography color='error'>The table has no entries</Typography>)}
           </Stack>
