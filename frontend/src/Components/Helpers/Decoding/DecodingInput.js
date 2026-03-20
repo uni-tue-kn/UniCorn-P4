@@ -5,7 +5,7 @@ import { Table, TableHead, TableBody, TableRow, TableCell } from '@mui/material'
 import { getActionOptions } from "../InputHelper";
 import { InlineTableRow, InlineTableCell, displayMatchType } from '../DisplayHelper';
 
-export function decodingInput(tableInfo, tableName, decoding, matchHandler, selectedAction, actionNameHandler, actionParamsHandler) {
+export function decodingInput(tableInfo, tableName, tableDecoding, matchHandler, selectedAction, actionNameHandler, actionParamsHandler) {
     return (
       <Table>
         <TableHead>
@@ -17,10 +17,10 @@ export function decodingInput(tableInfo, tableName, decoding, matchHandler, sele
         <TableBody>
           <TableRow>
             <TableCell sx={{ padding: 0 }}>
-              {decodeToggleMatch(tableInfo, tableName, decoding, matchHandler)}
+              {decodeToggleMatch(tableInfo, tableName, tableDecoding, matchHandler)}
             </TableCell>
             <TableCell sx={{ padding: 0 }}>
-              {decodeToggleAction(tableInfo, tableName, decoding, selectedAction, actionNameHandler, actionParamsHandler)}
+              {decodeToggleAction(tableInfo, tableName, tableDecoding, selectedAction, actionNameHandler, actionParamsHandler)}
             </TableCell>
           </TableRow>
         </TableBody>
@@ -28,11 +28,11 @@ export function decodingInput(tableInfo, tableName, decoding, matchHandler, sele
     )
   }
   
-  function decodeToggleMatch(tableInfo, tableName, decoding, handler) {
+  function decodeToggleMatch(tableInfo, tableName, tableDecoding, handler) {
     return (
       <Stack direction='column' spacing={1}>
         {Object.entries(tableInfo[tableName].match_fields).map(([match_key, match_data], i, arr) => (
-          <Stack direction='column' spacing={1}>
+          <Stack key={match_key} direction='column' spacing={1}>
             <Table>
               <TableBody>
                 <InlineTableRow>
@@ -48,7 +48,7 @@ export function decodingInput(tableInfo, tableName, decoding, matchHandler, sele
                     </Typography>
                   </InlineTableCell>
                   <InlineTableCell width='50%'>
-                    {decodeDropdown(decoding[tableName].match[match_key], match_key, match_data.bitwidth, handler)}
+                    {decodeDropdown(tableDecoding.match?.[match_key] ?? "numeric", match_key, match_data.bitwidth, handler)}
                   </InlineTableCell>
                 </InlineTableRow>
               </TableBody>
@@ -61,7 +61,7 @@ export function decodingInput(tableInfo, tableName, decoding, matchHandler, sele
     )
   }
   
-  function decodeToggleAction(tableInfo, tableName, decoding, selectedAction, nameHandler, paramsHandler) {
+  function decodeToggleAction(tableInfo, tableName, tableDecoding, selectedAction, nameHandler, paramsHandler) {
     return (
       <Table>
         <TableBody>
@@ -73,7 +73,7 @@ export function decodingInput(tableInfo, tableName, decoding, matchHandler, sele
                   select
                   label='Action'
                   name='action_name'
-                  value={selectedAction}
+                  value={selectedAction || ""}
                   required
                   onChange={(event) => nameHandler(event)}
                 >
@@ -82,7 +82,7 @@ export function decodingInput(tableInfo, tableName, decoding, matchHandler, sele
               </FormControl>
             </InlineTableCell>
             <InlineTableCell width='50%'>
-              {decodeActionParams(tableInfo, tableName, decoding, selectedAction, paramsHandler)}
+              {decodeActionParams(tableInfo, tableName, tableDecoding, selectedAction, paramsHandler)}
             </InlineTableCell>
           </InlineTableRow>
         </TableBody>
@@ -90,9 +90,10 @@ export function decodingInput(tableInfo, tableName, decoding, matchHandler, sele
     )
   }
   
-  function decodeActionParams(tableInfo, tableName, decoding, selectedAction, handler) {
-    if (selectedAction != undefined) {
+  function decodeActionParams(tableInfo, tableName, tableDecoding, selectedAction, handler) {
+    if (selectedAction !== undefined && selectedAction !== null && tableInfo[tableName].actions?.[selectedAction]) {
       const action_params = tableInfo[tableName].actions[selectedAction].params;
+      const actionDecoding = tableDecoding.action?.[selectedAction] ?? {};
       if (action_params.length > 0) {
         return (
           <Stack direction='column' spacing={1}>
@@ -100,9 +101,9 @@ export function decodingInput(tableInfo, tableName, decoding, matchHandler, sele
               const param_name = action_param.name;
               const bitwidth = action_param.bitwidth;
               return (
-                <Stack direction='column' spacing={1}>
+                <Stack key={param_name} direction='column' spacing={1}>
                   <Typography variant='body2'>{param_name}:</Typography>
-                  {decodeDropdown(decoding[tableName].action[selectedAction][param_name], param_name, bitwidth, handler)}
+                  {decodeDropdown(actionDecoding[param_name] ?? "numeric", param_name, bitwidth, handler)}
                 </Stack>
               )
             })}
