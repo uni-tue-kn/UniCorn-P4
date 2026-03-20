@@ -37,10 +37,10 @@ header arp_t {
     bit<16> protocol_type;
     bit<8> hardware_length;
     bit<8> protocol_length;
-    bit<16> operation;
-    bit<32> sender_hw_addr;
+    bit<16> opcode;
+    bit<48> sender_hw_addr;
     bit<32> sender_proto_addr;
-    bit<32> target_hw_addr;
+    bit<48> target_hw_addr;
     bit<32> target_proto_addr;
 }
 

@@ -15,6 +15,7 @@ control MyIngress(inout headers hdr,
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
         standard_metadata.egress_spec = port;
+        // Simplified, should actually be the Router MAC
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
@@ -36,25 +37,36 @@ control MyIngress(inout headers hdr,
     }
 
     // ! 6.  Add the Match-Action logic
-    // This action receives a port from the control plane and sends to packet out via this port
-    action arp_forward(egressSpec_t port) {
-        standard_metadata.egress_spec = port;
+    // This action builds an arp reply for an arp request and sends it out via the specified port
+    action build_arp_reply(macAddr_t routerIFMacAddr) {
+        hdr.ethernet.dstAddr = hdr.ethernet.srcAddr;
+        hdr.ethernet.srcAddr = routerIFMacAddr;
+        hdr.arp.opcode = 2; // reply
+
+        // Swap the sender and target IPv4 addresses
+        ip4Addr_t temp = hdr.arp.target_proto_addr;
+        hdr.arp.target_proto_addr = hdr.arp.sender_proto_addr;
+        hdr.arp.sender_proto_addr = temp;
+
+        // Swap the sender and target MAC addresses
+        hdr.arp.target_hw_addr = hdr.arp.sender_hw_addr;
+        hdr.arp.sender_hw_addr = routerIFMacAddr;
+
+        // Return the packet
+        standard_metadata.egress_spec = standard_metadata.ingress_port;
     }
 
-    // This table forwards arp requests coming from port 1 to port 2 and vice versa
-    // Normally those would be broadcasted!!
-    table arp_match {
+    // This table matches on the ARP opcode and the target protocol address (the IPv4 address we want to resolve) and sends an ARP reply if there is a match
+    table arp_reply {
         key = {
-            standard_metadata.ingress_port: exact;
+            hdr.arp.target_proto_addr: exact; // The IPv4 address we want to resolve
         }
         actions = {
-            arp_forward;
+            build_arp_reply;
             drop;
         }
         default_action = drop();
     }
-
-    
 
     apply {
         if (hdr.ipv4.isValid()) {
@@ -62,8 +74,11 @@ control MyIngress(inout headers hdr,
         }
         // ! 7. Call the match action logic
         else if (hdr.arp.isValid()){
-            // Apply the table
-            arp_match.apply();
+
+            if (hdr.arp.opcode == 1) { // Request
+                // Apply the table
+                arp_reply.apply();
+            }
         }
     }
 }
