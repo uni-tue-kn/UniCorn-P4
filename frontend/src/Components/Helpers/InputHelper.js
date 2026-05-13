@@ -4,20 +4,22 @@ import { Table, TableHead, TableBody, TableRow, TableCell } from '@mui/material'
 
 import { InlineTableRow, InlineTableCell, displayMatchType } from './DisplayHelper';
 
-export function selectTable(tableInfo, handler, selected = null) {
+export function selectTable(tableInfo, handler, selected = null, tableNames = null) {
   return (
     <FormControl style={{ minWidth: 250 }}>
       <TextField select label='Table' defaultValue={selected ? selected : null} name='table_name' onChange={handler}>
-        {getTableOptions(tableInfo)}
+        {getTableOptions(tableInfo, tableNames)}
       </TextField>
     </FormControl>
   )
 }
 
-function getTableOptions(tableInfo) {
+function getTableOptions(tableInfo, tableNames = null) {
+  const optionNames = tableNames ?? Object.keys(tableInfo ?? {});
+
   return (
-    Object.entries(tableInfo).map(([table_name, table_data]) => (
-      <MenuItem key={table_name} value={table_name}>{table_name}</MenuItem>
+    optionNames.map((table_name) => (
+      <MenuItem key={table_name} value={table_name}>{tableInfo?.[table_name]?.table_name ?? table_name}</MenuItem>
     ))
   )
 }

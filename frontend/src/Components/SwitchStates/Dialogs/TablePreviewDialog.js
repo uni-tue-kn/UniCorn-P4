@@ -38,11 +38,14 @@ function TablePreviewDialog({ tablePreview, setTablePreview }) {
     setDecodingOpen(false);
   }, [tablePreview]);
 
-  if (tablePreview != undefined) {
-    const tableInfo = tablePreview['table_info'];
+  if (tablePreview !== undefined) {
+    const tableInfo = tablePreview['table_info'] ?? {};
+    const entries = tablePreview['entries'] ?? {};
+    const previewTableNames = Object.keys(entries).length > 0 ? Object.keys(entries) : Object.keys(tableInfo);
     const previewEntries = previewTableName != null ? (tablePreview.entries?.[previewTableName] ?? []) : [];
 
     const needsPriority = (previewTableName != null ? checkForPriority(tableInfo, previewTableName) : false);
+    const hasTableInfo = previewTableName != null && tableInfo?.[previewTableName] != null;
 
     const previewRow = (entry) => {
       return (
@@ -76,9 +79,9 @@ function TablePreviewDialog({ tablePreview, setTablePreview }) {
             <Typography></Typography>
             <Stack direction='row' spacing={2}>
               <FormControl style={{ maxWidth: 300 }}>
-                {selectTable(tablePreview['table_info'], handleTableChange)}
+                {selectTable(tableInfo, handleTableChange, null, previewTableNames)}
               </FormControl>
-              <Button variant='outlined' endIcon={<SettingsIcon />} disabled={previewTableName == null} onClick={(event) => setDecodingOpen(!decodingOpen)} >Decoding Options</Button>
+              <Button variant='outlined' endIcon={<SettingsIcon />} disabled={!hasTableInfo} onClick={(event) => setDecodingOpen(!decodingOpen)} >Decoding Options</Button>
             </Stack>
             <Collapse in={decodingOpen} unmountOnExit>
                 {previewTableName != null && <DecodingOptions tableName={previewTableName} tableInfo={tableInfo} decoding={previewDecoding} setDecoding={setPreviewDecoding} />}

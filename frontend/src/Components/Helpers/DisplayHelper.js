@@ -151,17 +151,20 @@ export function displayCounterValue(entry){
 
 export function displayMatchKeys(entry, tableInfo, tableName) {
     const currentTableInfo = tableInfo?.[tableName];
-    if (!currentTableInfo) {
-        return null;
-    }
+    const matchFields = entry.switch_entry.match_fields ?? {};
 
     return (
         <Table sx={{border: 0, tableLayout: 'fixed'}}>
             <TableBody>
-            {(Object.entries(entry.switch_entry.match_fields).map(([key, value]) => {
-                const matchInfo = currentTableInfo.match_fields?.[key];
+            {(Object.entries(matchFields).map(([key, value]) => {
+                const matchInfo = currentTableInfo?.match_fields?.[key];
                 if (!matchInfo) {
-                    return null;
+                    return (
+                        <InlineTableRow key={key}>
+                            <InlineTableCell width='50%'>{key}</InlineTableCell>
+                            <InlineTableCell width='50%'>{displayUnknownMatchValue(value)}</InlineTableCell>
+                        </InlineTableRow>
+                    )
                 }
 
                 const match_type = matchInfo.match_type;
@@ -176,6 +179,14 @@ export function displayMatchKeys(entry, tableInfo, tableName) {
             </TableBody>
         </Table>
     )
+}
+
+function displayUnknownMatchValue(match_value) {
+    if (Array.isArray(match_value)) {
+        return match_value.join(" / ");
+    }
+
+    return match_value;
 }
 
 export function displayMatchType(match_type) {

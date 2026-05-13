@@ -59,7 +59,12 @@ def copy_state(state_to_copy):
     return new_state
 
 def update_state(state_to_update, updated_state):
+    state_to_update.p4_info_file = updated_state.p4_info_file
+    state_to_update.bmv2_file = updated_state.bmv2_file
     state_to_update.table_entries = updated_state.table_entries
     state_to_update.decoding = updated_state.decoding
+    state_to_update.table_info = updated_state.table_info
+    state_to_update.last_init = updated_state.last_init
     flag_modified(state_to_update, "table_entries")
     flag_modified(state_to_update, "decoding")
+    flag_modified(state_to_update, "table_info")
