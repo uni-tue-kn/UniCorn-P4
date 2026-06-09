@@ -27,7 +27,7 @@ from .utils.p4runtime_switch import P4RuntimeSwitch
 
 from mininet.net import Mininet
 from mininet.topo import Topo
-from mininet.link import TCLink
+from mininet.link import TCLink, Intf
 from mininet.cli import CLI
 
 def extract_id(name):
@@ -178,6 +178,7 @@ class MininetRunner:
         self.hosts = []
         self.switches = {}
         self.links = []
+        self.ext_intfs = []
         
         # Will be populated with dicts like d = {"dev_id": 0, "grpc_port": 50051, "name": s1} in self.run()
         self.switch_mappings = []
@@ -191,7 +192,8 @@ class MininetRunner:
             topo = json.load(f)
         self.hosts = topo['hosts']
         self.switches = topo['switches']
-        self.links = self.parse_links(topo['links'])   
+        self.links = self.parse_links(topo['links'])
+        self.ext_intfs = topo.get('ext_intfs',[]) # get external interfaces from topology if configured
 
     def destroy_topology(self):
         # Cleanup mininet environment and old interfaces
@@ -213,6 +215,7 @@ class MininetRunner:
         self.hosts = []
         self.switches = {}
         self.links = []
+        self.ext_intfs = []
 
     def run(self):
         """ Sets up the mininet instance, programs the switches,
@@ -311,6 +314,11 @@ class MininetRunner:
                       cleanup=True,
                       switch = switchClass,
                       controller = None)
+        # Attaching physical / external interfaces to the switches
+        for sw_name, ext_intf in self.ext_intfs:
+            sw = self.net.get(sw_name)
+            Intf(ext_intf, node=sw)
+            self.logger(f"Attached external interface {ext_intf} to switch {sw_name}")
 
 
     def program_hosts(self):
