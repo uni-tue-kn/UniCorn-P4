@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import axios from 'axios';
-import { useSnackbar } from './SnackbarContext';
 
 const TopologyContext = createContext(null);
 
@@ -9,9 +8,6 @@ export function useTopology() {
 }
 
 export function TopologyProvider({ children }) {
-
-    // Get reference for calls to Snackbar Info Banner
-    const { callSnackbar } = useSnackbar();
 
     // State that saves list of known Topologies
     const [knownTopologies, setKnownTopologies] = useState([]);
@@ -31,25 +27,7 @@ export function TopologyProvider({ children }) {
             return;
         }
 
-        console.log("Loading topology....")
-
-        axios
-            .get("/topologies", {
-                params: {
-                    "name": currentTopologyName
-                }
-            })
-            .then(res => {
-                // Store topology Data
-                setLoadedTopology(res.data[currentTopologyName]);
-                setLoadedHosts(res.data[currentTopologyName]["hosts"]);
-                setLoadedSwitches(Object.keys(res.data[currentTopologyName]["switches"]));
-            })
-            .catch(err => {
-                callSnackbar("error", "Failed to load topology with name: " + currentTopologyName)
-                console.log(err);
-            });
-        console.log(loadedTopology);
+        getLoadedTopology();
     }
 
     // Get topology that is currently loaded in Mininet and store it in state
@@ -58,12 +36,18 @@ export function TopologyProvider({ children }) {
             .get("http://127.0.0.1:5001/topology/get", {
             })
             .then(res => {
+                const topology = res.data;
                 // Store name for new topology
-                if (res.data["file_name"] === null) {
+                if (topology["file_name"] === null) {
                     setCurrentTopologyName("");
                     setLoadedTopology("");
+                    setLoadedHosts([]);
+                    setLoadedSwitches([]);
                 } else {
-                    setCurrentTopologyName(res.data["file_name"]);
+                    setCurrentTopologyName(topology["file_name"]);
+                    setLoadedTopology(topology);
+                    setLoadedHosts(topology.hosts || []);
+                    setLoadedSwitches(Object.keys(topology.switches || {}));
                 }
             })
             .catch(err => {
@@ -92,7 +76,6 @@ export function TopologyProvider({ children }) {
     // When used, first get available topologies
     useEffect(getTopologies, []);
     useEffect(getLoadedTopology, [])
-    useEffect(loadTopologyByName, [currentTopologyName]);
 
     return (
         <TopologyContext.Provider value={{ knownTopologies, getTopologies, currentTopologyName, setCurrentTopologyName, loadTopologyByName, getLoadedTopology, loadedTopology, loadedHosts, setLoadedHosts, loadedSwitches, setLoadedSwitches, setLoadedTopology }}>

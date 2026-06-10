@@ -65,6 +65,9 @@ function SelectSwitch() {
     overflow: 'hidden',
     whiteSpace: 'nowrap',
     fontSize: 16,
+    '&.Mui-selected': {
+      color: 'white',
+    },
   }));
 
   return (

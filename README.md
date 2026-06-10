@@ -77,7 +77,6 @@ The Mininet container will now create your virtual testbed in the background.
 If you want to use external / real network interfaces, you can configure them by adding a section like the following example to your topology file:
 ```json
 {
-    // hosts, switches, links
     "ext_intfs": [
         ["s1", "INTERFACE_NAME_1"], 
         ["s1", "INTERFACE_NAME_2"], 

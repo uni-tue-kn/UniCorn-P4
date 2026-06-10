@@ -34,18 +34,48 @@ export function ThemeProviderWrapper({ children }) {
         palette: {
           mode: darkMode ? 'dark' : 'light',
           primary: {
-            main: darkMode ? '#1d103c' : '#1d103c',
+            main: darkMode ? '#9f8ce8' : '#1d103c',
+            light: darkMode ? '#4f3f74' : '#4a3f63',
+            dark: darkMode ? '#2b1b4f' : '#120926',
+            contrastText: '#ffffff',
+            text: darkMode ? '#ffffff' : '#1d103c',
           },
           secondary: {
-            main: darkMode ? '#00887c' : '#00887c', // Adjusted for dark mode
+            main: darkMode ? '#31c6b8' : '#00887c',
+            light: darkMode ? '#2a9f96' : '#33a097',
+            dark: darkMode ? '#006f66' : '#005f57',
+            contrastText: '#ffffff',
           },
           text: {
             primary: darkMode ? '#ffffff' : '#1d103c', // White text in dark mode, dark text in light mode
-            secondary: darkMode ? '#868686' : '#666666', // Lighter secondary text for dark mode
+            secondary: darkMode ? '#c2bfd0' : '#666666', // Lighter secondary text for dark mode
           },          
           background: {
             default: darkMode ? '#121212' : '#ffffff', // Standard dark mode background
             paper: darkMode ? '#1e1e1e' : '#f5f5f5', // Cards and surfaces
+          },
+        },
+        components: {
+          MuiTab: {
+            styleOverrides: {
+              root: ({ theme }) => ({
+                color: theme.palette.text.secondary,
+                '&.Mui-selected': {
+                  color: theme.palette.mode === 'dark'
+                    ? theme.palette.primary.main
+                    : theme.palette.primary.dark,
+                },
+              }),
+            },
+          },
+          MuiTabs: {
+            styleOverrides: {
+              indicator: ({ theme }) => ({
+                backgroundColor: theme.palette.mode === 'dark'
+                  ? theme.palette.primary.main
+                  : theme.palette.primary.dark,
+              }),
+            },
           },
         },
       }),

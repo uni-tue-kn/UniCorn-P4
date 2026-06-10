@@ -30,6 +30,8 @@ from mininet.topo import Topo
 from mininet.link import TCLink, Intf
 from mininet.cli import CLI
 
+RESERVED_EXTERNAL_INTERFACES = {"lo"}
+
 def extract_id(name):
     """Extract the trailing numeric ID from a node name (e.g. 'h1' -> 1, 'host1' -> 1)."""
     match = re.search(r'(\d+)$', name)
@@ -179,6 +181,8 @@ class MininetRunner:
         self.switches = {}
         self.links = []
         self.ext_intfs = []
+        self.interface_mapping = {}
+        self.external_intf_objects = []
         
         # Will be populated with dicts like d = {"dev_id": 0, "grpc_port": 50051, "name": s1} in self.run()
         self.switch_mappings = []
@@ -193,13 +197,50 @@ class MininetRunner:
         self.hosts = topo['hosts']
         self.switches = topo['switches']
         self.links = self.parse_links(topo['links'])
-        self.ext_intfs = topo.get('ext_intfs',[]) # get external interfaces from topology if configured
+        self.ext_intfs = self.parse_ext_intfs(topo.get('ext_intfs', []))
+
+    def parse_ext_intfs(self, unparsed_ext_intfs):
+        """Validate and normalize external interface attachments."""
+        if unparsed_ext_intfs is None:
+            return []
+        if not isinstance(unparsed_ext_intfs, list):
+            raise ValueError("ext_intfs must be a list of [switch, interface] pairs.")
+
+        ext_intfs = []
+        seen_interfaces = set()
+        for index, ext_intf in enumerate(unparsed_ext_intfs):
+            if not isinstance(ext_intf, list) or len(ext_intf) != 2:
+                raise ValueError(f"ext_intfs[{index}] must be [switch, interface].")
+
+            sw_name, intf_name = ext_intf
+            if not isinstance(sw_name, str) or not sw_name.strip():
+                raise ValueError(f"ext_intfs[{index}] has an invalid switch name.")
+            if not isinstance(intf_name, str) or not intf_name.strip():
+                raise ValueError(f"ext_intfs[{index}] has an invalid interface name.")
+
+            sw_name = sw_name.strip()
+            intf_name = intf_name.strip()
+
+            if sw_name not in self.switches:
+                raise ValueError(f"External interface '{intf_name}' references unknown switch '{sw_name}'.")
+            if intf_name in RESERVED_EXTERNAL_INTERFACES:
+                raise ValueError(f"External interface '{intf_name}' is reserved and cannot be attached.")
+            if intf_name in seen_interfaces:
+                raise ValueError(f"External interface '{intf_name}' is configured more than once.")
+            if not os.path.exists(os.path.join("/sys/class/net", intf_name)):
+                raise ValueError(f"External interface '{intf_name}' does not exist on this system.")
+
+            seen_interfaces.add(intf_name)
+            ext_intfs.append({"switch": sw_name, "interface": intf_name})
+
+        return ext_intfs
 
     def destroy_topology(self):
         # Cleanup mininet environment and old interfaces
         self.logger("Cleaning up old topologies")
         if self.net is not None:
             try:
+                self.detach_external_interfaces()
                 self.net.stop()
             except Exception as e:
                 self.logger(f"Graceful Mininet shutdown failed: {e}")
@@ -216,6 +257,21 @@ class MininetRunner:
         self.switches = {}
         self.links = []
         self.ext_intfs = []
+        self.interface_mapping = {}
+        self.external_intf_objects = []
+
+    def detach_external_interfaces(self):
+        """Remove physical interfaces from Mininet tracking without deleting them."""
+        for intf in list(self.external_intf_objects):
+            node = getattr(intf, "node", None)
+            if node is None:
+                continue
+            try:
+                node.delIntf(intf)
+                intf.node = None
+            except Exception as e:
+                self.logger(f"Failed to detach external interface {intf.name}: {e}")
+        self.external_intf_objects = []
 
     def run(self):
         """ Sets up the mininet instance, programs the switches,
@@ -229,17 +285,22 @@ class MininetRunner:
  
         self.logger("Started topology!")
         
-        # Initialize mininet with the topology specified by the config
-        self.create_network()
-        sleep(3)
-        self.switch_mappings = self.populate_switch_mappings()     
-        sleep(.1)
-        
-        self.net.start()
-        sleep(.1)
+        try:
+            # Initialize mininet with the topology specified by the config
+            self.create_network()
+            sleep(3)
+            self.switch_mappings = self.populate_switch_mappings()
+            sleep(.1)
 
-        # some programming that must happen after the net has started
-        self.program_hosts()
+            self.net.start()
+            sleep(.1)
+
+            # some programming that must happen after the net has started
+            self.program_hosts()
+            self.interface_mapping = self.build_interface_mapping()
+        except Exception:
+            self.destroy_topology()
+            raise
 
         #self.do_net_cli()
 
@@ -289,6 +350,51 @@ class MininetRunner:
             switch_mappings.append(d) 
         return switch_mappings
 
+    def build_interface_mapping(self):
+        mapping = {}
+        external_interfaces = {ext_intf["interface"] for ext_intf in self.ext_intfs}
+
+        if self.net is None:
+            return mapping
+
+        for switch in self.net.switches:
+            entries = []
+            for port, intf in sorted(switch.intfs.items()):
+                if intf.IP():
+                    continue
+
+                entry = {
+                    "port": port,
+                    "type": "external" if intf.name in external_interfaces else "virtual",
+                    "node": switch.name,
+                    "interface": intf.name,
+                    "peer_node": None,
+                    "peer_interface": None
+                }
+
+                if entry["type"] == "virtual" and getattr(intf, "link", None) is not None:
+                    peer_intf = intf.link.intf1 if intf.link.intf2 == intf else intf.link.intf2
+                    entry["peer_node"] = peer_intf.node.name
+                    entry["peer_interface"] = peer_intf.name
+
+                entries.append(entry)
+            mapping[switch.name] = entries
+
+        return mapping
+
+    def topology_state(self, include_switches_online=False):
+        topo = {
+            "hosts": self.hosts,
+            "switches": self.switches,
+            "links": self.links,
+            "file_name": self.topo_file,
+            "ext_intfs": self.ext_intfs,
+            "interface_mapping": self.interface_mapping
+        }
+        if include_switches_online:
+            topo["switches_online"] = self.switch_mappings
+        return topo
+
     def create_network(self):
         """ Create the mininet network object, and store it as self.net.
 
@@ -315,10 +421,13 @@ class MininetRunner:
                       switch = switchClass,
                       controller = None)
         # Attaching physical / external interfaces to the switches
-        for sw_name, ext_intf in self.ext_intfs:
+        for ext_intf in self.ext_intfs:
+            sw_name = ext_intf["switch"]
+            intf_name = ext_intf["interface"]
             sw = self.net.get(sw_name)
-            Intf(ext_intf, node=sw)
-            self.logger(f"Attached external interface {ext_intf} to switch {sw_name}")
+            intf = Intf(intf_name, node=sw)
+            self.external_intf_objects.append(intf)
+            self.logger(f"Attached external interface {intf_name} to switch {sw_name}")
 
 
     def program_hosts(self):

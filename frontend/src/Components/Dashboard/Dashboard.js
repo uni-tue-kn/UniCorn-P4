@@ -12,7 +12,6 @@ export default function Dashboard() {
     const { currentSwitchID } = useSwitch();
     return (
         <Box id='Dashboard' sx={{ flexGrow: 1 }}>
-            <Typography variant='h5' gutterBottom>Dashboard</Typography>
             {currentSwitchID !== null ?
                 <Grid container spacing={{ xs: 2, lg: 3 }}>
                     <Grid item xs={10} lg={6} xl={5} >

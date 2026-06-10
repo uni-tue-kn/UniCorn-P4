@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios'
 
 import { Button, FormControl, CircularProgress, TextField, Box, MenuItem, Checkbox, FormControlLabel, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
@@ -12,9 +12,9 @@ import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 
 export default function TopologySelector() {
     const { callSnackbar } = useSnackbar();
-    const { loadedTopology,knownTopologies, setLoadedHosts, currentTopologyName, getTopologies, getLoadedTopology, setCurrentTopologyName, setLoadedTopology } = useTopology();
+    const { knownTopologies, setLoadedHosts, setLoadedSwitches, currentTopologyName, getTopologies, getLoadedTopology, setCurrentTopologyName, setLoadedTopology } = useTopology();
 
-    const { switchesOnline, getSwitches, getSwitchesOnline, getHistorySwitches } = useSwitch();
+    const { getSwitches, getSwitchesOnline, getHistorySwitches } = useSwitch();
 
     // Set selected topology state based on currently loaded or empty if none are loaded
     const [selectedTopology, setSelectedTopology] = useState(currentTopologyName);
@@ -56,6 +56,7 @@ export default function TopologySelector() {
             switch_configs: JSON.stringify(new_switches),
             create_switches: createSwitches
         }).then(() => {
+            getLoadedTopology();
             getSwitches();
             getHistorySwitches();
             setLoading(false);
@@ -72,10 +73,12 @@ export default function TopologySelector() {
     }
 
     function handleTopologyLoaded(topologyData, showRecoveredMessage = false) {
-        getLoadedTopology();
         let hosts = topologyData.hosts || [];
+        setCurrentTopologyName(topologyData.file_name || selectedTopology);
+        setLoadedTopology(topologyData);
         console.log("HOSTS", hosts);
         setLoadedHosts(hosts);
+        setLoadedSwitches(Object.keys(topologyData.switches || {}));
         getSwitchesOnline();
 
         if (showRecoveredMessage) {
@@ -116,8 +119,7 @@ export default function TopologySelector() {
             }
 
             handleTopologyLoaded({
-                hosts: topoDef.hosts || [],
-                switches: topoDef.switches || {},
+                ...loadedTopoRes.data,
                 switches_online: switchesOnlineRes.data?.switches_online || []
             }, true);
             return true;
