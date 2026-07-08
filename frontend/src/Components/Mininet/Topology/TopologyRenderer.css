@@ -1,8 +1,61 @@
 #TopologyRenderer {
-    flex-grow: 1;
+    display: block;
+    width: 100%;
+    height: 100%;
+    color: currentColor;
 }
 
 #TopologyContainer {
-    display: flex;
-    max-height: 400px;
+    display: block;
+    width: 100%;
+    height: clamp(620px, 72vh, 820px);
+    margin-top: 22px;
+    margin-bottom: 18px;
+    overflow: hidden;
+}
+
+#TopologyContainer.topology-light {
+    color: #1d103c;
+    background: #ffffff;
+    --topology-label-outline: #ffffff;
+    --topology-external-color: #7a5a1f;
+}
+
+#TopologyContainer.topology-dark {
+    color: #ffffff;
+    background: #121212;
+    --topology-label-outline: #121212;
+    --topology-external-color: #d0a85c;
+}
+
+.topology-node {
+    fill: currentColor;
+}
+
+.topology-node-external {
+    color: var(--topology-external-color);
+}
+
+.topology-link {
+    stroke: currentColor;
+    stroke-opacity: 0.34;
+}
+
+.topology-node-label,
+.topology-port-label {
+    fill: currentColor;
+    stroke: var(--topology-label-outline);
+    stroke-width: 3px;
+    paint-order: stroke fill;
+    pointer-events: none;
+    text-anchor: middle;
+}
+
+.topology-node-label {
+    font-size: 10px;
+}
+
+.topology-port-label {
+    font-size: 8px;
+    font-weight: 600;
 }

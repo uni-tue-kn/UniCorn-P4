@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTopology } from '../../../Contexts/TopologyContext';
+import { useTheme as useAppTheme } from '../../../Contexts/ThemeContext';
 import * as d3 from 'd3';
 import './TopologyRenderer.css';
 
@@ -166,8 +167,8 @@ function buildSwitchAnchors(switchIds, switchAdj) {
 
     if (!isConnectedGraph(sortedSwitches, switchAdj)) {
         const cols = Math.ceil(Math.sqrt(sortedSwitches.length));
-        const spacingX = 140;
-        const spacingY = 120;
+        const spacingX = 118;
+        const spacingY = 96;
         sortedSwitches.forEach((id, index) => {
             const col = index % cols;
             const row = Math.floor(index / cols);
@@ -181,7 +182,7 @@ function buildSwitchAnchors(switchIds, switchAdj) {
 
     if (isPathSwitchGraph(sortedSwitches, switchAdj)) {
         const ordered = orderPathSwitches(sortedSwitches, switchAdj);
-        const spacing = 120;
+        const spacing = 96;
         const startX = -((ordered.length - 1) * spacing) / 2;
         ordered.forEach((id, index) => {
             anchors[id] = {
@@ -195,7 +196,7 @@ function buildSwitchAnchors(switchIds, switchAdj) {
     const starCenter = getStarCenterSwitch(sortedSwitches, switchAdj);
     if (starCenter) {
         const leaves = sortedSwitches.filter((id) => id !== starCenter).sort(nodeSort);
-        const radius = Math.max(120, leaves.length * 26);
+        const radius = Math.max(96, leaves.length * 21);
         anchors[starCenter] = { x: 0, y: 0 };
         leaves.forEach((id, index) => {
             const angle = (-Math.PI / 2) + (2 * Math.PI * index) / leaves.length;
@@ -209,7 +210,7 @@ function buildSwitchAnchors(switchIds, switchAdj) {
 
     if (isRingSwitchGraph(sortedSwitches, switchAdj)) {
         const ordered = orderRingSwitches(sortedSwitches, switchAdj);
-        const radius = Math.max(120, ordered.length * 24);
+        const radius = Math.max(96, ordered.length * 18);
         ordered.forEach((id, index) => {
             const angle = (-Math.PI / 2) + (2 * Math.PI * index) / ordered.length;
             anchors[id] = {
@@ -251,8 +252,8 @@ function buildSwitchAnchors(switchIds, switchAdj) {
     });
 
     const layerKeys = Object.keys(layers).map(Number).sort((a, b) => a - b);
-    const layerSpacingX = 150;
-    const layerSpacingY = 110;
+    const layerSpacingX = 118;
+    const layerSpacingY = 92;
     const startX = -((Math.max(layerKeys.length, 1) - 1) * layerSpacingX) / 2;
     layerKeys.forEach((layer) => {
         const layerNodes = layers[layer].sort(nodeSort);
@@ -322,12 +323,30 @@ function buildTopologyAnchors(network) {
 
             const side = index % 2 === 0 ? 1 : -1;
             const rank = Math.floor(index / 2);
-            const radialDistance = 75 + rank * 18;
-            const tangentialDistance = index === 0 ? 0 : 22 + rank * 18;
+            const radialDistance = 58 + rank * 16;
+            const tangentialDistance = index === 0 ? 0 : 18 + rank * 16;
 
             anchors[hostId] = {
                 x: base.x + (ux * radialDistance) + (tx * tangentialDistance * side),
                 y: base.y + (uy * radialDistance) + (ty * tangentialDistance * side)
+            };
+        });
+    });
+
+    const externalIds = network.nodes
+        .filter((node) => node.type === "external")
+        .map((node) => node.id)
+        .sort(nodeSort);
+    const externalSet = new Set(externalIds);
+    switchIds.forEach((switchId) => {
+        const attachedExternal = (adjacency[switchId] || [])
+            .filter((neighbor) => externalSet.has(neighbor))
+            .sort(nodeSort);
+        const base = anchors[switchId] || { x: 0, y: 0 };
+        attachedExternal.forEach((externalId, index) => {
+            anchors[externalId] = {
+                x: base.x + 95,
+                y: base.y + (index - (attachedExternal.length - 1) / 2) * 28
             };
         });
     });
@@ -343,29 +362,122 @@ function buildTopologyAnchors(network) {
     return { anchors, layoutType: switchAnchorResult.layoutType };
 }
 
+function normalizeTopologyLink(link) {
+    if (Array.isArray(link)) {
+        return { source: link[0], target: link[1] };
+    }
+    return { source: link.node1, target: link.node2 };
+}
+
+function interfacePairKey(nodeA, nodeB) {
+    return [nodeA, nodeB].sort(nodeSort).join("::");
+}
+
+function formatInterfaceEndpoint(entry) {
+    return `${entry.node}:${entry.port} ${entry.interface}`;
+}
+
+function formatPortLabel(entry) {
+    return `${entry.node}:${entry.port}`;
+}
+
+function buildInterfaceDetails(interfaceMapping) {
+    const virtualEntries = {};
+    const externalLinks = [];
+
+    Object.values(interfaceMapping || {}).forEach((entries) => {
+        (entries || []).forEach((entry) => {
+            if (entry.type === "external") {
+                const externalNodeId = `external:${entry.node}:${entry.port}:${entry.interface}`;
+                externalLinks.push({
+                    node: {
+                        type: "external",
+                        id: externalNodeId,
+                        label: entry.interface,
+                        title: `${formatInterfaceEndpoint(entry)} <-> external`,
+                        portLabel: formatPortLabel(entry)
+                    },
+                    link: {
+                        source: entry.node,
+                        target: externalNodeId,
+                        type: "external",
+                        title: `${formatInterfaceEndpoint(entry)} <-> external`,
+                        sourcePortLabel: formatPortLabel(entry),
+                        targetPortLabel: ""
+                    }
+                });
+                return;
+            }
+
+            if (!entry.peer_node) {
+                return;
+            }
+
+            const key = interfacePairKey(entry.node, entry.peer_node);
+            virtualEntries[key] = virtualEntries[key] || [];
+            virtualEntries[key].push(entry);
+        });
+    });
+
+    const titlesByPair = {};
+    const portsByPair = {};
+    Object.entries(virtualEntries).forEach(([key, entries]) => {
+        const first = entries[0];
+        const peer = entries.find((entry) => entry.node === first.peer_node);
+        if (peer) {
+            titlesByPair[key] = `${formatInterfaceEndpoint(first)} <-> ${formatInterfaceEndpoint(peer)}`;
+            portsByPair[key] = {
+                [first.node]: formatPortLabel(first),
+                [peer.node]: formatPortLabel(peer)
+            };
+        } else {
+            titlesByPair[key] = `${formatInterfaceEndpoint(first)} <-> ${first.peer_node} ${first.peer_interface}`;
+            portsByPair[key] = {
+                [first.node]: formatPortLabel(first)
+            };
+        }
+    });
+
+    return { titlesByPair, portsByPair, externalLinks };
+}
+
+const ICON_OFFSET = {
+    host: {
+        x: -5,
+        y: -6
+    },
+    switch: {
+        x: -5,
+        y: -5
+    },
+    external: {
+        x: -4,
+        y: -4
+    }
+};
+const VIEWBOX_PADDING = 32;
+const MAX_TOPOLOGY_SCALE = 2.65;
+const PORT_LABEL_DISTANCE = 28;
+const PORT_LABEL_VERTICAL_OFFSET = -5;
+const PORT_LABEL_TANGENT_OFFSET = 8;
+
 // TODO: error handling and assignment
 export default function TopologyRenderer() {
 
     const svg_ref = useRef();
-    const { loadedTopology, getLoadedTopology, loadTopologyByName } = useTopology();
-    const [layoutedTopology, setLayoutedTopology] = useState({});
-
-    const icon_offset = {
-        host: {
-            x: -5,
-            y: -6
-        },
-        switch: {
-            x: -5,
-            y: -5
-        }
-    };
+    const simulation_ref = useRef(null);
+    const { loadedTopology } = useTopology();
+    const { darkMode } = useAppTheme();
+    const [, setLayoutedTopology] = useState({});
 
     function setupRender() {
-        getLoadedTopology();
+        if (simulation_ref.current) {
+            simulation_ref.current.stop();
+            simulation_ref.current = null;
+        }
 
         // Skip if no topology is loaded
-        if (loadedTopology.length < 1) {
+        if (!loadedTopology || Object.keys(loadedTopology).length < 1) {
             // Clear all
             // Get reference to SVG object
             const svg = d3.select(svg_ref.current)
@@ -373,40 +485,54 @@ export default function TopologyRenderer() {
 
             // Ensure that the object is empty
             svg.selectAll("*").remove();
+            svg.attr("width", null).attr("height", null).attr("viewBox", null);
             return;
         }
         var topology = loadedTopology;
+        const { titlesByPair, portsByPair, externalLinks } = buildInterfaceDetails(topology.interface_mapping);
 
         // D3 requires an object with keys and values
         // So reshape data from loadedTopology to match this
         var network = {
             nodes: [],
             links: []
-        }
+        };
 
         // Network needs to have a specific format
         // ALL nodes (switches, hosts) are located in one array and all links in another
         // Each node has two key value pairs, "type" and "id"
         // Each link has two key value pairs, "source" and "target" that match at the "id" of at least one node
         // The followign code flattens the original JSON into that structure
-        topology.hosts.forEach(
+        (topology.hosts || []).forEach(
             (host) => {
                 network.nodes.push(
                     { "type": "host", "id": host }
-                )
+                );
             });
-        Object.keys(topology.switches).forEach(
+        Object.keys(topology.switches || {}).forEach(
             (switch_obj) => {
                 network.nodes.push(
                     { "type": "switch", "id": switch_obj } // switch_obj because switch is a reserved keyword
-                )
+                );
             });
-        topology.links.forEach(
-            (link_tuple) => {
-                network.links.push(
-                    { source: link_tuple[0], target: link_tuple[1] }
-                )
+        (topology.links || []).forEach(
+            (link) => {
+                const normalizedLink = normalizeTopologyLink(link);
+                const linkKey = interfacePairKey(normalizedLink.source, normalizedLink.target);
+                const title = titlesByPair[linkKey];
+                const portLabels = portsByPair[linkKey] || {};
+                network.links.push({
+                    ...normalizedLink,
+                    type: "virtual",
+                    title,
+                    sourcePortLabel: portLabels[normalizedLink.source] || "",
+                    targetPortLabel: portLabels[normalizedLink.target] || ""
+                });
             });
+        externalLinks.forEach((externalLink) => {
+            network.nodes.push(externalLink.node);
+            network.links.push(externalLink.link);
+        });
         const { anchors: anchorPositions } = buildTopologyAnchors(network);
         network.nodes.forEach((node) => {
             const anchor = anchorPositions[node.id];
@@ -423,23 +549,101 @@ export default function TopologyRenderer() {
         // Ensure that the object is empty
         svg.selectAll("*").remove();
 
+        function updateSvgViewport() {
+            const bbox = svg.node().getBBox();
+            if (bbox.width < 1 || bbox.height < 1) {
+                return;
+            }
+
+            const containerWidth = svg_ref.current?.parentElement?.clientWidth || 0;
+            const containerHeight = svg_ref.current?.parentElement?.clientHeight || 0;
+            const containerAspect = containerWidth > 0 && containerHeight > 0
+                ? containerWidth / containerHeight
+                : 1;
+            const contentBox = {
+                x: bbox.x - VIEWBOX_PADDING,
+                y: bbox.y - VIEWBOX_PADDING,
+                width: bbox.width + (VIEWBOX_PADDING * 2),
+                height: bbox.height + (VIEWBOX_PADDING * 2)
+            };
+            const center = {
+                x: contentBox.x + (contentBox.width / 2),
+                y: contentBox.y + (contentBox.height / 2)
+            };
+            const fittedViewBox = { ...contentBox };
+
+            if (fittedViewBox.width / fittedViewBox.height > containerAspect) {
+                fittedViewBox.height = fittedViewBox.width / containerAspect;
+            } else {
+                fittedViewBox.width = fittedViewBox.height * containerAspect;
+            }
+
+            if (containerWidth > 0 && containerHeight > 0) {
+                const minWidth = containerWidth / MAX_TOPOLOGY_SCALE;
+                const minHeight = containerHeight / MAX_TOPOLOGY_SCALE;
+
+                if (fittedViewBox.width < minWidth) {
+                    fittedViewBox.width = minWidth;
+                    fittedViewBox.height = fittedViewBox.width / containerAspect;
+                }
+
+                if (fittedViewBox.height < minHeight) {
+                    fittedViewBox.height = minHeight;
+                    fittedViewBox.width = fittedViewBox.height * containerAspect;
+                }
+            }
+
+            fittedViewBox.x = center.x - (fittedViewBox.width / 2);
+            fittedViewBox.y = center.y - (fittedViewBox.height / 2);
+
+            svg
+                .attr("viewBox", `${fittedViewBox.x} ${fittedViewBox.y} ${fittedViewBox.width} ${fittedViewBox.height}`)
+                .attr("width", "100%")
+                .attr("height", "100%");
+        }
+
         // Create a node for each host
         const nodes = svg.selectAll("nodes")
             .data(network.nodes)
             .enter()
             .append("svg")
             // Set icon to either host or switch svg
-            .html((node) => { return (node.type === "host" ? HostIcon() : SwitchIcon()) })
+            .html((node) => {
+                if (node.type === "host") {
+                    return HostIcon();
+                }
+                if (node.type === "external") {
+                    return ExternalIcon();
+                }
+                return SwitchIcon();
+            })
             .attr("id", (node) => { return node.id })
-            .style("fill", "#666666");
+            .attr("class", (node) => { return node.type === "external" ? "topology-node topology-node-external" : "topology-node"; });
+        nodes.append("title")
+            .text((node) => { return node.title || node.id; });
 
         // Create links
         const links = svg.selectAll("links")
             .data(network.links)
             .enter()
             .append("line")
-            .style("stroke", "#aaa")
+            .attr("class", (link) => { return link.type === "external" ? "topology-link topology-link-external" : "topology-link"; })
+            .style("stroke-dasharray", (link) => { return link.type === "external" ? "4 3" : null; })
             .lower();
+        links.append("title")
+            .text((link) => { return link.title || `${link.source} <-> ${link.target}`; });
+        const sourcePortLabels = svg.selectAll("sourcePortLabels")
+            .data(network.links.filter((link) => link.sourcePortLabel))
+            .enter()
+            .append("text")
+            .attr("class", "topology-port-label")
+            .text((link) => link.sourcePortLabel);
+        const targetPortLabels = svg.selectAll("targetPortLabels")
+            .data(network.links.filter((link) => link.targetPortLabel))
+            .enter()
+            .append("text")
+            .attr("class", "topology-port-label")
+            .text((link) => link.targetPortLabel);
 
         function simTick() {
 
@@ -453,19 +657,38 @@ export default function TopologyRenderer() {
                 .attr("y2", function (d) { return d.target.y; });
             nodes
                 // Add an offset in coordinates to all nodes to center the icon
-                .attr("x", (obj) => { return obj.x + icon_offset[obj.type].x })
-                .attr("y", (obj) => { return obj.y + icon_offset[obj.type].y });
+                .attr("x", (obj) => { return obj.x + ICON_OFFSET[obj.type].x })
+                .attr("y", (obj) => { return obj.y + ICON_OFFSET[obj.type].y });
+            const portLabelPosition = (d, endpoint) => {
+                const source = d.source;
+                const target = d.target;
+                const node = endpoint === "source" ? source : target;
+                const other = endpoint === "source" ? target : source;
+                const dx = other.x - node.x;
+                const dy = other.y - node.y;
+                const distance = Math.hypot(dx, dy) || 1;
+                const tangentDirection = endpoint === "source" ? 1 : -1;
+                return {
+                    x: node.x + (dx / distance) * PORT_LABEL_DISTANCE + (-dy / distance) * PORT_LABEL_TANGENT_OFFSET * tangentDirection,
+                    y: node.y + (dy / distance) * PORT_LABEL_DISTANCE + (dx / distance) * PORT_LABEL_TANGENT_OFFSET * tangentDirection + PORT_LABEL_VERTICAL_OFFSET
+                };
+            };
+            sourcePortLabels
+                .attr("x", (d) => portLabelPosition(d, "source").x)
+                .attr("y", (d) => portLabelPosition(d, "source").y);
+            targetPortLabels
+                .attr("x", (d) => portLabelPosition(d, "target").x)
+                .attr("y", (d) => portLabelPosition(d, "target").y);
 
             // Set viewbox of SVG such that it scales correctly
-            let bbox = svg.node().getBBox();
-            svg.attr("viewBox", `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+            updateSvgViewport();
         }
 
 
         var simulation = d3.forceSimulation(network.nodes)
             .force("link", d3.forceLink()
                 .id((node) => { return node.id; })
-                .distance(80)
+                .distance(64)
                 .links(network.links)
             )
             .force("charge", d3.forceManyBody().strength(-400))
@@ -478,19 +701,26 @@ export default function TopologyRenderer() {
             .on("end", () => {
                 network.nodes.forEach((node) => {
                     svg.append("text")
-                        .text(node.id)
-                        .style("fill", "#666666")
-                        .style("font-size", "0.4em")
+                        .attr("class", "topology-node-label")
+                        .text(node.label || node.id)
+                        .style("font-weight", node.type === "external" ? "600" : "400")
                         .attr("x", node.x)
-                        .attr("y", node.y - 8);
+                        .attr("y", node.y - 12);
                     // Set viewbox of SVG such that it scales correctly
-                    let bbox = svg.node().getBBox();
-                    svg.attr("viewBox", `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+                    updateSvgViewport();
                 })
                 // Store topology layout to reload if necessary
                 // TODO: implement loading from stored
                 setLayoutedTopology(network);
             });
+        simulation_ref.current = simulation;
+
+        return () => {
+            simulation.stop();
+            if (simulation_ref.current === simulation) {
+                simulation_ref.current = null;
+            }
+        };
     }
 
     // Setup topology rendering once loadedTopology becomes available
@@ -498,8 +728,8 @@ export default function TopologyRenderer() {
 
     // TODO: add loading animation
     return (
-        <div id="TopologyContainer">
-            <svg id="TopologyRender" ref={svg_ref} style={{ flexGrow: 1 }}> </svg>
+        <div id="TopologyContainer" className={darkMode ? "topology-dark" : "topology-light"}>
+            <svg id="TopologyRender" ref={svg_ref}> </svg>
         </div>
     )
 }
@@ -516,4 +746,8 @@ function HostIcon() {
             <path d="M8,2h8a2,2,0,0,1,2,2V20a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2V4A2,2,0,0,1,8,2M8,4V6h8V4H8m8,4H8v2h8V8m0,10H14v2h2Z" /> \
             <rect width="24" height="24" fill="none" /> \
         </svg>';
+}
+
+function ExternalIcon() {
+    return '<svg width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" /><circle cx="8" cy="8" r="2" fill="#ffffff" /></svg>';
 }

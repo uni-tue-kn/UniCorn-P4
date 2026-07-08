@@ -74,6 +74,16 @@ Example topology file, placed in `docker/topologies/topology.json`:
 Select the topology file in the GUI and click on "Load Topology".
 The Mininet container will now create your virtual testbed in the background.
 
+If you want to use external / real network interfaces, you can configure them by adding a section like the following example to your topology file:
+```json
+{
+    "ext_intfs": [
+        ["s1", "INTERFACE_NAME_1"], 
+        ["s1", "INTERFACE_NAME_2"], 
+        ["s2", "INTERFACE_NAME_3"]
+    ]
+}
+```
 #### 2b. Connecting your Switches
 Click on "New Switch Connection". 
 

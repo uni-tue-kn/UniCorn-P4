@@ -19,13 +19,7 @@ class LoadTopology(Endpoint):
             self.netsim.topo_file = args.topology_file
             self.netsim.run()
 
-            topo = {
-                "hosts": self.netsim.hosts,
-                "switches": self.netsim.switches,
-                "links": self.netsim.links,
-                "file_name": self.netsim.topo_file,
-                "switches_online": self.netsim.switch_mappings
-            }            
+            topo = self.netsim.topology_state(include_switches_online=True)
 
             # Initialize per-node CLIs in the background. This is not required
             # for the topology itself and should not fail the load request.
@@ -49,12 +43,7 @@ class LoadTopology(Endpoint):
             self.ws.close_clis()
             self.netsim.destroy_topology()
             self.netsim.topo_file = None
-            topo = {
-                "hosts": self.netsim.hosts,
-                "switches": self.netsim.switches,
-                "links": self.netsim.links,
-                "file_name": self.netsim.topo_file
-            }  
+            topo = self.netsim.topology_state()
         except Exception as e:
             return f"Something went wrong when deleting topology :( Error: {e}", 500
         return topo, 200

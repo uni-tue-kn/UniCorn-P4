@@ -1,89 +1,81 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Box, Paper, Tab, Tabs, Typography } from '@mui/material';
 import Terminal, { ColorMode, TerminalOutput } from 'react-terminal-ui';
 import { io } from 'socket.io-client';
 
 import { useTopology } from '../../Contexts/TopologyContext';
 
+const GREETING = "Commands entered here are run directly on the mininet linux hosts.\nCtrl+C: Interrupt  |  Shift+Ctrl+V: Paste clipboard  |  Type 'clear' to empty terminal\n----\n\n";
+
 // NOTE: Terminals are triggered and enabled based on the loadedHosts and loadedSwitches variable from the topology context
 export default function MininetTerminal() {
-
-  // FIrst line displayed in terminals
-  const greeting = "Commands entered here are run directly on the mininet linux hosts.\nCtrl+C: Interrupt  |  Shift+Ctrl+V: Paste clipboard  |  Type 'clear' to empty terminal\n----\n\n";
 
   // What hosts can be accessed by the terminal
   const { loadedHosts, loadedSwitches } = useTopology();
 
-  // Data storage for display and history
+  // Data storage for display
   const [terminalLineData, setTerminalLineData] = useState({});
-  const [messageHistory, setMessageHistory] = useState({});
+  const [activeTerminal, setActiveTerminal] = useState(null);
 
   // Websocket to backend
   const [socket, setSocket] = useState(null);
 
-  function clearTerminal(host) {
-    if (!(host in terminalLineData)) {
-      console.log("Cannot clear terminal for invalid host: ", host)
-      return
-    }
+  const terminalTargets = useMemo(() => [
+    ...loadedHosts.map((name) => ({ name, type: 'Host' })),
+    ...loadedSwitches.map((name) => ({ name, type: 'Switch' })),
+  ], [loadedHosts, loadedSwitches]);
 
-    // Only clear host key of terminal data, not history
-    setTerminalLineData(
-      (previousState) => {
-        return {
-          ...previousState,
-          [host]: [greeting]
-        }
+  const clearTerminal = useCallback((host) => {
+    setTerminalLineData((previousState) => {
+      if (!(host in previousState)) {
+        console.log("Cannot clear terminal for invalid host: ", host);
+        return previousState;
       }
-    );
 
-  }
+      return {
+        ...previousState,
+        [host]: [GREETING],
+      };
+    });
+  }, []);
 
   // TODO: this should get moved to a context, otherwise the terminals clear input when page is left
-  function appendLineData(host, newEntry) {
-
-    if (!(host in terminalLineData)) {
-      console.log("ENTRY: ", newEntry, "for invalid host: ", host)
-      return
-    }
-    // Update key host of state dict
-    setTerminalLineData(
-      (previousState) => {
-        return {
-          ...previousState,
-          [host]: [...previousState[host], newEntry]
-        }
+  const appendLineData = useCallback((host, newEntry) => {
+    setTerminalLineData((previousState) => {
+      if (!(host in previousState)) {
+        console.log("ENTRY: ", newEntry, "for invalid host: ", host);
+        return previousState;
       }
-    );
 
-    // Update key host of state dict
-    setMessageHistory(
-      (previousState) => {
-        return {
-          ...previousState,
-          [host]: [...previousState[host], newEntry]
-        }
-      }
-    );
-  }
+      return {
+        ...previousState,
+        [host]: [...previousState[host], newEntry],
+      };
+    });
 
+  }, []);
 
   // Update when loaded hosts changes
   useEffect(() => {
     const updatedData = {};
-    const updatedHistory = {};
+    const terminals = [...loadedHosts, ...loadedSwitches];
 
     loadedHosts.forEach(element => {
-      updatedData[element] = [greeting];
-      updatedHistory[element] = [greeting];
+      updatedData[element] = [GREETING];
     });
 
     loadedSwitches.forEach(element => {
-      updatedData[element] = [greeting];
-      updatedHistory[element] = [greeting];
+      updatedData[element] = [GREETING];
     });    
 
     setTerminalLineData(updatedData);
-    setMessageHistory(updatedHistory);
+    setActiveTerminal((currentTerminal) => {
+      if (terminals.includes(currentTerminal)) {
+        return currentTerminal;
+      }
+
+      return terminals[0] || null;
+    });
 
   }, [loadedHosts, loadedSwitches]);
 
@@ -106,11 +98,10 @@ export default function MininetTerminal() {
     };
   }, []);
 
-  function handleResponse(message) {
-    const parsed = JSON.parse(message)
+  const handleResponse = useCallback((message) => {
+    const parsed = JSON.parse(message);
     appendLineData(parsed.name, parsed.data);
-
-  }
+  }, [appendLineData]);
 
   // When data changes, set new handle response function for socket callback
   useEffect(() => {
@@ -121,10 +112,13 @@ export default function MininetTerminal() {
       // Handle response will have the correct references to the terminalLine and history states
       socket.on('response', handleResponse);
     }
-  }, [handleResponse])
+  }, [socket, handleResponse])
 
 
   function handleInput(host, text) {
+    if (!host) {
+      return;
+    }
 
     // CLear terminal is only handled in frontend, do not send
     if (text === "clear") {
@@ -140,6 +134,11 @@ export default function MininetTerminal() {
       "cmd": text
     };
 
+    if (socket === null) {
+      appendLineData(host, "Terminal backend is not connected.");
+      return;
+    }
+
     // Send input to backend
     socket.send(to_send);
   }
@@ -153,42 +152,68 @@ export default function MininetTerminal() {
   }
 
   function handleInterrupt(host) {
+    if (!host) {
+      return;
+    }
+
     const to_send = {
       "interrupt": true,
       "target": host
     };
+
+    if (socket === null) {
+      appendLineData(host, "Terminal backend is not connected.");
+      return;
+    }
+
     socket.send(to_send);
 
     appendLineData(host, "SENDING INTERRUPT");
   }
 
   // Main Terminal window
+  const selectedTerminal = activeTerminal || terminalTargets[0]?.name || null;
+
   return (
-    <div className="container" style={{ padding: 5 + "px" }}>
-      {
-        loadedHosts.map((host, index) => (
-          <div className="container" style={{ padding: 5 + "px" }} onKeyDownCapture={(e) => handleKeyDown(host, e)}>
-            <Terminal name={host} colorMode={ColorMode.Dark} redBtnCallback={(event) => handleInterrupt(host)} onInput={(text) => handleInput(host, text)}>
-              {
-                // Add per host if it already exists in the data
-                (host in terminalLineData) && terminalLineData[host].map((line, index) => (
-                  <TerminalOutput key={index}>{line}</TerminalOutput>
-                ))}
+    <Paper sx={{ padding: '32px' }} elevation={3}>
+      <Typography variant='h6' gutterBottom>Terminals</Typography>
+
+      {terminalTargets.length === 0 ? (
+        <Typography color='text.secondary'>
+          Load a topology to open host and switch terminals.
+        </Typography>
+      ) : (
+        <>
+          <Tabs
+            value={selectedTerminal || false}
+            onChange={(event, selectedTerminal) => setActiveTerminal(selectedTerminal)}
+            variant='scrollable'
+            scrollButtons='auto'
+            sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
+          >
+            {terminalTargets.map((target) => (
+              <Tab
+                key={target.name}
+                value={target.name}
+                label={`${target.name} (${target.type})`}
+              />
+            ))}
+          </Tabs>
+
+          <Box onKeyDownCapture={(event) => handleKeyDown(selectedTerminal, event)}>
+            <Terminal
+              name={selectedTerminal}
+              colorMode={ColorMode.Dark}
+              redBtnCallback={() => handleInterrupt(selectedTerminal)}
+              onInput={(text) => handleInput(selectedTerminal, text)}
+            >
+              {(selectedTerminal && selectedTerminal in terminalLineData) && terminalLineData[selectedTerminal].map((line, index) => (
+                <TerminalOutput key={index}>{line}</TerminalOutput>
+              ))}
             </Terminal>
-          </div>
-        ))}
-        {
-        loadedSwitches.map((host, index) => (
-          <div className="container" style={{ padding: 5 + "px" }} onKeyDownCapture={(e) => handleKeyDown(host, e)}>
-            <Terminal name={host} colorMode={ColorMode.Dark} redBtnCallback={(event) => handleInterrupt(host)} onInput={(text) => handleInput(host, text)}>
-              {
-                // Add per host if it already exists in the data
-                (host in terminalLineData) && terminalLineData[host].map((line, index) => (
-                  <TerminalOutput key={index}>{line}</TerminalOutput>
-                ))}
-            </Terminal>
-          </div>
-        ))}
-    </div>
+          </Box>
+        </>
+      )}
+    </Paper>
   )
 }

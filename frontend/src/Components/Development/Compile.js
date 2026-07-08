@@ -79,7 +79,6 @@ function Compile() {
     return (
 
         <Box id='Compilation'>
-            <Typography variant='h5' gutterBottom>P4 Compilation</Typography>
             <Grid container spacing={{ xs: 2, lg: 3 }}>
                 <Grid item xs={10} lg={6} xl={5} >
                     <Paper sx={{ padding: '32px', height: 700, overflow: 'auto' }} elevation={3}>
@@ -133,7 +132,7 @@ function Compile() {
                             variant='outlined'
                             margin='normal'
                             InputProps={{ readOnly: true }}
-                        />     
+                        />
                         {compilationSuccess !== null && (
                             <Box display="flex" justifyContent="center" mt={2}>
                                 {compilationSuccess ? (
@@ -142,7 +141,7 @@ function Compile() {
                                     <CancelIcon color="error" fontSize="large" />
                                 )}
                             </Box>
-                        )}                                           
+                        )}
                     </Paper>
                 </Grid>
             </Grid>

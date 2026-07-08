@@ -138,6 +138,5 @@ class P4RuntimeSwitch(P4Switch):
         debug("P4 switch {} PID is {}.\n".format(self.name, pid))
         if not self.check_switch_started(pid):
             error("P4 switch {} did not start correctly.\n".format(self.name))
-            exit(1)
+            raise RuntimeError("P4 switch {} did not start correctly.".format(self.name))
         info("P4 switch {} has been started.\n".format(self.name))
-
