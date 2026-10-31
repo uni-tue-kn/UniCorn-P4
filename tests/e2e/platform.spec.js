@@ -66,6 +66,7 @@ async function hostTraffic(page, count = 2, wait = true) {
     expect(losses.length).toBeGreaterThan(0);
     expect(Number(losses.at(-1)[1])).toBe(0);
   }
+  return marker;
 }
 
 test('compile, load a two-switch topology and initialize through the browser', async ({ page, request }) => {
@@ -505,28 +506,67 @@ test('counter resets and live traffic graphs preserve forwarding and direct mete
   await selectSwitch(page);
   const counterId = metadata.counters['IngressImpl.test_counter'].id;
   await json(await request.patch('/api/counters', { data: { switch_id: switchId, counter_id: counterId, reset: true } }));
-  await hostTraffic(page, 40, false);
-  await page.goto('/counters/IngressImpl.test_counter');
+  const trafficDone = await hostTraffic(page, 40, false);
+  // Stay within the app so the terminal connection retains ping's completion
+  // output while the traffic graph is visible.
+  await page.getByRole('link', { name: 'Switch Menu', exact: true }).click();
+  await page.getByRole('tab', { name: 's1', exact: true }).click();
+  const counterLink = page.getByRole('link', { name: 'IngressImpl.test_counter', exact: true });
+  if (!(await counterLink.isVisible())) await page.getByRole('button', { name: 'Counters', exact: true }).click();
+  await counterLink.click();
   const plot = page.getByRole('img', { name: 'Packet rate over time', exact: true });
   await expect(plot).toBeVisible();
   await expect.poll(async () => (await plot.locator('circle title').allTextContents()).some(text => Number.parseFloat(text) > 0), { timeout: 15_000 }).toBeTruthy();
   const counterRows = async () => (await json(await request.get('/api/counters', { params: { switch_id: switchId, counter_id: counterId } }))).entries;
   await expect.poll(async () => Number((await counterRows()).find(item => item.index === 2)?.packets || 0), { timeout: 20_000 }).toBeGreaterThanOrEqual(40);
   await page.getByRole('checkbox', { name: 'Live traffic', exact: true }).uncheck();
-  const second = (await counterRows()).find(item => item.index === 2).packets;
-  await page.getByRole('button', { name: 'Reset counter index 1', exact: true }).click();
-  await expect.poll(async () => (await counterRows()).find(item => item.index === 1).packets).toBe('0');
-  expect((await counterRows()).find(item => item.index === 2).packets).toBe(second);
-  await page.getByRole('button', { name: 'Reset all counters', exact: true }).click();
-  await expect.poll(async () => (await counterRows()).every(item => item.packets === '0' && item.bytes === '0')).toBeTruthy();
-  await page.goto('/tables/IngressImpl.observation');
-  await page.getByRole('button', { name: 'Reset counters', exact: true }).click();
-  await expect.poll(async () => {
-    const rows = await json(await request.get('/api/tables', { params: { switch_id: switchId, table_name: 'IngressImpl.observation' } }));
-    return rows.length === 2 && rows.every(item => item.counters.packets === '0' && item.switch_entry.action_name === 'IngressImpl.observe');
-  }).toBeTruthy();
-  const direct = await json(await request.get('/api/direct-meters', { params: { switch_id: switchId, meter_id: metadata.direct_meters[directMeter].id } }));
-  expect(direct.entries.find(item => item.table_entry.match_fields['standard_metadata.ingress_port'] == 1).config.pir).toBe('600');
+  await page.getByRole('link', { name: 'Terminals', exact: true }).click();
+  await page.getByRole('tab', { name: 'h1 (Host)', exact: true }).click();
+  await expect(page.locator('main')).toContainText(`${trafficDone}=0`);
+  const setHostLinks = async state => {
+    await page.getByRole('link', { name: 'Terminals', exact: true }).click();
+    await expect(page.getByText('Connected. Output is kept while you switch between pages.', { exact: true })).toBeVisible();
+    await page.getByRole('tab', { name: 's1 (Switch)', exact: true }).click();
+    const marker = `COUNTER_LINKS_${state}_${Date.now()}`;
+    const input = page.locator('input').last();
+    await input.fill(`ip link set s1-eth1 ${state} && ip link set s1-eth2 ${state} && echo ${marker}`);
+    await input.press('Enter');
+    await expect(page.getByText(marker, { exact: true })).toBeVisible();
+  };
+  try {
+    // Live traffic controls UI polling, not the dataplane. Even after ping
+    // finishes, host ARP/IPv6 traffic can increment counters. Pause both host
+    // links so exact zero and non-target preservation checks are meaningful.
+    await setHostLinks('down');
+    let previous;
+    let stableReads = 0;
+    await expect.poll(async () => {
+      const current = JSON.stringify(await counterRows());
+      stableReads = current === previous ? stableReads + 1 : 0;
+      previous = current;
+      return stableReads;
+    }, { intervals: [250], timeout: 10_000 }).toBeGreaterThanOrEqual(4);
+    const second = (await counterRows()).find(item => item.index === 2);
+    expect(BigInt(second.packets)).toBeGreaterThanOrEqual(40n);
+    await selectSwitch(page);
+    await page.goto('/counters/IngressImpl.test_counter');
+    await page.getByRole('button', { name: 'Reset counter index 1', exact: true }).click();
+    await expect.poll(async () => (await counterRows()).find(item => item.index === 1).packets).toBe('0');
+    expect((await counterRows()).find(item => item.index === 2)).toEqual(second);
+    await page.getByRole('button', { name: 'Reset all counters', exact: true }).click();
+    await expect.poll(async () => (await counterRows()).every(item => item.packets === '0' && item.bytes === '0')).toBeTruthy();
+    await page.goto('/tables/IngressImpl.observation');
+    await page.getByRole('button', { name: 'Reset counters', exact: true }).click();
+    await expect.poll(async () => {
+      const rows = await json(await request.get('/api/tables', { params: { switch_id: switchId, table_name: 'IngressImpl.observation' } }));
+      return rows.length === 2 && rows.every(item => item.counters.packets === '0' && item.switch_entry.action_name === 'IngressImpl.observe');
+    }).toBeTruthy();
+    const direct = await json(await request.get('/api/direct-meters', { params: { switch_id: switchId, meter_id: metadata.direct_meters[directMeter].id } }));
+    expect(direct.entries.find(item => item.table_entry.match_fields['standard_metadata.ingress_port'] == 1).config.pir).toBe('600');
+  } finally {
+    await setHostLinks('up');
+  }
+  await hostTraffic(page);
 });
 
 test('queue controls apply explicit native depth and rate settings through the browser', async ({ page, request }) => {
