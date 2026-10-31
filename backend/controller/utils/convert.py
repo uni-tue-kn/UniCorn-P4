@@ -69,6 +69,8 @@ def bitwidthToBytes(bitwidth):
 
 
 def encodeNum(number, bitwidth):
+    if isinstance(number, bool) or not isinstance(number, int) or not 0 <= number < 2**bitwidth:
+        raise ValueError(f"Number must fit in unsigned bit<{bitwidth}>")
     byte_len = bitwidthToBytes(bitwidth)
     num_str = "%x" % number
     if number >= 2**bitwidth:
@@ -77,7 +79,7 @@ def encodeNum(number, bitwidth):
 
 
 def decodeNum(encoded_number):
-    return int(encoded_number.hex(), 16)
+    return int.from_bytes(encoded_number, "big")
 
 def encode(x, bitwidth):
     "Tries to infer the type of `x` and encode it"
@@ -87,7 +89,9 @@ def encode(x, bitwidth):
         x = x[0]
     encoded_bytes = None
     if type(x) == str:
-        if matchesMac(x):
+        if x.isascii() and x.isdecimal():
+            encoded_bytes = encodeNum(int(x), bitwidth)
+        elif matchesMac(x):
             encoded_bytes = encodeMac(x)
         elif matchesIPv4(x):
             encoded_bytes = encodeIPv4(x)
@@ -95,19 +99,14 @@ def encode(x, bitwidth):
             encoded_bytes = encodeIPv6(x)    
         # edited:
         # x is a string that represents a number    
-        elif x.isnumeric():
-            encoded_bytes = encodeNum(int(x), bitwidth)
         else:
-            # Assume that the string is already encoded
-            encoded_bytes = x
+            raise ValueError("Expected a decimal integer, IP address or MAC address")
     elif type(x) == int:
         encoded_bytes = encodeNum(x, bitwidth)           
-    elif type(x) == float:
-        # Happens only for large integers, e.g., numeric IPv6 addresses
-        encoded_bytes = encodeNum(int(x), bitwidth)           
     else:
-        raise Exception("Encoding objects of %r is not supported" % type(x))   
-    assert len(encoded_bytes) == byte_len
+        raise ValueError("Encoding objects of %r is not supported" % type(x))
+    if len(encoded_bytes) != byte_len:
+        raise ValueError("Value width does not match the P4 field")
     return encoded_bytes
 
 

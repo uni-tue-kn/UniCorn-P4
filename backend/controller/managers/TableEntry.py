@@ -17,6 +17,7 @@ class TableEntry:
         self.action_name = entry_dict["action_name"]
         self.action_params = entry_dict["action_params"]
         self.priority = entry_dict["priority"]
+        self.is_default_action = entry_dict.get("is_default_action", False)
 
         # Only set this if key is set
         if "deleted" in entry_dict:
@@ -27,8 +28,16 @@ class TableEntry:
             match_fields=self.match_fields,
             action_name=self.action_name,
             action_params=self.action_params,
-            priority=self.priority
+            priority=self.priority,
+            default_action=self.is_default_action
         )
+        if entry_dict.get("meter_config") is not None:
+            from .ResourceManager import encode_meter
+            self.entry.meter_config.CopyFrom(encode_meter(entry_dict["meter_config"]))
+        if entry_dict.get("counter_data") is not None:
+            from .ResourceManager import integer
+            for name in ("packet_count", "byte_count"):
+                setattr(self.entry.counter_data, name, integer(entry_dict["counter_data"].get(name, 0), name, maximum=(1 << 63) - 1))
 
     def from_entity(self,table_name,entity):
         self.table_name = table_name
@@ -38,6 +47,7 @@ class TableEntry:
         self.action_params = {}
 
         self.priority = self.entry.priority if self.entry.priority else None
+        self.is_default_action = self.entry.is_default_action
 
         self.parse_match_fields()
         self.parse_action()
@@ -103,6 +113,12 @@ class TableEntry:
             "match_fields": self.match_fields,
             "action_name": self.action_name,
             "action_params": self.action_params,
-            "priority": self.priority
+            "priority": self.priority,
+            "is_default_action": self.is_default_action
         }
+        if self.entry.HasField("meter_config"):
+            from .ResourceManager import METER_FIELDS
+            data["meter_config"] = {key: str(getattr(self.entry.meter_config, key)) for key in METER_FIELDS}
+        if self.entry.HasField("counter_data"):
+            data["counter_data"] = {key: str(getattr(self.entry.counter_data, key)) for key in ("packet_count", "byte_count")}
         return data

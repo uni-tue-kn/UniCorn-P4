@@ -1,6 +1,7 @@
-mininet
-psutil
-flask
-flask_restful 
-flask-cors
-flask_socketio
+psutil==7.2.2
+Flask==3.1.3
+Flask-RESTful==0.3.10
+flask-cors==6.0.5
+Flask-SocketIO==5.7.0
+thrift==0.22.0
+packaging==26.3

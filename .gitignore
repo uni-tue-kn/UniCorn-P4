@@ -3,7 +3,6 @@ backend/venv
 netsim/logs/*.log
 netsim/pcaps/*.pcap
 frontend/build/
-package-lock.json
 frontend/node_modules
 p4-files/
 docker/topologies/logs/*
@@ -14,11 +13,15 @@ database/p4db.db
 
 # dependencies
 /node_modules
+node_modules/
 /.pnp
 .pnp.js
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
+playwright-report/
 
 
 # misc

@@ -10,7 +10,8 @@ from flask import Flask
 from flask_restful import Api
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
-from threading import Event, Thread
+from threading import Event, Lock
+from unicorn_version import register_version_routes
 
 import json
 from .netsim.netsim import MininetRunner
@@ -23,6 +24,7 @@ class NodeCLI:
         self.shell = None
         self.thread = None
         self.stop_event = Event()
+        self.command_lock = Lock()
         self.socket = socket_ref
 
         # Starts bash shell on host and registers output handler
@@ -30,22 +32,29 @@ class NodeCLI:
 
     def register_shell(self):
         # Ensure that shell is running on node
-        self.node.startShell()
+        if getattr(self.node, "shell", None) is None:
+            self.node.startShell()
 
     def run_cmd(self, cmd):
-        # Runs command, does not wait for output
-        print("Starting command '{}' on host {}".format(cmd,self.node.name))
-        self.node.sendCmd(cmd)
-        self.wait_output()
-        print("Finished command '{}' on host {}".format(cmd,self.node.name))
+        if self.stop_event.is_set():
+            return
+        if not self.command_lock.acquire(blocking=False):
+            self.handle_output("A command is already running. Interrupt it before starting another.\n")
+            return
+        try:
+            self.node.sendCmd(cmd)
+            self.wait_output()
+        finally:
+            self.command_lock.release()
 
     # NOTE: THIS IS A MODIFIED VERSION OF p4_mininet.node.waitOutput
     # It is modified to use the following funciton instead of monitor
     # All credits belong to original authors
     def wait_output(self):
-        while self.node.waiting:
-            data = self.node.monitor( findPid=False )
-            self.handle_output( data )
+        while self.node.waiting and not self.stop_event.is_set():
+            data = self.node.monitor(timeoutms=100, findPid=False)
+            if data:
+                self.handle_output(data)
         # Command finished, all data has already been emitted over WS
         
         return 
@@ -60,7 +69,12 @@ class NodeCLI:
         self.socket.emit("response", json.dumps(json_obj))
 
     def interrupt(self):
-        self.node.sendInt();
+        self.node.sendInt()
+
+    def close(self):
+        self.stop_event.set()
+        if self.node.waiting:
+            self.interrupt()
 
 # TODO: ensure that terminal is synchronized across multiple users
 class WebsocketManager:
@@ -82,39 +96,39 @@ class WebsocketManager:
         self.socket.on_event('message', self.handle_message)
 
     def close_clis(self):
-        # Stop CLIs that are still running
-        for name, cli in self.clis.items():
-            cli.node.stop() 
-
-        # Delete old dictionary
-        self.clis = {}
-        self.net = None
+        with self.mn_runner.lifecycle_lock:
+            # Terminal adapters do not own Mininet nodes. Stopping a node here
+            # kills switch processes during terminal initialization/reload.
+            for cli in self.clis.values():
+                cli.close()
+            self.clis = {}
+            self.net = None
 
 
     def init_clis(self):
-        self.close_clis()
-
-        if self.net is None:
-            if self.mn_runner.net is not None:
-                self.net = self.mn_runner.net
-            else:
-                print("ERROR, no topology loaded")
-
-        # Iterate over all nodes in network
-        for node in self.net.values():
-            # Check if node is a Host machine
-            if isinstance(node, P4Host) or isinstance(node, P4Switch):
-                # Create CLI instance for host
-                self.clis[node.name] = NodeCLI(node, self.socket)
+        with self.mn_runner.lifecycle_lock:
+            self.close_clis()
+            self.net = self.mn_runner.net
+            if self.net is None:
+                return
+            for node in self.net.values():
+                if isinstance(node, (P4Host, P4Switch)):
+                    self.clis[node.name] = NodeCLI(node, self.socket)
 
     def handle_message(self, message):
-
-        target = message["target"]
-
-        if ("interrupt" in message):
-            self.clis[target].interrupt()
-        else:
-            self.clis[target].run_cmd(message["cmd"])
+        if not isinstance(message, dict):
+            return
+        target = message.get("target")
+        with self.mn_runner.lifecycle_lock:
+            cli = self.clis.get(target) if isinstance(target, str) else None
+        if cli is None:
+            self.socket.emit("response", json.dumps({"name": target,
+                "data": "Terminal is unavailable. Load a topology first.\n"}))
+            return
+        if message.get("interrupt"):
+            cli.interrupt()
+        elif isinstance(message.get("cmd"), str):
+            cli.run_cmd(message["cmd"])
 
 
 class MininetManager:
@@ -127,6 +141,7 @@ class MininetManager:
         CORS(app, methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
         app.config['CORS_HEADERS'] = 'application/json'
         self.app = app
+        register_version_routes(app, "netsim")
 
         self.index = 0
 

@@ -1,0 +1,19 @@
+server {
+    listen 3000;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    client_max_body_size 65m;
+    location /api/ {
+        proxy_pass ${BACKEND_URL}/;
+        proxy_read_timeout 600s;
+    }
+    location /netsim/ {
+        proxy_pass ${NETSIM_URL}/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 120s;
+    }
+    location / { try_files $uri $uri/ /index.html; }
+}

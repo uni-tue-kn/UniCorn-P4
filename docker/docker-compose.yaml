@@ -1,4 +1,3 @@
-version: "3"
 services:
     # NOTE: both backend and netsim run with network_mode host
     # This means, that all ports are directly accesible on the host machine.
@@ -18,6 +17,7 @@ services:
         environment:
             - P4_DIR=/p4/
             - TOPO_DIR=/topologies
+            - UPDATE_CHECK_ENABLED=${UPDATE_CHECK_ENABLED:-true}
     
     unicornp4-netsim:
         # Required to add virtual interfaces for network simulation
@@ -43,13 +43,10 @@ services:
         depends_on:
             - unicornp4-backend
         ports:
-
-            # - 80:3000 For developement use the one below
-            # React has port 3000 hardcoded for a websocket to dynamically reload the page
-            # Remapping this port to 80 in expose breaks this feature
-            - 3000:3000     
-        volumes:
-            - ./topologies:/topologies
+            - 3000:3000
+        extra_hosts:
+            - host.docker.internal:host-gateway
         environment:
-            - BASE_URL=http://localhost/
+            - BACKEND_URL=http://host.docker.internal:5000
+            - NETSIM_URL=http://host.docker.internal:5001
 

@@ -18,8 +18,9 @@
 # We encourage you to dissect this script to better understand the BMv2/Mininet
 # environment used by the P4 tutorial.
 #
-import os, json, re, argparse
+import os, json, re, argparse, math
 import subprocess
+from threading import RLock
 from time import sleep
 
 from .utils.p4_mininet import P4Switch, P4Host
@@ -160,6 +161,7 @@ class MininetRunner:
                 quiet : bool          // Enable/disable script debug messages
         """
         self.quiet = quiet     
+        self.lifecycle_lock = RLock()
         
         self.topo_file = topo_file
         # Ensure all the needed directories exist and are directories
@@ -183,6 +185,7 @@ class MininetRunner:
         self.ext_intfs = []
         self.interface_mapping = {}
         self.external_intf_objects = []
+        self.layout = {}
         
         # Will be populated with dicts like d = {"dev_id": 0, "grpc_port": 50051, "name": s1} in self.run()
         self.switch_mappings = []
@@ -190,16 +193,55 @@ class MininetRunner:
         if topo_file:
             self.run()
 
-    def parse_topology_file(self):
+    def read_topology_file(self, path):
+        """Validate a candidate without modifying the running topology."""
+        with open(path, 'r') as source:
+            topo = json.load(source)
+        if not isinstance(topo, dict) or not isinstance(topo.get('hosts'), list) or not isinstance(topo.get('switches'), dict):
+            raise ValueError("Topology requires hosts (list), switches (object) and links (list)")
+        names = topo['hosts'] + list(topo['switches'])
+        if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*[0-9]', name) for name in names):
+            raise ValueError("Node names must be alphanumeric and end with a numeric ID")
+        if any(len(name) > 10 for name in names):
+            raise ValueError('Node names must be at most 10 characters to fit Linux interface names')
+        if len(set(names)) != len(names):
+            raise ValueError("Host and switch names must be unique")
+        # The built-in host addressing scheme encodes IDs in one IPv4 octet.
+        if any(extract_id(name) > 254 for name in topo['hosts']) or any(extract_id(name) > 255 for name in topo['switches']):
+            raise ValueError("Node IDs exceed the built-in IPv4 addressing range")
+        layout = topo.get('layout', {})
+        if not isinstance(layout, dict) or any(name not in names for name in layout):
+            raise ValueError("Layout must map existing nodes to positions")
+        for position in layout.values():
+            if not isinstance(position, dict) or any(
+                isinstance(position.get(axis), bool) or not isinstance(position.get(axis), (int, float))
+                or not math.isfinite(position[axis]) or position[axis] < 0 for axis in ('x', 'y')
+            ):
+                raise ValueError("Layout positions require finite nonnegative x and y")
+        links = self.parse_links(topo.get('links'), topo['hosts'], topo['switches'])
+        for host in topo['hosts']:
+            count = sum(link['node1'] == host or link['node2'] == host for link in links)
+            if count != 1:
+                raise ValueError(f'Host {host} must have exactly one switch link before deployment (found {count}).')
+        for switch in topo['switches']:
+            degree = sum(link['node1'] == switch or link['node2'] == switch for link in links)
+            interface = f'{switch}-eth{degree}'
+            if len(interface) > 15:
+                raise ValueError(f"Switch {switch} requires interface {interface}, exceeding Linux's 15-character limit.")
+        return {"hosts": topo['hosts'], "switches": topo['switches'], "layout": layout,
+                "links": links,
+                "ext_intfs": self.parse_ext_intfs(topo.get('ext_intfs', []), topo['switches'])}
+
+    def parse_topology_file(self, candidate=None):
         self.logger('Reading topology file.')
-        with open(self.topo_file, 'r') as f:
-            topo = json.load(f)
+        topo = self.read_topology_file(self.topo_file) if candidate is None else candidate
         self.hosts = topo['hosts']
         self.switches = topo['switches']
-        self.links = self.parse_links(topo['links'])
-        self.ext_intfs = self.parse_ext_intfs(topo.get('ext_intfs', []))
+        self.links = topo['links']
+        self.ext_intfs = topo['ext_intfs']
+        self.layout = topo['layout']
 
-    def parse_ext_intfs(self, unparsed_ext_intfs):
+    def parse_ext_intfs(self, unparsed_ext_intfs, switches=None):
         """Validate and normalize external interface attachments."""
         if unparsed_ext_intfs is None:
             return []
@@ -221,7 +263,7 @@ class MininetRunner:
             sw_name = sw_name.strip()
             intf_name = intf_name.strip()
 
-            if sw_name not in self.switches:
+            if sw_name not in (self.switches if switches is None else switches):
                 raise ValueError(f"External interface '{intf_name}' references unknown switch '{sw_name}'.")
             if intf_name in RESERVED_EXTERNAL_INTERFACES:
                 raise ValueError(f"External interface '{intf_name}' is reserved and cannot be attached.")
@@ -252,6 +294,7 @@ class MininetRunner:
         self.net = None
         P4Switch.device_id = 0
         P4RuntimeSwitch.next_grpc_port = 50051
+        P4RuntimeSwitch.next_thrift_port = 9090
         
         self.hosts = []
         self.switches = {}
@@ -259,6 +302,7 @@ class MininetRunner:
         self.ext_intfs = []
         self.interface_mapping = {}
         self.external_intf_objects = []
+        self.layout = {}
 
     def detach_external_interfaces(self):
         """Remove physical interfaces from Mininet tracking without deleting them."""
@@ -273,15 +317,18 @@ class MininetRunner:
                 self.logger(f"Failed to detach external interface {intf.name}: {e}")
         self.external_intf_objects = []
 
-    def run(self):
+    def run(self, candidate=None):
         """ Sets up the mininet instance, programs the switches,
             and starts the mininet CLI. This is the main method to run after
             initializing the object.
         """
+        # Validate before touching any existing network. The HTTP boundary can
+        # supply its already parsed candidate, avoiding a second file read.
+        candidate = self.read_topology_file(self.topo_file) if candidate is None else candidate
         # Clean up existing topologies
         self.destroy_topology()  
         
-        self.parse_topology_file()
+        self.parse_topology_file(candidate)
  
         self.logger("Started topology!")
         
@@ -305,25 +352,42 @@ class MininetRunner:
         #self.do_net_cli()
 
 
-    def parse_links(self, unparsed_links):
+    def parse_links(self, unparsed_links, hosts=None, switches=None):
         """ Given a list of links descriptions of the form [node1, node2, latency, bandwidth]
             with the latency and bandwidth being optional, parses these descriptions
             into dictionaries and store them as self.links
         """
         
-        def formatLatency(l):
-            """ Helper method for parsing link latencies from the topology json. """
-            if isinstance(l, str):
-                return l
-            else:
-                return str(l) + "ms"
+        def formatLatency(value):
+            """Emit one tc delay argument, including for drafts such as '2 ms'."""
+            if isinstance(value, str):
+                match = re.fullmatch(r'(\d+(?:\.\d+)?)\s*(us|ms|s)', value)
+                if not match or not math.isfinite(float(match.group(1))):
+                    raise ValueError("Latency must be nonnegative milliseconds or use us, ms, s units")
+                return match.group(1) + match.group(2)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError("Latency must be a finite nonnegative number")
+            return str(value) + "ms"
             
         links = []
+        if not isinstance(unparsed_links, list):
+            raise ValueError("links must be a list")
+        hosts = self.hosts if hosts is None else hosts
+        switches = self.switches if switches is None else switches
+        nodes = set(hosts) | set(switches)
         for link in unparsed_links:
+            if not isinstance(link, list) or not 2 <= len(link) <= 4:
+                raise ValueError("Each link must contain two nodes and optional latency/bandwidth")
             # make sure each link's endpoints are ordered alphabetically
             s, t, = link[0], link[1]
-            if s > t:
-                s,t = t,s
+            if not isinstance(s, str) or not isinstance(t, str) or s not in nodes or t not in nodes:
+                raise ValueError("Link references an unknown node")
+            if s == t:
+                raise ValueError("A link cannot connect a node to itself")
+            if s in hosts and t in hosts:
+                raise ValueError("Hosts must connect to switches")
+            if t in hosts or (s in switches and t in switches and s > t):
+                s, t = t, s
 
             link_dict = {'node1':s,
                         'node2':t,
@@ -336,8 +400,6 @@ class MininetRunner:
             if len(link) > 3:
                 link_dict['bandwidth'] = link[3]
 
-            if link_dict['node1'] in self.hosts:
-                assert link_dict['node2'] in self.switches, 'Hosts should be connected to switches, not ' + str(link_dict['node2'])
             links.append(link_dict)
         return links
 
@@ -346,6 +408,7 @@ class MininetRunner:
         for s in self.net.switches:
             d = {"dev_id": s.device_id,
                 "grpc_port": s.grpc_port,
+                "thrift_port": s.thrift_port,
                 "name": s.name}
             switch_mappings.append(d) 
         return switch_mappings
@@ -391,6 +454,7 @@ class MininetRunner:
             "ext_intfs": self.ext_intfs,
             "interface_mapping": self.interface_mapping
         }
+        topo["layout"] = self.layout
         if include_switches_online:
             topo["switches_online"] = self.switch_mappings
         return topo

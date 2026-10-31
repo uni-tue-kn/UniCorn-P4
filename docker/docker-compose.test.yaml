@@ -1,0 +1,45 @@
+# Isolated state and network; run with -p unicorn-integration.
+services:
+  backend:
+    image: unicorn-test-backend
+    build:
+      context: ..
+      dockerfile: docker/backend/Dockerfile
+    network_mode: service:netsim
+    environment:
+      P4_DIR: /p4/
+      TOPO_DIR: /topologies/
+      DB_DIR: /database/test.db
+      UPDATE_CHECK_ENABLED: "false"
+    volumes:
+      - test-p4:/p4
+      - test-db:/database
+      - ../tests/fixtures:/fixtures:ro
+      - test-topologies:/topologies
+  netsim:
+    image: unicorn-test-netsim
+    build:
+      context: ..
+      dockerfile: docker/netsim/Dockerfile
+    privileged: true
+    volumes:
+      - ../tests/fixtures:/fixtures:ro
+      - test-topologies:/topologies
+      - test-logs:/topologies/logs
+      - test-pcaps:/topologies/pcaps
+  frontend:
+    image: unicorn-test-frontend
+    build:
+      context: ..
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "${E2E_UI_PORT:-3001}:3000"
+    environment:
+      BACKEND_URL: http://netsim:5000
+      NETSIM_URL: http://netsim:5001
+volumes:
+  test-p4:
+  test-db:
+  test-logs:
+  test-pcaps:
+  test-topologies:
