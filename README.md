@@ -57,7 +57,7 @@
   <img src="docs/screenshots/queues.png" alt="BMv2 queue depth and rate controls">
 </details>
 
-_Screenshots show a sample emulated network and switch resources._
+_The topology and throughput screenshots show the campus telemetry example with real emulated traffic._
 
 ## Quick start
 

@@ -3,7 +3,7 @@
 
 The target must expose the frontend's /api and /netsim proxies, disable update
 checks, and contain the known public P4 source under /p4/samples/runtime-lab/.
-The script replaces that isolated network four times. No traffic commands or
+The script replaces that isolated network once for each scenario. No traffic commands or
 external switch addresses are executed.
 """
 import argparse
@@ -41,6 +41,7 @@ def pair_topology(observer=False):
 
 
 RATE = {'cir': '5', 'cburst': '2', 'pir': '10', 'pburst': '4'}
+CAMPUS_RATE = {'cir': '2000', 'cburst': '256', 'pir': '5000', 'pburst': '512'}
 SCENARIOS = (
     {'name': 'two-host-forwarding', 'topology': pair_topology(),
      'tables': {'s1': [entry(1, port=2), entry(2, port=1)]}, 'digest': True},
@@ -55,7 +56,30 @@ SCENARIOS = (
      'tables': {'s1': [entry(1, 'send_and_mirror', port=2), entry(2, port=1)], 's2': []}, 'mirror': True},
     {'name': 'metering-queues', 'topology': pair_topology(),
      'tables': {'s1': [entry(1, 'metered_send', port=2), entry(2, port=1)]}, 'metering': True},
+    {'name': 'campus-telemetry',
+     'topology': {'hosts': [f'h{i}' for i in range(1, 7)], 'switches': {f's{i}': {} for i in range(1, 5)},
+                  'links': [['h1', 's1', '1ms', 100], ['h2', 's1', '1ms', 100], ['h3', 's2', '1ms', 100],
+                            ['h4', 's3', '1ms', 100], ['h5', 's4', '1ms', 100], ['h6', 's4', '1ms', 100],
+                            ['s1', 's2', '2ms', 1000], ['s1', 's3', '2ms', 1000],
+                            ['s2', 's4', '2ms', 1000], ['s3', 's4', '2ms', 1000]],
+                  'layout': {'h1': {'x': 90, 'y': 120}, 'h2': {'x': 90, 'y': 420}, 's1': {'x': 300, 'y': 270},
+                             's2': {'x': 550, 'y': 140}, 's3': {'x': 550, 'y': 400}, 's4': {'x': 800, 'y': 270},
+                             'h3': {'x': 800, 'y': 50}, 'h4': {'x': 300, 'y': 490},
+                             'h5': {'x': 1030, 'y': 120}, 'h6': {'x': 1030, 'y': 420}}},
+     'tables': {'s1': [entry(1, 'send_and_mirror', port=3), entry(2, port=4), entry(3, port=1), entry(4, port=2)],
+                's2': [entry(2, port=3), entry(3, port=2)],
+                's3': [entry(3, port=2), entry(2, port=3)],
+                's4': [entry(3, port=4), entry(4, port=3), entry(2, port=1), entry(1, 'multicast', group=102)]},
+     'mirror': True, 'mirror_port': 4, 'multicast_switch': 's4', 'multicast': {102: (2, 4)},
+     'multicast_instances': {102: (0, 1)}, 'metering': True, 'rate': CAMPUS_RATE,
+     'digest': True, 'digest_max_list_size': '16', 'queue_defaults': {'depth_packets': 256, 'rate_pps': '0'},
+     'wide_register_seed': '9007199254740993'},
 )
+
+
+def multicast_replicas(definition, group, ports):
+    instances = definition.get('multicast_instances', {}).get(group, [0] * len(ports))
+    return [{'egress_port': str(port), 'instance': instance} for port, instance in zip(ports, instances)]
 
 
 class APIError(RuntimeError):
@@ -164,20 +188,24 @@ def install_scenario(api, netsim, definition, program):
             api.call('POST', '/tables', {'switch_id': switch_id, 'entry': json.dumps(row)})
     switch_id, info = switches['s1'], metadata['s1']
     for group, ports in definition.get('multicast', {}).items():
-        api.call('POST', '/multicast-groups', {'switch_id': switch_id, 'multicast_group_id': group,
-                 'replicas': [{'egress_port': str(port), 'instance': 0} for port in ports]})
+        api.call('POST', '/multicast-groups', {'switch_id': switches[definition.get('multicast_switch', 's1')], 'multicast_group_id': group,
+                 'replicas': multicast_replicas(definition, group, ports)})
     if definition.get('mirror'):
-        api.call('POST', '/mirrors', {'switch_id': switch_id, 'session_id': 20, 'replicas': [{'egress_port': '3', 'instance': 0}],
+        api.call('POST', '/mirrors', {'switch_id': switch_id, 'session_id': 20, 'replicas': [{'egress_port': str(definition.get('mirror_port', 3)), 'instance': 0}],
                                      'class_of_service': 0, 'packet_length_bytes': 0})
     if definition.get('digest'):
         api.call('POST', '/digests', {'switch_id': switch_id, 'digest_id': info['digests'][DIGEST]['id'],
-            'config': {'max_timeout_ns': '100000000', 'max_list_size': '1', 'ack_timeout_ns': '1000000000'}})
+            'config': {'max_timeout_ns': '100000000', 'max_list_size': definition.get('digest_max_list_size', '1'), 'ack_timeout_ns': '1000000000'}})
     if definition.get('metering'):
+        rate = definition.get('rate', RATE)
         api.call('PATCH', '/direct-meters', {'switch_id': switch_id, 'meter_id': info['direct_meters'][DIRECT_METER]['id'],
-                 'entries': [{'table_entry': definition['tables']['s1'][0], 'config': RATE}]})
+                 'entries': [{'table_entry': definition['tables']['s1'][0], 'config': rate}]})
         api.call('PATCH', '/meters', {'switch_id': switch_id, 'meter_id': info['meters'][METER]['id'],
-                 'entries': [{'index': 1, 'config': RATE}]})
-        api.call('PATCH', '/queues', {'switch_id': switch_id, 'port': 2, 'depth_packets': 8, 'rate_pps': '10'})
+                 'entries': [{'index': 1, 'config': rate}]})
+        if not definition.get('queue_defaults'):
+            api.call('PATCH', '/queues', {'switch_id': switch_id, 'port': 2, 'depth_packets': 8, 'rate_pps': '10'})
+    for identifier in switches.values() if definition.get('queue_defaults') else []:
+        api.call('PATCH', '/queues', {'switch_id': identifier, **definition['queue_defaults']})
     verify_scenario(api, definition, switches, metadata)
     return switches
 
@@ -199,33 +227,40 @@ def verify_scenario(api, definition, switches, metadata):
             raise APIError(f'{name}: expected 16 readable counter cells')
         for register in REGISTERS:
             identifier = info['registers'][register]['id']
-            api.call('PATCH', '/registers', {'switch_id': switch_id, 'register_id': identifier, 'entries': [{'index': 0, 'value': '0'}]})
+            value = definition.get('wide_register_seed', '0') if name == 's1' and register == REGISTERS[1] else '0'
+            api.call('PATCH', '/registers', {'switch_id': switch_id, 'register_id': identifier, 'entries': [{'index': 0, 'value': value}]})
             read = api.call('GET', '/registers', params={'switch_id': switch_id, 'register_id': identifier, 'index': 0})
-            if read['entries'] != [{'index': 0, 'value': '0'}]:
+            if read['entries'] != [{'index': 0, 'value': value}]:
                 raise APIError(f'{name}: register read/write did not round-trip')
     switch_id, info = switches['s1'], metadata['s1']
     if definition.get('multicast'):
-        groups = api.call('GET', '/multicast-groups', params={'switch_id': switch_id})['entries']
-        actual = {row['multicast_group_id']: sorted(int(replica['egress_port']) for replica in row['replicas']) for row in groups}
-        if actual != {group: sorted(ports) for group, ports in definition['multicast'].items()}:
+        groups = api.call('GET', '/multicast-groups', params={'switch_id': switches[definition.get('multicast_switch', 's1')]})['entries']
+        actual = {row['multicast_group_id']: sorted((int(replica['egress_port']), replica['instance']) for replica in row['replicas']) for row in groups}
+        expected = {group: sorted((int(row['egress_port']), row['instance']) for row in multicast_replicas(definition, group, ports)) for group, ports in definition['multicast'].items()}
+        if actual != expected:
             raise APIError('Multicast readback differs from the sample')
     if definition.get('mirror'):
         mirrors = api.call('GET', '/mirrors', params={'switch_id': switch_id})['entries']
-        if not any(row['session_id'] == 20 and row['replicas'] == [{'egress_port': '3', 'instance': 0}] for row in mirrors):
+        if not any(row['session_id'] == 20 and row['replicas'] == [{'egress_port': str(definition.get('mirror_port', 3)), 'instance': 0}] for row in mirrors):
             raise APIError('Mirror session readback differs from the sample')
     if definition.get('digest'):
         entries = api.call('GET', '/digests', params={'switch_id': switch_id, 'digest_id': info['digests'][DIGEST]['id']})['entries']
-        if len(entries) != 1:
+        if len(entries) != 1 or str(entries[0]['config']['max_list_size']) != definition.get('digest_max_list_size', '1'):
             raise APIError('The sample digest is not enabled')
     if definition.get('metering'):
         meters = api.call('GET', '/meters', params={'switch_id': switch_id, 'meter_id': info['meters'][METER]['id'], 'index': 1})
         direct = api.call('GET', '/direct-meters', params={'switch_id': switch_id, 'meter_id': info['direct_meters'][DIRECT_METER]['id']})
         row = next((row for row in direct['entries'] if str(row['table_entry']['match_fields']['standard_metadata.ingress_port']) == '1'), None)
-        if meters['entries'][0]['config'] != RATE or not row or row['config'] != RATE:
+        if meters['entries'][0]['config'] != definition.get('rate', RATE) or not row or row['config'] != definition.get('rate', RATE):
             raise APIError('Meter readback differs from the sample')
-        queues = api.call('GET', '/queues', params={'switch_id': switch_id, 'port': 2})
-        if not any(row['port'] == 2 and row['depth_packets'] == 8 and row['rate_pps'] == '10' for row in queues['configuration']['ports']):
-            raise APIError('Acknowledged queue settings differ from the sample')
+        if not definition.get('queue_defaults'):
+            queues = api.call('GET', '/queues', params={'switch_id': switch_id, 'port': 2})
+            if not any(row['port'] == 2 and row['depth_packets'] == 8 and row['rate_pps'] == '10' for row in queues['configuration']['ports']):
+                raise APIError('Acknowledged queue settings differ from the sample')
+    for identifier in switches.values() if definition.get('queue_defaults') else []:
+        queues = api.call('GET', '/queues', params={'switch_id': identifier})
+        if queues['configuration']['defaults'] != definition['queue_defaults']:
+            raise APIError('Acknowledged queue defaults differ from the sample')
 
 
 def validate_export(payload, definition, source_bytes):

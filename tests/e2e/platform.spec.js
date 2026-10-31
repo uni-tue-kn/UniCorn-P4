@@ -856,10 +856,10 @@ async function sampleTerminal(page, host, command) {
   await input.press('Enter');
 }
 
-async function samplePing(page, count = 3, interval = '0.2') {
-  await sampleTerminal(page, 'h1', 'clear');
+async function samplePing(page, count = 3, interval = '0.2', { host = 'h1', destination = '10.0.1.2' } = {}) {
+  await sampleTerminal(page, host, 'clear');
   const marker = `PUBLIC_SAMPLE_DONE_${Date.now()}`;
-  await sampleTerminal(page, 'h1', `ping -c ${count} -i ${interval} -W 1 10.0.1.2; sample_ping_status=$?; echo ${marker}=$sample_ping_status`);
+  await sampleTerminal(page, host, `ping -c ${count} -i ${interval} -W 1 ${destination}; sample_ping_status=$?; echo ${marker}=$sample_ping_status`);
   // Stream chunks can combine summary and marker. The echoed command contains
   // a shell variable here, so it cannot satisfy the completed numeric status.
   await expect(page.locator('main')).toContainText(new RegExp(`${marker}=[01](?:\\s|$)`), { timeout: 25_000 });
@@ -876,7 +876,7 @@ async function sampleHostRX(page) {
   return BigInt((await page.locator('main').innerText()).match(/PUBLIC_SAMPLE_RX_(\d+)/)[1]);
 }
 
-for (const name of ['two-host-forwarding', 'multicast-hub', 'mirror-observer', 'metering-queues']) {
+for (const name of ['two-host-forwarding', 'multicast-hub', 'mirror-observer', 'metering-queues', 'campus-telemetry']) {
   test(`public network sample ${name} imports through the UI and forwards real packets`, async ({ page, request }) => {
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
@@ -917,8 +917,18 @@ for (const name of ['two-host-forwarding', 'multicast-hub', 'mirror-observer', '
     const counter = async target => BigInt((await json(await request.get('/api/counters', { params: {
       switch_id: ids[target], counter_id: info[target].counters['LabIngress.port_counter'].id, index: 1,
     } }))).entries[0].packets);
+    const counterTotal = async target => (await json(await request.get('/api/counters', { params: {
+      switch_id: ids[target], counter_id: info[target].counters['LabIngress.port_counter'].id,
+    } }))).entries.reduce((total, row) => total + BigInt(row.packets), 0n);
     const before = await counter('s1');
     const observerBefore = name === 'mirror-observer' ? await counter('s2') : null;
+    let campusBefore;
+    if (name === 'campus-telemetry') {
+      expect(Object.keys(ids).sort()).toEqual(['s1', 's2', 's3', 's4']);
+      expect(preview.preview.topology.hosts).toHaveLength(6);
+      expect(preview.preview.topology.links).toHaveLength(10);
+      campusBefore = Object.fromEntries(await Promise.all(Object.keys(ids).map(async target => [target, await counterTotal(target)])));
+    }
     await page.goto('/topology');
     await expect(page.getByRole('group', { name: 'Topology canvas', exact: true })).toBeVisible();
     await page.getByRole('link', { name: 'Terminals', exact: true }).click();
@@ -954,6 +964,26 @@ for (const name of ['two-host-forwarding', 'multicast-hub', 'mirror-observer', '
       const loss = await samplePing(page, 30, '0.02');
       expect(loss).toBeGreaterThan(0);
       expect(loss).toBeLessThan(100);
+    }
+    if (name === 'campus-telemetry') {
+      // The h1↔h2 circuit traverses every switch. Transit links on s2/s3 do
+      // not use port1, so verify the full counter rather than a single cell.
+      for (const target of Object.keys(ids)) {
+        await expect.poll(() => counterTotal(target), { message: `${target} carries campus forwarding traffic` }).toBeGreaterThan(campusBefore[target]);
+        const queues = await json(await request.get('/api/queues', { params: { switch_id: ids[target] } }));
+        expect(queues.readback_available).toBeFalsy();
+        expect(queues.configuration.defaults).toEqual({ depth_packets: 256, rate_pps: '0' });
+      }
+      const mirrors = await json(await request.get('/api/mirrors', { params: { switch_id: ids.s1 } }));
+      expect(mirrors.entries.find(session => session.session_id === 20).replicas).toEqual([{ egress_port: '4', instance: 0 }]);
+      const multicast = await json(await request.get('/api/multicast-groups', { params: { switch_id: ids.s4 } }));
+      expect(multicast.entries.find(group => group.multicast_group_id === 102).replicas).toEqual([
+        { egress_port: '2', instance: 0 }, { egress_port: '4', instance: 1 },
+      ]);
+      const wide = await json(await request.get('/api/registers', { params: { switch_id: ids.s1,
+        register_id: info.s1.registers['LabIngress.wide_packet_count'].id, index: 0 } }));
+      expect(wide.entries[0].value).toBe('9007199254740993');
+      expect(await samplePing(page, 3, '0.2', { host: 'h5', destination: '10.0.4.6' })).toBe(0);
     }
     expect(pageErrors).toEqual([]);
     await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: 'disabled' });

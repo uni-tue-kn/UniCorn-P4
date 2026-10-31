@@ -14,7 +14,7 @@
 * Visual topology drafting with draggable and keyboard-movable hosts/switches, links created directly between canvas nodes, latency/bandwidth editing, and saved node positions.
 * One combined topology live view/editor with portable JSON import/export, deployment snapshots, and actual port labels.
 * A global network archive menu for topology/layout, active P4 sources/includes, compiled pipelines, and readable switch state, with validated import and dependency-ordered restoration.
-* Four importable sample networks demonstrating forwarding, multicast, mirroring, and metering/queues, with public P4 source and a reproducible archive generator.
+* Five importable sample networks demonstrating forwarding, multicast, mirroring, metering/queues, and a four-switch telemetry showcase, with public P4 source and a reproducible archive generator.
 * One compiled-program selector for initialization, with automatic P4Info/BMv2 pairing and an advanced manual override.
 * Component versions from a root `VERSION` file and a bounded, optional upstream update check at startup.
 * Backend, emulator, register-extension, component, real-switch, and Playwright regression tests with isolated databases and volumes.

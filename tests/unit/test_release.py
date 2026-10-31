@@ -209,6 +209,7 @@ def test_archive_is_reproducible(repo, tmp_path):
 def test_public_network_samples_are_packaged_without_untracked_archives(repo, tmp_path):
     write(repo, 'examples/networks/README.md', '[Public source](../p4/runtime-lab/include.p4)\n')
     write(repo, 'examples/networks/two-host-forwarding.zip', 'tracked sample archive')
+    write(repo, 'examples/networks/campus-telemetry.zip', 'tracked public campus archive')
     write(repo, 'examples/p4/runtime-lab/include.p4', '// public sample fragment\n')
     commit(repo, 'Add public network samples')
     prepare(repo, git(repo, 'rev-parse', 'HEAD'), commit=True)
@@ -219,6 +220,8 @@ def test_public_network_samples_are_packaged_without_untracked_archives(repo, tm
         names = archive.getnames()
         assert 'UniCorn-P4/examples/networks/README.md' in names
         assert 'UniCorn-P4/examples/networks/two-host-forwarding.zip' in names
+        assert 'UniCorn-P4/examples/networks/campus-telemetry.zip' in names
+        assert archive.extractfile('UniCorn-P4/examples/networks/campus-telemetry.zip').read() == b'tracked public campus archive'
         assert 'UniCorn-P4/p4-files/runtime-lab/include.p4' in names
         assert b'(../../p4-files/runtime-lab/include.p4)' in archive.extractfile('UniCorn-P4/examples/networks/README.md').read()
         assert not any('private.zip' in name for name in names)
