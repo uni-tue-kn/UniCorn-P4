@@ -12,10 +12,10 @@ class LoadTopology(Endpoint):
                 
         try:
             with self.netsim.lifecycle_lock:
-                self.netsim.read_topology_file(args.topology_file)
+                candidate = self.netsim.read_topology_file(args.topology_file)
                 self.ws.close_clis()
                 self.netsim.topo_file = args.topology_file
-                self.netsim.run()
+                self.netsim.run(candidate=candidate)
                 # Creating adapters is immediate: existing node shells already
                 # run. Finish while holding the lifecycle lock so no stale
                 # background initializer can attach to a later topology.

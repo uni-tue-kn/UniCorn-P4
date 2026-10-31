@@ -17,6 +17,19 @@ function deferred() { let resolve, reject; const promise = new Promise((yes, no)
 beforeEach(() => { vi.clearAllMocks(); context.currentSwitchID = 0; axios.patch.mockResolvedValue({ data: {} }); });
 
 describe('direct meter entry dialog', () => {
+  it('parses legacy numeric JSON keys losslessly before matching and saving a MAT meter', async () => {
+    const target = { ...tableEntry, match_fields: { key: '9007199254740993' } };
+    const wire = JSON.stringify({ entries: [{ table_entry: target, config }] }).replace('"9007199254740993"', '9007199254740993');
+    axios.get.mockImplementation(async (_url, options) => ({ data: options.transformResponse.reduce((data, transform) => transform(data), wire) }));
+    const user = userEvent.setup();
+    render(<DirectMeterEditor meter={meter} tableEntry={target} />);
+    await user.click(screen.getByRole('button', { name: 'Edit meter' }));
+    expect(await screen.findByRole('textbox', { name: 'CIR', exact: true })).toHaveValue('100');
+    await user.click(screen.getByRole('button', { name: 'Save meter' }));
+    await screen.findByText('Saved');
+    expect(axios.patch.mock.calls[0][1].entries[0].table_entry.match_fields.key).toBe('9007199254740993');
+  });
+
   it('normalizes full match identity and ignores actions without losing large integers', () => {
     const reordered = { ...tableEntry, match_fields: { other: 2, key: ['09007199254740993', '64'] }, priority: '12', action_name: null, action_params: {} };
     expect(directMeterKey(reordered)).toBe(directMeterKey(tableEntry));

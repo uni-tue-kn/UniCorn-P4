@@ -48,6 +48,8 @@
 * “Keep existing entries” preserves an identical active program and rejects unsafe replacement with a different pipeline.
 * Removed render-time status/log requests and corrected stale switch-selection/pipeline responses, theme persistence, and large-integer rounding.
 * Corrected terminal/topology lifecycle races and validated replacement topologies before dismantling the active network.
+* Deployment rejects unattached or multiply connected hosts before replacing the running network, while incomplete drafts remain saveable.
+* Direct-meter match keys retain exact wide integers through JSON, including nested LPM, ternary, and range values.
 * Compiler errors and disconnected servers now show readable feedback without crashing the UI, and source paths containing apostrophes remain intact.
 * Hosts allow explicit IPv6 and SIT tunnel configuration while automatic router discovery and address configuration remain disabled.
 * Existing databases receive additive external-adapter fields without losing saved switch or MAT state.

@@ -59,7 +59,8 @@ then select the other endpoint directly on the canvas. The source is highlighted
 and a dashed line previews the connection. Escape or **Cancel link** cancels
 without adding an edge. To use the keyboard, focus nodes and press Enter or Space
 to choose endpoints. Arrow keys move focus while drawing; otherwise they move the
-focused node. Parallel links appear as separate curves.
+focused node. Parallel switch-to-switch links appear as separate curves. Each host
+supports one switch link; remove or rewire that link before connecting it elsewhere.
 
 Select a node or link to open its compact properties panel beside the canvas.
 Link properties provide latency and bandwidth, with **Change endpoints** available
@@ -73,6 +74,9 @@ network unchanged. **Deploy topology** creates a fresh saved snapshot, recreates
 the network, and connects discovered switches. The menu also controls automatic
 switch connection. **Reload active topology** explicitly discards the draft and
 shows the running network. Ordinary background refreshes preserve unsaved changes.
+Unfinished drafts can be imported, edited and saved. Deployment requires exactly
+one switch link for every host, and checks this before saving a deployment snapshot
+or changing the running network.
 
 Latency and bandwidth are enforced by Linux traffic control after loading.
 Latency applies in each direction: one `10ms` link adds roughly `20ms` to a

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { validateDeployableTopology } from './topologyModel';
 
 export function switchConfigs(topology) {
   const names = Object.keys(topology.switches || {});
@@ -12,6 +13,8 @@ export function switchConfigs(topology) {
 }
 
 export async function deployTopology(topology, filename, connect = true) {
+  const problem = validateDeployableTopology(topology);
+  if (problem) throw new Error(problem);
   const saved = await axios.post('/topologies', { name: filename, topology, overwrite: false });
   if (!saved.data?.name) throw new Error('The server did not return a saved topology path.');
   const path = saved.data.name;

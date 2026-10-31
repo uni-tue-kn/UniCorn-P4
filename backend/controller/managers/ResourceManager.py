@@ -5,6 +5,17 @@ from ..p4.v1 import p4runtime_pb2, p4data_pb2
 from .TableEntry import TableEntry
 
 
+def lossless_match_values(value):
+    """Keep wide match keys exact for JSON clients using IEEE-754 numbers."""
+    if isinstance(value, dict):
+        return {key: lossless_match_values(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [lossless_match_values(item) for item in value]
+    if isinstance(value, int) and abs(value) > (1 << 53) - 1:
+        return str(value)
+    return value
+
+
 def integer(value, label="value", minimum=0, maximum=None):
     if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise ValueError(f"{label} must be a decimal integer")
@@ -172,7 +183,7 @@ class ResourceManager:
                 parsed.entry = raw.table_entry
                 parsed.match_fields = {}
                 parsed.parse_match_fields()
-                rows.append({"table_entry": {"table_name": name, "match_fields": parsed.match_fields,
+                rows.append({"table_entry": {"table_name": name, "match_fields": lossless_match_values(parsed.match_fields),
                              "priority": raw.table_entry.priority or None, "action_name": None, "action_params": {},
                              "is_default_action": raw.table_entry.is_default_action}, "config": decode_meter(raw)})
         return {"meter_id": resource.preamble.id, "entries": rows}

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from api.topology_schema import validate_topology
+from api.topology_schema import validate_topology, validate_deployable_topology
 
 
 @pytest.fixture
@@ -83,3 +83,22 @@ def test_malformed_request_and_unknown_get_are_graceful(client, tmp_path, monkey
     assert client.post('/topologies', json=[]).status_code == 400
     assert client.post('/topologies', json={'name': 'draft', 'topology': {}, 'overwrite': 'yes'}).status_code == 400
     assert client.get('/topologies', query_string={'name': '../outside.json'}).status_code == 404
+
+
+@pytest.mark.parametrize('links,count', [([], 0), ([['h1', 's1'], ['h1', 's2']], 2),
+                                        ([['h1', 's1'], ['s1', 'h1']], 2)])
+def test_incomplete_or_multihomed_drafts_can_be_saved_but_not_deployed(client, tmp_path, monkeypatch, topology, links, count):
+    monkeypatch.setenv('TOPO_DIR', str(tmp_path))
+    topology['links'] = links
+    assert validate_topology(topology) == topology
+    assert client.post('/topologies', json={'name': 'draft', 'topology': topology}).status_code == 200
+    with pytest.raises(ValueError, match=fr'Host h1.*exactly one switch link.*found {count}'):
+        validate_deployable_topology(topology)
+
+
+def test_deployment_allows_parallel_switch_links_and_switch_only_topologies(topology):
+    assert validate_deployable_topology(topology) == topology
+    topology['hosts'] = []
+    topology['links'] = [['s1', 's2'], ['s1', 's2']]
+    topology['layout'] = {}
+    assert validate_deployable_topology(topology) == topology

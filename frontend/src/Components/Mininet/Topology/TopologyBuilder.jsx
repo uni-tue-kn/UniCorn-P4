@@ -9,7 +9,7 @@ import { TOPOLOGY_DRAFT_STORAGE_KEY, useTopology } from '../../../Contexts/Topol
 import { useSwitch } from '../../../Contexts/SwitchContext';
 import { useSnackbar } from '../../../Contexts/SnackbarContext';
 import { autoLayout } from './topologyLayout';
-import { deploymentFilename, emptyDraft, liveLinkLabels, nodeNames, normalizeTopology, numericId, removeNode, renameNode, safeFilename, validateDraft } from './topologyModel';
+import { deploymentFilename, emptyDraft, liveLinkLabels, nodeNames, normalizeTopology, numericId, removeNode, renameNode, safeFilename, validateDraft, validateDeployableTopology, validateHostLinkChange } from './topologyModel';
 import { clearTopology, deployTopology } from './topologyService';
 
 export { removeNode, renameNode, validateDraft } from './topologyModel';
@@ -132,7 +132,7 @@ export default function TopologyBuilder() {
     if (/^\d+(?:\.\d+)?$/.test(delay)) delay += 'ms';
     const link = [from, to, delay, ...(bandwidth === '' ? [] : [Number(bandwidth)])];
     const next = { ...draft, links: selectedLink == null ? [...draft.links, link] : draft.links.map((value, index) => index === selectedLink ? link : value) };
-    const problem = validateDraft(next);
+    const problem = validateDraft(next) || validateHostLinkChange(draft, link, selectedLink);
     if (problem) { setError(problem); return; }
     change(next); setLatency(delay);
   }
@@ -148,7 +148,8 @@ export default function TopologyBuilder() {
     }
     if (linkSource === name) { setDrawError('Choose a different node to finish the link.'); return; }
     if (draft.hosts.includes(linkSource) && draft.hosts.includes(name)) { setDrawError('Hosts connect through a switch. Choose a switch as the other endpoint.'); return; }
-    const next = { ...draft, links: [...draft.links, [linkSource, name, '0ms']] }, problem = validateDraft(next);
+    const link = [linkSource, name, '0ms'];
+    const next = { ...draft, links: [...draft.links, link] }, problem = validateDraft(next) || validateHostLinkChange(draft, link);
     if (problem) { setDrawError(problem); return; }
     change(next); setSelectedLink(draft.links.length); setFrom(linkSource); setTo(name); setLatency('0ms'); setBandwidth(''); select(''); cancelLink();
   }
@@ -205,7 +206,7 @@ export default function TopologyBuilder() {
     finally { if (alive.current) setBusy(false); }
   }
   async function deploy() {
-    const problem = validateDraft(draft);
+    const problem = validateDeployableTopology(draft);
     if (problem) { setError(problem); return; }
     const release = context.acquireNetworkOperation?.('topology');
     if (context.acquireNetworkOperation && !release) { setError('Another network operation is running.'); return; }

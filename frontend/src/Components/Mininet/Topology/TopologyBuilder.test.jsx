@@ -317,10 +317,10 @@ describe('topology builder', () => {
   it('keeps parallel connections distinct and edits only the selected link in its inspector', async () => {
     const user = userEvent.setup();
     render(<TopologyBuilder />);
-    await user.click(screen.getByRole('button', { name: 'Add host' }));
     await user.click(screen.getByRole('button', { name: 'Add switch' }));
-    await connect(user, 'h1', 's1');
-    await connect(user, 'h1', 's1');
+    await user.click(screen.getByRole('button', { name: 'Add switch' }));
+    await connect(user, 's1', 's2');
+    await connect(user, 's1', 's2');
     const links = screen.getAllByRole('button', { name: /^Select link/ });
     expect(links).toHaveLength(2);
     expect(links[0].querySelector('path').getAttribute('d')).not.toBe(links[1].querySelector('path').getAttribute('d'));
@@ -329,9 +329,62 @@ describe('topology builder', () => {
     await user.type(within(panel).getByRole('textbox', { name: 'Latency' }), '2ms');
     await user.type(within(panel).getByRole('spinbutton', { name: 'Bandwidth (Mbps)' }), '100');
     await user.click(within(panel).getByRole('button', { name: 'Update link' }));
-    expect(JSON.parse(sessionStorage.getItem('unicorn.topology.draft.v1')).topology.links).toEqual([['h1', 's1', '0ms'], ['h1', 's1', '2ms', 100]]);
+    expect(JSON.parse(sessionStorage.getItem('unicorn.topology.draft.v1')).topology.links).toEqual([['s1', 's2', '0ms'], ['s1', 's2', '2ms', 100]]);
     await user.click(within(panel).getByRole('button', { name: 'Delete link', exact: true }));
     expect(screen.getAllByRole('button', { name: /^Select link/ })).toHaveLength(1);
+  });
+
+  it('saves isolated hosts as drafts but blocks deployment before acquiring a network operation', async () => {
+    const user = userEvent.setup();
+    context.acquireNetworkOperation = vi.fn(() => vi.fn());
+    render(<TopologyBuilder />);
+    await user.click(screen.getByRole('button', { name: 'Add host' }));
+    await user.click(screen.getByRole('button', { name: 'Add switch' }));
+    await saveDraft(user);
+    await screen.findByText('Topology saved. Deploy to update the running network.');
+    expect(axios.post).toHaveBeenCalledOnce();
+    expect(axios.post.mock.calls[0][1].topology).toMatchObject({ hosts: ['h1'], links: [] });
+    axios.post.mockClear();
+    await user.click(await screen.findByRole('button', { name: 'Deploy topology' }));
+    expect(screen.getByText('Host h1 must have exactly one switch link before deployment (found 0).')).toBeVisible();
+    expect(context.acquireNetworkOperation).not.toHaveBeenCalled();
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it('rejects second host uplinks both on the canvas and when changing link endpoints', async () => {
+    const user = userEvent.setup();
+    context.loadedTopology = { ...topology(), file_name: '/topologies/live.json' };
+    render(<TopologyBuilder />);
+    await connect(user, 's2', 'h1');
+    expect(screen.getByRole('status')).toHaveTextContent('Host h1 already has a switch link');
+    expect(screen.getAllByRole('button', { name: /^Select link/ })).toHaveLength(3);
+    await user.click(screen.getByRole('button', { name: 'Cancel link' }));
+    await user.click(screen.getByRole('button', { name: 'Select link 2: s1 to s2' }));
+    await user.click(screen.getByRole('button', { name: 'Change endpoints' }));
+    await choose(user, 'Link from', 'h1');
+    await user.click(screen.getByRole('button', { name: 'Update link' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Host h1 already has a switch link');
+    expect(screen.getByRole('button', { name: 'Select link 2: s1 to s2' })).toBeVisible();
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it('imports multihomed drafts for repair while blocking their deployment', async () => {
+    const user = userEvent.setup();
+    const imported = { ...topology(), links: [['h1', 's1'], ['h1', 's2']] };
+    axios.get.mockResolvedValue({ data: { '/topologies/existing.json': imported } });
+    render(<TopologyBuilder />);
+    await action(user, 'Import saved topology');
+    await choose(user, 'Saved topology', 'existing.json');
+    await user.click(screen.getByRole('button', { name: 'Import topology', exact: true }));
+    await screen.findByRole('button', { name: 'Select link 2: h1 to s2' });
+    await user.click(screen.getByRole('button', { name: 'Deploy topology' }));
+    expect(screen.getByText('Host h1 must have exactly one switch link before deployment (found 2).')).toBeVisible();
+    expect(axios.post).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Select link 2: h1 to s2' }));
+    await user.click(screen.getByRole('button', { name: 'Delete link', exact: true }));
+    await saveDraft(user);
+    await waitFor(() => expect(axios.post).toHaveBeenCalledOnce());
+    expect(axios.post.mock.calls[0][1].topology.links).toEqual([['h1', 's1']]);
   });
 
   it('adopts a successful global import but preserves a new edited draft on later remount', async () => {

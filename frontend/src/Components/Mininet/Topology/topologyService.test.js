@@ -1,13 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import axios from 'axios';
 import { clearTopology, deployTopology, switchConfigs } from './topologyService';
-import { deploymentFilename, liveLinkLabels, normalizeTopology, validateDraft } from './topologyModel';
+import { deploymentFilename, liveLinkLabels, normalizeTopology, validateDeployableTopology, validateDraft, validateHostLinkChange } from './topologyModel';
 
 vi.mock('axios', () => ({ default: { post: vi.fn(), get: vi.fn(), delete: vi.fn() } }));
 const graph = () => ({ hosts: ['h1'], switches: { s1: {} }, links: [['h1', 's1']], layout: { h1: { x: 100, y: 200 }, s1: { x: 400, y: 200 } } });
 const active = () => ({ ...graph(), file_name: '/topologies/deploy.json', switches_online: [{ name: 's1', dev_id: 4, grpc_port: 50057, thrift_port: 9097 }] });
 beforeEach(() => vi.resetAllMocks());
 describe('topology deployment boundaries', () => {
+  it.each([{ links: [] }, { links: [['h1', 's1'], ['s1', 'h1']] }])('rejects host uplinks $links before saving or changing the running network', async ({ links }) => {
+    const draft = { ...graph(), links };
+    expect(validateDraft(draft)).toBe('');
+    expect(() => normalizeTopology(draft)).not.toThrow();
+    await expect(deployTopology(draft, 'deploy.json')).rejects.toThrow(`Host h1 must have exactly one switch link before deployment (found ${links.length})`);
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(axios.delete).not.toHaveBeenCalled();
+  });
+  it('permits parallel switch links and lets imported host uplinks be repaired', () => {
+    const draft = { ...graph(), switches: { s1: {}, s2: {} }, links: [['h1', 's1'], ['s1', 's2'], ['s2', 's1']] };
+    expect(validateDeployableTopology(draft)).toBe('');
+    expect(validateHostLinkChange(draft, ['h1', 's2'])).toMatch(/already has a switch link/);
+    expect(validateHostLinkChange(draft, ['s2', 'h1'], 1)).toMatch(/already has a switch link/);
+    expect(validateHostLinkChange(draft, ['h1', 's2'], 0)).toBe('');
+    const imported = { ...draft, links: [['h1', 's1'], ['h1', 's2']] };
+    expect(validateHostLinkChange(imported, ['h1', 's1', '2ms'], 0)).toBe('');
+    expect(validateDeployableTopology({ ...imported, links: [imported.links[1]] })).toBe('');
+  });
   it('saves before loading and connects the actual discovered switch endpoints', async () => {
     axios.post.mockResolvedValueOnce({ data: { name: '/topologies/deploy.json' } }).mockResolvedValueOnce({ data: active() }).mockResolvedValueOnce({ data: [] });
     const value = await deployTopology(graph(), 'deploy.json');

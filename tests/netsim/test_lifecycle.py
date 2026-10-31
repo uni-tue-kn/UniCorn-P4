@@ -96,8 +96,9 @@ def test_node_cli_rejects_overlapping_commands():
 def test_load_lifecycle_initializes_terminals_before_response_and_clear():
     events = []
     runner = SimpleNamespace(lifecycle_lock=RLock(), topo_file=None)
-    runner.read_topology_file = Mock(side_effect=lambda _: events.append('validate'))
-    runner.run = Mock(side_effect=lambda: events.append('run'))
+    candidate = {'hosts': ['h1'], 'switches': {'s1': {}}, 'links': []}
+    runner.read_topology_file = Mock(side_effect=lambda _: events.append('validate') or candidate)
+    runner.run = Mock(side_effect=lambda **_: events.append('run'))
     runner.destroy_topology = Mock(side_effect=lambda: events.append('destroy'))
     runner.topology_state = lambda **_: {'file_name': runner.topo_file}
     ws = SimpleNamespace(close_clis=lambda: events.append('close'), init_clis=lambda: events.append('init'))
@@ -107,6 +108,8 @@ def test_load_lifecycle_initializes_terminals_before_response_and_clear():
     response = client.post('/topology/load', json={'topology_file': 'topology.json'})
     assert response.status_code == 200
     assert events == ['validate', 'close', 'run', 'init']
+    runner.run.assert_called_once_with(candidate=candidate)
+    runner.read_topology_file.assert_called_once_with('topology.json')
     assert response.json['file_name'] == 'topology.json'
     assert client.delete('/topology/load').status_code == 200
     assert runner.topo_file is None

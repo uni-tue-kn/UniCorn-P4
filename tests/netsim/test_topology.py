@@ -73,7 +73,7 @@ def test_unknown_host_name_and_duplicate_nodes_rejected(runner, tmp_path):
 def test_saved_layout_survives_load_and_state(runner, tmp_path):
     path = tmp_path / 'layout.json'
     layout = {'h1': {'x': 12, 'y': 34}, 's1': {'x': 100.5, 'y': 50}}
-    path.write_text(json.dumps({'hosts': ['h1'], 'switches': {'s1': {}}, 'links': [], 'layout': layout}))
+    path.write_text(json.dumps({'hosts': ['h1'], 'switches': {'s1': {}}, 'links': [['h1', 's1']], 'layout': layout}))
     runner.topo_file = str(path)
     runner.parse_topology_file()
     assert runner.topology_state()['layout'] == layout
@@ -128,3 +128,27 @@ def test_extract_numeric_node_ids():
 def test_switch_discovery_reports_actual_native_endpoint_port(runner):
     runner.net = SimpleNamespace(switches=[SimpleNamespace(name='s1', device_id=0, grpc_port=50051, thrift_port=9107)])
     assert runner.populate_switch_mappings() == [{'name': 's1', 'dev_id': 0, 'grpc_port': 50051, 'thrift_port': 9107}]
+
+
+@pytest.mark.parametrize('links,count', [([], 0), ([['h1', 's1'], ['h1', 's2']], 2),
+                                        ([['s1', 'h1'], ['h1', 's1']], 2)])
+def test_invalid_host_attachment_never_tears_down_running_network(runner, tmp_path, links, count):
+    path = tmp_path / 'invalid-host.json'
+    path.write_text(json.dumps({'hosts': ['h1'], 'switches': {'s1': {}, 's2': {}}, 'links': links}))
+    runner.topo_file = str(path)
+    runner.destroy_topology = Mock()
+    previous = runner.topology_state()
+    with pytest.raises(ValueError, match=fr'Host h1.*exactly one switch link.*found {count}'):
+        runner.run()
+    runner.destroy_topology.assert_not_called()
+    assert runner.topology_state() == previous
+
+
+def test_load_uses_validated_candidate_without_reopening_file(runner, tmp_path):
+    path = tmp_path / 'candidate.json'
+    path.write_text(json.dumps({'hosts': ['h1'], 'switches': {'s1': {}}, 'links': [['h1', 's1']]}))
+    candidate = runner.read_topology_file(path)
+    path.write_text('{}')
+    runner.parse_topology_file(candidate)
+    assert runner.hosts == ['h1']
+    assert runner.links[0]['node1'] == 'h1'

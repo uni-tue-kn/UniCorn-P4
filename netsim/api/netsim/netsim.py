@@ -216,13 +216,18 @@ class MininetRunner:
                 or not math.isfinite(position[axis]) or position[axis] < 0 for axis in ('x', 'y')
             ):
                 raise ValueError("Layout positions require finite nonnegative x and y")
+        links = self.parse_links(topo.get('links'), topo['hosts'], topo['switches'])
+        for host in topo['hosts']:
+            count = sum(link['node1'] == host or link['node2'] == host for link in links)
+            if count != 1:
+                raise ValueError(f'Host {host} must have exactly one switch link before deployment (found {count}).')
         return {"hosts": topo['hosts'], "switches": topo['switches'], "layout": layout,
-                "links": self.parse_links(topo.get('links'), topo['hosts'], topo['switches']),
+                "links": links,
                 "ext_intfs": self.parse_ext_intfs(topo.get('ext_intfs', []), topo['switches'])}
 
-    def parse_topology_file(self):
+    def parse_topology_file(self, candidate=None):
         self.logger('Reading topology file.')
-        topo = self.read_topology_file(self.topo_file)
+        topo = self.read_topology_file(self.topo_file) if candidate is None else candidate
         self.hosts = topo['hosts']
         self.switches = topo['switches']
         self.links = topo['links']
@@ -305,15 +310,18 @@ class MininetRunner:
                 self.logger(f"Failed to detach external interface {intf.name}: {e}")
         self.external_intf_objects = []
 
-    def run(self):
+    def run(self, candidate=None):
         """ Sets up the mininet instance, programs the switches,
             and starts the mininet CLI. This is the main method to run after
             initializing the object.
         """
+        # Validate before touching any existing network. The HTTP boundary can
+        # supply its already parsed candidate, avoiding a second file read.
+        candidate = self.read_topology_file(self.topo_file) if candidate is None else candidate
         # Clean up existing topologies
         self.destroy_topology()  
         
-        self.parse_topology_file()
+        self.parse_topology_file(candidate)
  
         self.logger("Started topology!")
         

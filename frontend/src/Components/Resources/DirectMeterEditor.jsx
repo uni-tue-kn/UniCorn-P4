@@ -4,6 +4,7 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import { useSwitch } from '../../Contexts/SwitchContext';
 import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 import { DEFAULT_METER_DESCRIPTION, meterFields, meterFieldInfo, meterUnit } from '../Helpers/MeterFields';
+import { parseLosslessJSON } from '../Helpers/LosslessJSON';
 
 const blankConfig = () => Object.fromEntries(meterFields.map(([field]) => [field, '']));
 function canonical(value) {
@@ -44,7 +45,7 @@ export default function DirectMeterEditor({ meter, tableEntry, disabled = false,
   const busy = phase != null;
   const writing = phase === 'save' || phase === 'reset';
   const read = useCallback(async signal => {
-    const response = await axios.get('/direct-meters', { params: { switch_id: currentSwitchID, meter_id: meter.id }, signal });
+    const response = await axios.get('/direct-meters', { params: { switch_id: currentSwitchID, meter_id: meter.id }, signal, transformResponse: [parseLosslessJSON] });
     const matches = response.data.entries.filter(row => directMeterKey(row.table_entry) === entryKey);
     if (matches.length !== 1) throw new Error(matches.length ? 'The target returned multiple meters for this table key. Refresh the table and try again.' : 'This table entry was not returned by the target. Refresh the table and try again.');
     return matches[0].config;

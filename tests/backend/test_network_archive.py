@@ -290,6 +290,25 @@ class Destination:
         return self.switch_configs[device_id].p4_helper.get_table_decoding()
 
 
+@pytest.mark.parametrize('links', [[], [['h1', 's1'], ['h1', 's1']]])
+def test_archive_preview_accepts_draft_but_deploy_rejects_host_attachment_before_mutations(snapshot, monkeypatch, links):
+    raw = bundle.build_archive(snapshot.controller).getvalue()
+    def incomplete_topology(files, manifest):
+        topology = bundle.json_load(files['topology.json'])
+        topology['links'] = links
+        files['topology.json'] = bundle.json_bytes(topology)
+    staged = bundle.stage_import(rewrite(raw, incomplete_topology))
+    destination = Destination()
+    native = Mock()
+    monkeypatch.setattr(bundle, 'netsim_request', native)
+    with pytest.raises(ValueError, match='exactly one switch link'):
+        bundle.deploy_import(destination, None, {'import_token': staged['import_token']})
+    assert destination.calls == []
+    native.assert_not_called()
+    assert not list(snapshot.root.glob('imported-network-*'))
+    assert bundle._STAGES[staged['import_token']]['in_use'] is False
+
+
 def test_deploy_discovers_actual_ids_restores_in_order_and_token_retry_is_idempotent(snapshot, monkeypatch):
     staged = bundle.stage_import(bundle.build_archive(snapshot.controller).getvalue())
     destination = Destination()

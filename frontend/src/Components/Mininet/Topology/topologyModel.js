@@ -31,6 +31,30 @@ export function validateDraft(draft) {
   return '';
 }
 
+const hostLinkCount = (draft, host) => draft.links.filter(link => link.slice(0, 2).includes(host)).length;
+
+export function validateDeployableTopology(draft) {
+  const problem = validateDraft(draft);
+  if (problem) return problem;
+  for (const host of draft.hosts) {
+    const count = hostLinkCount(draft, host);
+    if (count !== 1) return `Host ${host} must have exactly one switch link before deployment (found ${count}).`;
+  }
+  return '';
+}
+
+// Imported drafts may need repairs. Keep existing links editable, but never
+// introduce another uplink to a host; parallel switch links remain unrestricted.
+export function validateHostLinkChange(draft, link, replacedIndex = -1) {
+  for (const host of draft.hosts.filter(name => link.slice(0, 2).includes(name))) {
+    const previousCount = hostLinkCount(draft, host);
+    const removesHost = draft.links[replacedIndex]?.slice(0, 2).includes(host) ? 1 : 0;
+    const count = previousCount - removesHost + 1;
+    if (count > 1 && count > previousCount) return `Host ${host} already has a switch link. Remove or rewire its existing link before adding another.`;
+  }
+  return '';
+}
+
 export function normalizeTopology(value) {
   if (!object(value) || !Array.isArray(value.links)) throw new Error('This file is not a supported topology.');
   const topology = { hosts: value.hosts, switches: value.switches, links: value.links.map(link => {

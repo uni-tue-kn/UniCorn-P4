@@ -6,6 +6,7 @@ import { useInit } from '../../Contexts/InitContext';
 
 import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 import { DEFAULT_METER_DESCRIPTION, meterFields, meterFieldInfo, meterUnit } from '../Helpers/MeterFields';
+import { parseLosslessJSON } from '../Helpers/LosslessJSON';
 export const formatRegister = (value, radix) => BigInt(value).toString(Number(radix));
 
 function ResourceRow({ entry, kind, resource, radix, onWrite, busy }) {
@@ -87,7 +88,7 @@ export default function ResourceContent({ kind, resource, resourceName }) {
     try {
       setBusy(true); setError(''); setTargetUnsupported(false);
       if (indexFilter && !/^\d+$/.test(indexFilter)) throw new Error('Index must be a nonnegative integer.');
-      const response = await axios.get(`/${kind}`, { params: { switch_id: currentSwitchID, [key]: resource.id, ...(!direct && (indexFilter ? { index: indexFilter } : { offset: page * rowsPerPage, limit: rowsPerPage })) }, signal });
+      const response = await axios.get(`/${kind}`, { params: { switch_id: currentSwitchID, [key]: resource.id, ...(!direct && (indexFilter ? { index: indexFilter } : { offset: page * rowsPerPage, limit: rowsPerPage })) }, signal, transformResponse: [parseLosslessJSON] });
       if (!signal?.aborted && currentIdentity.current === identity) { setEntries(response.data.entries); setTotal(indexFilter ? response.data.entries.length : response.data.total ?? response.data.entries.length); complete(token); return true; }
       cancel(token); return false;
     } catch (err) {

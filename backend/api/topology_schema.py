@@ -69,3 +69,13 @@ def validate_topology(topology):
         _number(position['x'], 'Layout x')
         _number(position['y'], 'Layout y')
     return topology
+
+
+def validate_deployable_topology(topology):
+    """Drafts may be incomplete; the emulator's host addressing is single-homed."""
+    validate_topology(topology)
+    for host in topology['hosts']:
+        count = sum(host in link[:2] for link in topology['links'])
+        if count != 1:
+            raise ValueError(f'Host {host} must have exactly one switch link before deployment (found {count}).')
+    return topology

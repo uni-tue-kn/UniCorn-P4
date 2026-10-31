@@ -27,7 +27,7 @@ from controller.p4.tmp import p4config_pb2
 from controller.p4.v1 import p4runtime_pb2 as pb
 from controller.utils.helper import P4InfoHelper
 from unicorn_version import local_version
-from .topology_schema import validate_topology
+from .topology_schema import validate_topology, validate_deployable_topology
 from .endpoints.switch_config import normalize_adapter_config
 
 
@@ -996,6 +996,8 @@ def deploy_import(controller, db, body):
         if stage is None:
             raise KeyError('Import token is unknown or expired; import the archive again')
         external = deployment_options(stage, body)
+        if stage['topology'] is not None:
+            validate_deployable_topology(stage['topology'])
         if stage['in_use']:
             raise RuntimeError('This network import is already deploying')
         stage['in_use'] = True

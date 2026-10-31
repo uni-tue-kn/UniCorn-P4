@@ -89,6 +89,34 @@ def test_direct_meter_read_key_and_write(switch, entry):
     assert request.config == raw.config
 
 
+@pytest.mark.parametrize('kind,value,expected,priority', [
+    ('EXACT', '9007199254740993', '9007199254740993', None),
+    ('LPM', ['9007199254740993', 64], ['9007199254740993', 64], None),
+    ('TERNARY', ['9007199254740993', '18446744073709551615'], ['9007199254740993', '18446744073709551615'], 1),
+    ('RANGE', ['9007199254740993', '9007199254740995'], ['9007199254740993', '9007199254740995'], 1),
+])
+def test_direct_meter_wide_keys_survive_json_read_and_write(client, switch, kind, value, expected, priority):
+    from controller.p4.config.v1 import p4info_pb2
+    field = switch.p4_helper.p4info.tables[0].match_fields[0]
+    field.bitwidth = 64
+    field.match_type = getattr(p4info_pb2.MatchField, kind)
+    response = pb.ReadResponse()
+    raw = response.entities.add().direct_meter_entry
+    raw.table_entry.CopyFrom(switch.p4_helper.buildTableEntry('Ingress.table', match_fields={'key': value}, priority=priority))
+    raw.config.CopyFrom(encode_meter(dict(cir='1', cburst='2', pir='3', pburst='4')))
+    switch.bmv2.ReadEntities.return_value = iter([response])
+    read = client.get('/direct-meters?switch_id=0&meter_id=352321537')
+    assert read.status_code == 200
+    assert read.json['entries'][0]['table_entry']['match_fields'] == {'key': expected}
+    # A normal browser JSON parser must receive quoted wide integers.
+    assert b'"9007199254740993"' in read.data
+    write = client.patch('/direct-meters', json={'switch_id': 0, 'meter_id': 0x15000001, 'entries': read.json['entries']})
+    assert write.status_code == 200
+    actual = switch.bmv2.ModifyEntities.call_args.args[0][0].direct_meter_entry
+    assert actual.table_entry == raw.table_entry
+    assert actual.config == raw.config
+
+
 def test_resource_json_and_metadata(client, switch):
     response = client.get('/init?switch_id=0')
     assert response.status_code == 200

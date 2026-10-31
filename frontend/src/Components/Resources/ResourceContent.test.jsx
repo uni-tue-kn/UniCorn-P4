@@ -14,6 +14,16 @@ beforeEach(() => { vi.clearAllMocks(); context.currentSwitchID = 0; context.init
 const register = { id: 3, size: 512, type: { kind: 'bit', bitwidth: 64 } };
 
 describe('indexed resources', () => {
+  it('keeps a wide direct-meter key exact through legacy JSON parsing and reset', async () => {
+    const wire = '{"entries":[{"table_entry":{"table_name":"forward","match_fields":{"key":9007199254740993},"priority":null},"config":{"cir":"1","cburst":"2","pir":"3","pburst":"4"}}]}';
+    axios.get.mockImplementation(async (_url, options) => ({ data: options.transformResponse.reduce((data, transform) => transform(data), wire) }));
+    const user = userEvent.setup();
+    render(<ResourceContent kind="direct-meters" resource={{ id: 4, unit: 2 }} resourceName="meter" />);
+    await user.click(await screen.findByRole('button', { name: 'Reset' }));
+    await waitFor(() => expect(axios.patch).toHaveBeenCalled());
+    expect(axios.patch.mock.calls[0][1].entries[0].table_entry.match_fields.key).toBe('9007199254740993');
+  });
+
   it('reads and writes a register beyond JavaScript safe integers without precision loss', async () => {
     const user = userEvent.setup();
     axios.get.mockResolvedValue({ data: { total: 512, entries: [{ index: 0, value: '18446744073709551615' }] } });
