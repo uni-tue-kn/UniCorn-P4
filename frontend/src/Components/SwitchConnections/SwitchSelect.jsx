@@ -88,6 +88,7 @@ function SelectSwitch() {
         <Divider orientation="vertical" flexItem />
         {backendOnline ?
           <><Tabs
+            sx={{ '& .MuiTabs-list': { gap: 1 } }}
             variant="scrollable" scrollButtons="auto" slotProps={{ indicator: { style: { display: 'none' } } }}
             value={selectedTab ?? false} onChange={handleChange}
           >
