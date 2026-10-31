@@ -258,6 +258,11 @@ merges. It reserves the version commit/tag, builds all component images, and pub
 both version and `latest` image tags plus a GitHub release with `UniCorn-P4.tar.gz`. Direct pushes
 do not create releases. Failed publication can reuse its reservation on retry.
 
+The version commit renames the changelog's **Unreleased** heading to the stable
+version and UTC release date. That section becomes the GitHub release text,
+excluding earlier releases. Add a new Unreleased section when recording the next
+changes. Merges without changelog entries use GitHub-generated release notes.
+
 Configure `DOCKER_USERNAME`/`DOCKER_PASSWORD` secrets for the `unituekn/unicornp4-*`
 images, and allow the workflow token to push version commits/tags under the repository's
 branch rules. Archives include tracked documentation, compiled examples, and topologies;

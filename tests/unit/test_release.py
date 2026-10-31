@@ -9,6 +9,7 @@ import pytest
 
 from scripts.package_release import package
 from scripts.release_version import eligible_merge, git, next_version, prepare
+from scripts.release_changelog import release_notes
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,7 +38,7 @@ def repo(tmp_path):
     write(tmp_path, 'README.md', 'Repository documentation\n')
     write(tmp_path, 'LICENSE', 'License\n')
     write(tmp_path, 'logo.png', 'tracked-logo-image')
-    write(tmp_path, 'CHANGELOG.md', 'Release history\n')
+    write(tmp_path, 'CHANGELOG.md', '# Changelog\n\n## Unreleased — 1.2.0\n\n### Added\n\n* New capabilities.\n\n## v1.0\n\n* Old history.\n')
     write(tmp_path, 'docs/usage.md', 'Usage guide\n')
     write(tmp_path, 'runtime/README.md', 'Runtime compatibility notes\n')
     for screenshot in ('topology', 'tables', 'registers', 'meters', 'mirrors'):
@@ -81,6 +82,33 @@ def test_release_commit_and_frontend_versions_are_synchronized(repo):
     assert package_json['dependencies']['react'] == lock['packages']['node_modules/react']['version'] == '19.3.1'
     assert 'Co-Authored-By' not in git(repo, 'show', '-s', '--format=%B')
     assert git(repo, 'rev-parse', 'v1.2.0') == result['commit']
+    changelog = (repo / 'CHANGELOG.md').read_text()
+    assert '## Unreleased' not in changelog
+    assert '## 1.2.0 — ' in changelog
+    assert release_notes(changelog, '1.2.0') == '### Added\n\n* New capabilities.\n'
+    assert 'CHANGELOG.md' in git(repo, 'diff', '--name-only', tested, result['commit']).splitlines()
+
+
+def test_next_release_promotes_only_new_changelog_entries(repo):
+    first = prepare(repo, git(repo, 'rev-parse', 'HEAD'), commit=True)
+    path = repo / 'CHANGELOG.md'
+    path.write_text(path.read_text().replace('# Changelog\n', '# Changelog\n\n## Unreleased\n\n* New patch fix.\n', 1))
+    tested = commit(repo, 'Next merged pull request')
+    second = prepare(repo, tested, commit=True)
+    assert first['version'] == '1.2.0'
+    assert second['version'] == '1.2.1'
+    assert 'Unreleased' not in path.read_text()
+    assert release_notes(path.read_text(), '1.2.1') == '* New patch fix.\n'
+    assert release_notes(path.read_text(), '1.2.0') == '### Added\n\n* New capabilities.\n'
+
+
+def test_invalid_changelog_fails_without_changing_release_files(repo):
+    write(repo, 'CHANGELOG.md', '# Changelog\n\n## Unreleased\n\none\n\n## Unreleased\n\ntwo\n')
+    tested = commit(repo, 'Ambiguous changelog')
+    with pytest.raises(ValueError, match='ambiguous'):
+        prepare(repo, tested, commit=True)
+    assert git(repo, 'rev-parse', 'HEAD') == tested
+    assert git(repo, 'status', '--porcelain', '--untracked-files=no') == ''
 
 
 def test_retry_reuses_reserved_version_even_after_main_advances(repo):

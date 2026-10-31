@@ -19,6 +19,7 @@
 * Component versions from a root `VERSION` file and a bounded, optional upstream update check at startup.
 * Backend, emulator, register-extension, component, real-switch, and Playwright regression tests with isolated databases and volumes.
 * Automatic version increments and GitHub releases after successful CI for pull requests merged into `main`.
+* Release text from the matching changelog section, with Unreleased headings promoted to the final version and release date.
 * Versioned and `latest` Docker tags for every released component, with protection against older retries replacing newer images.
 * Download-ready `UniCorn-P4.tar.gz` release assets containing version-pinned Compose configuration, compiled sample programs, topologies, and a fresh database directory.
 

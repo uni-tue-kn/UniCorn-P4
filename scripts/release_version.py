@@ -10,8 +10,13 @@ from pathlib import Path
 import re
 import subprocess
 
+if __package__:
+    from .release_changelog import promote_changelog
+else:
+    from release_changelog import promote_changelog
+
 VERSION_PATTERN = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?")
-RELEASE_FILES = {"VERSION", "frontend/package.json", "frontend/package-lock.json"}
+RELEASE_FILES = {"VERSION", "frontend/package.json", "frontend/package-lock.json", "CHANGELOG.md"}
 
 
 def next_version(current):
@@ -74,7 +79,10 @@ def prepare(repo, tested_sha, commit=False):
     else:
         if git(repo, "status", "--porcelain", "--untracked-files=no"):
             raise ValueError("Release preparation requires a clean tracked worktree")
+        changelog = repo / 'CHANGELOG.md'
+        promoted = promote_changelog(changelog.read_text(), version)
         (repo / "VERSION").write_text(version + "\n")
+        changelog.write_text(promoted)
         for filename in ("frontend/package.json", "frontend/package-lock.json"):
             path = repo / filename
             data = json.loads(path.read_text())
