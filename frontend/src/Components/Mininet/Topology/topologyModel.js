@@ -9,6 +9,7 @@ export function validateDraft(draft) {
   if (!object(draft) || !Array.isArray(draft.hosts) || !object(draft.switches) || !Array.isArray(draft.links)) return 'Topology requires hosts, switches and links.';
   const names = nodeNames(draft);
   if (names.some(name => typeof name !== 'string' || !/^[A-Za-z][A-Za-z0-9_]*\d$/.test(name))) return 'Node names must start with a letter and end with a numeric ID.';
+  if (names.some(name => name.length > 10)) return 'Node names must be at most 10 characters so generated Linux interface names fit within 15 characters.';
   if (new Set(names).size !== names.length) return 'Each node needs a unique name.';
   if (Object.values(draft.switches).some(value => !object(value))) return 'Switch properties must be objects.';
   for (const [group, maximum] of [[draft.hosts, 254], [Object.keys(draft.switches), 255]]) {
@@ -39,6 +40,11 @@ export function validateDeployableTopology(draft) {
   for (const host of draft.hosts) {
     const count = hostLinkCount(draft, host);
     if (count !== 1) return `Host ${host} must have exactly one switch link before deployment (found ${count}).`;
+  }
+  for (const name of Object.keys(draft.switches)) {
+    const degree = draft.links.filter(link => link.slice(0, 2).includes(name)).length;
+    const interfaceName = `${name}-eth${degree}`;
+    if (interfaceName.length > 15) return `Switch ${name} would create interface ${interfaceName}, exceeding Linux's 15-character interface name limit. Shorten the switch name before deployment.`;
   }
   return '';
 }

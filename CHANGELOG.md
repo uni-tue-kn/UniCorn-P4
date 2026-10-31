@@ -49,6 +49,9 @@
 * Removed render-time status/log requests and corrected stale switch-selection/pipeline responses, theme persistence, and large-integer rounding.
 * Corrected terminal/topology lifecycle races and validated replacement topologies before dismantling the active network.
 * Deployment rejects unattached or multiply connected hosts before replacing the running network, while incomplete drafts remain saveable.
+* Deployment checks generated Linux interface-name lengths before replacing the running network.
+* Network import reports show top-level and resource restoration failures, and external Thrift mappings honor the displayed default port.
+* Link delays containing whitespace, such as `2 ms`, are normalized before Linux traffic control applies them.
 * Direct-meter match keys retain exact wide integers through JSON, including nested LPM, ternary, and range values.
 * Compiler errors and disconnected servers now show readable feedback without crashing the UI, and source paths containing apostrophes remain intact.
 * Hosts allow explicit IPv6 and SIT tunnel configuration while automatic router discovery and address configuration remain disabled.

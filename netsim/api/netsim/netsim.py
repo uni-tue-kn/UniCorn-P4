@@ -200,8 +200,10 @@ class MininetRunner:
         if not isinstance(topo, dict) or not isinstance(topo.get('hosts'), list) or not isinstance(topo.get('switches'), dict):
             raise ValueError("Topology requires hosts (list), switches (object) and links (list)")
         names = topo['hosts'] + list(topo['switches'])
-        if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*\d', name) for name in names):
+        if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*[0-9]', name) for name in names):
             raise ValueError("Node names must be alphanumeric and end with a numeric ID")
+        if any(len(name) > 10 for name in names):
+            raise ValueError('Node names must be at most 10 characters to fit Linux interface names')
         if len(set(names)) != len(names):
             raise ValueError("Host and switch names must be unique")
         # The built-in host addressing scheme encodes IDs in one IPv4 octet.
@@ -221,6 +223,11 @@ class MininetRunner:
             count = sum(link['node1'] == host or link['node2'] == host for link in links)
             if count != 1:
                 raise ValueError(f'Host {host} must have exactly one switch link before deployment (found {count}).')
+        for switch in topo['switches']:
+            degree = sum(link['node1'] == switch or link['node2'] == switch for link in links)
+            interface = f'{switch}-eth{degree}'
+            if len(interface) > 15:
+                raise ValueError(f"Switch {switch} requires interface {interface}, exceeding Linux's 15-character limit.")
         return {"hosts": topo['hosts'], "switches": topo['switches'], "layout": layout,
                 "links": links,
                 "ext_intfs": self.parse_ext_intfs(topo.get('ext_intfs', []), topo['switches'])}
@@ -351,12 +358,16 @@ class MininetRunner:
             into dictionaries and store them as self.links
         """
         
-        def formatLatency(l):
-            """ Helper method for parsing link latencies from the topology json. """
-            if isinstance(l, str):
-                return l
-            else:
-                return str(l) + "ms"
+        def formatLatency(value):
+            """Emit one tc delay argument, including for drafts such as '2 ms'."""
+            if isinstance(value, str):
+                match = re.fullmatch(r'(\d+(?:\.\d+)?)\s*(us|ms|s)', value)
+                if not match or not math.isfinite(float(match.group(1))):
+                    raise ValueError("Latency must be nonnegative milliseconds or use us, ms, s units")
+                return match.group(1) + match.group(2)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError("Latency must be a finite nonnegative number")
+            return str(value) + "ms"
             
         links = []
         if not isinstance(unparsed_links, list):

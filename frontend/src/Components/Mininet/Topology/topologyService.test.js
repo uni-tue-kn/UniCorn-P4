@@ -8,6 +8,22 @@ const graph = () => ({ hosts: ['h1'], switches: { s1: {} }, links: [['h1', 's1']
 const active = () => ({ ...graph(), file_name: '/topologies/deploy.json', switches_online: [{ name: 's1', dev_id: 4, grpc_port: 50057, thrift_port: 9097 }] });
 beforeEach(() => vi.resetAllMocks());
 describe('topology deployment boundaries', () => {
+  it('accepts the node and generated interface name boundaries while keeping external interfaces separate', () => {
+    const singlePort = { hosts: ['hostaaaaa1'], switches: { switchaaa1: {} }, links: [['hostaaaaa1', 'switchaaa1']], ext_intfs: [['switchaaa1', 'physical-iface1']] };
+    expect(validateDeployableTopology(singlePort)).toBe('');
+    const tenPorts = { hosts: [], switches: { switchaa1: {}, s2: {} }, links: Array.from({ length: 10 }, () => ['switchaa1', 's2']) };
+    expect(validateDeployableTopology(tenPorts)).toBe('');
+    expect(validateDraft({ hosts: ['hostaaaaaa1'], switches: {}, links: [] })).toMatch(/at most 10 characters/);
+    expect(validateDraft({ hosts: [], switches: { switchaaaa1: {} }, links: [] })).toMatch(/at most 10 characters/);
+  });
+  it.each([
+    { hosts: [], switches: { switchaaaa1: {} }, links: [] },
+    { hosts: [], switches: { switchaaa1: {}, s2: {} }, links: Array.from({ length: 10 }, () => ['switchaaa1', 's2']) },
+  ])('rejects oversized generated interface names before any HTTP for $switches', async draft => {
+    await expect(deployTopology(draft, 'deploy.json')).rejects.toThrow(/10 characters|15-character/);
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(axios.delete).not.toHaveBeenCalled();
+  });
   it.each([{ links: [] }, { links: [['h1', 's1'], ['s1', 'h1']] }])('rejects host uplinks $links before saving or changing the running network', async ({ links }) => {
     const draft = { ...graph(), links };
     expect(validateDraft(draft)).toBe('');

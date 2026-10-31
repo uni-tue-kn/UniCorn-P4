@@ -102,3 +102,33 @@ def test_deployment_allows_parallel_switch_links_and_switch_only_topologies(topo
     topology['links'] = [['s1', 's2'], ['s1', 's2']]
     topology['layout'] = {}
     assert validate_deployable_topology(topology) == topology
+
+
+@pytest.mark.parametrize('node', ['host_name_1', 'switchname1', 'very_long_switch1'])
+def test_saved_drafts_reject_names_too_long_for_native_interfaces(client, tmp_path, monkeypatch, node):
+    monkeypatch.setenv('TOPO_DIR', str(tmp_path))
+    topology = {'hosts': [], 'switches': {node: {}}, 'links': []}
+    with pytest.raises(ValueError, match='at most 10 characters'):
+        validate_topology(topology)
+    assert client.post('/topologies', json={'name': 'long-name', 'topology': topology}).status_code == 400
+    assert not list(tmp_path.glob('*.json'))
+
+
+@pytest.mark.parametrize('name,ports,allowed', [('switchabc1', 1, True), ('switchab1', 10, True),
+                                             ('switchabc1', 10, False)])
+def test_switch_generated_interface_length_depends_on_actual_virtual_port_count(name, ports, allowed):
+    topology = {'hosts': [], 'switches': {name: {}, 's2': {}},
+                'links': [[name, 's2']] * ports}
+    assert validate_topology(topology) == topology
+    if allowed:
+        assert validate_deployable_topology(topology) == topology
+    else:
+        with pytest.raises(ValueError, match=fr'{name}-eth10.*15-character limit'):
+            validate_deployable_topology(topology)
+
+
+def test_ten_character_host_and_external_interfaces_fit_without_allocating_virtual_ports():
+    topology = {'hosts': ['hostname_1'], 'switches': {'switchabc1': {}},
+                'links': [['hostname_1', 'switchabc1']],
+                'ext_intfs': [['switchabc1', f'eth{number}'] for number in range(12)]}
+    assert validate_deployable_topology(topology) == topology

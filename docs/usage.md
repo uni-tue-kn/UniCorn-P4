@@ -92,7 +92,9 @@ A minimal file in `docker/topologies/` looks like this:
 }
 ```
 
-Node names must end in a numeric ID. Link entries can add latency and bandwidth:
+Node names have at most 10 characters and must end in a numeric ID. Generated
+interface names must fit Linux's 15-character limit, so switches with more ports
+may need shorter names. Link entries can add latency and bandwidth:
 `["h1", "s1", "2ms", 100]`. Saved `layout` positions map node names to `{x, y}`.
 The active topology's interface map shows actual switch ports and peers.
 **Terminals** is a dedicated page with host/switch shell tabs and Ctrl+C

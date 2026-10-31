@@ -9,6 +9,33 @@ import { useNavigate } from 'react-router-dom';
 import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 
 const message = value => typeof value === 'string' ? value : JSON.stringify(value);
+const successfulCategory = value => ['complete', 'restored', 'ok'].includes(value.status) && !value.errors?.length && !value.error;
+
+function RestoreCategories({ name, categories }) {
+  const entries = Object.entries(categories || {});
+  const complete = entries.filter(([, value]) => successfulCategory(value));
+  const incomplete = entries.filter(([, value]) => !successfulCategory(value));
+  function table(rows, label) {
+    return <TableContainer><Table size="small" aria-label={`${label} for ${name}`}>
+      <TableHead><TableRow><TableCell>Resource</TableCell><TableCell>Status</TableCell><TableCell>Restored</TableCell><TableCell>Details</TableCell></TableRow></TableHead>
+      <TableBody>{rows.map(([category, value]) => <TableRow key={category}>
+        <TableCell component="th" scope="row">{category.replaceAll('_', ' ')}</TableCell>
+        <TableCell>{value.status || 'unknown'}</TableCell>
+        <TableCell>{value.restored ?? '—'}{value.captured != null ? ` / ${value.captured}` : ''}</TableCell>
+        <TableCell sx={{ overflowWrap: 'anywhere' }}>
+          {value.failed > 0 && <Typography variant="body2">Failed entries: {value.failed}</Typography>}
+          {[...(value.errors || []), ...(value.error ? [value.error] : [])].map((error, index) => <Typography key={index} variant="body2" color="error">{message(error)}</Typography>)}
+          {value.note && <Typography variant="body2" color="text.secondary">{message(value.note)}</Typography>}
+        </TableCell>
+      </TableRow>)}</TableBody>
+    </Table></TableContainer>;
+  }
+  return <>
+    {incomplete.length > 0 && table(incomplete, 'Incomplete restoration')}
+    {complete.length > 0 && <Box component="details" sx={{ mt: 1 }}><Typography component="summary" variant="body2" sx={{ cursor: 'pointer' }}>Successfully restored resources ({complete.length})</Typography>{table(complete, 'Successful restoration')}</Box>}
+  </>;
+}
+
 async function failureMessage(failure) {
   let data = failure.response?.data;
   if (data instanceof Blob) {
@@ -25,7 +52,7 @@ export function externalMappings(preview, drafts, enabled) {
     if (target.kind !== 'external' || !draft?.selected) continue;
     if (!draft.address?.trim()) throw new Error(`Enter a destination P4Runtime address for ${target.name}.`);
     if (!/^\d+$/.test(String(draft.device_id)) || BigInt(draft.device_id) > 9007199254740991n) throw new Error(`Enter a valid device ID for ${target.name}.`);
-    const port = draft.thrift_host?.trim() ? Number(draft.thrift_port) : null;
+    const port = draft.thrift_host?.trim() ? Number(draft.thrift_port ?? '9090') : null;
     if (port != null && (!Number.isInteger(port) || port < 1 || port > 65535)) throw new Error(`Enter a valid Thrift port for ${target.name}.`);
     if (draft.adapter && !draft.thrift_host?.trim()) throw new Error(`Enter a Thrift host for ${target.name}'s register adapter.`);
     result[target.key] = { name: target.name, address: draft.address.trim(), device_id: Number(draft.device_id), proto_dump_file: null,
@@ -161,6 +188,7 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
         <Typography sx={{ mb: 2 }}>{filename}</Typography><AsyncFeedback feedback={feedback} sx={{ mb: 2 }} />
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {preview && <Stack spacing={2}>
+          <Typography variant="subtitle2">Captured bundle preview</Typography>
           <Typography>Bundle version {preview.version} · captured {preview.captured_at}</Typography>
           <Typography>{preview.topology ? `${preview.topology.hosts?.length || 0} hosts · ${Object.keys(preview.topology.switches || {}).length} switches · ${preview.topology.links?.length || 0} links` : 'No emulated topology in this bundle.'}</Typography>
           {warnings.map((warning, index) => <Alert key={index} severity="warning">{message(warning)}</Alert>)}
@@ -187,9 +215,16 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
             </>}
           </>}
         </Stack>}
-        {result && <Box sx={{ mt: 2 }}>
-          <Alert severity={result.status === 'complete' ? 'success' : 'warning'}>{result.status === 'complete' ? 'Network imported successfully.' : 'Network imported with incomplete state.'}</Alert>
-          {result.switches?.map(target => <Box key={target.key || target.name} sx={{ mt: 1 }}><Typography variant="subtitle2">{target.name}: {target.status}</Typography>{target.errors?.map((error, index) => <Typography key={index} variant="body2" color="error">{message(error)}</Typography>)}</Box>)}
+        {result && <Box component="section" aria-label="Network restoration report" sx={{ mt: 2 }}>
+          <Typography variant="h6" sx={{ mb: 1 }}>Restoration report</Typography>
+          <Alert severity={result.status === 'complete' ? 'success' : 'warning'}>{result.status === 'complete' ? 'Network imported successfully.' : result.error && !result.topology ? 'Network import could not finish.' : 'Network imported with incomplete state.'}</Alert>
+          {result.error && <Alert severity="error" sx={{ mt: 1 }}>{message(result.error)}</Alert>}
+          {result.switches?.map(target => <Box component="section" aria-label={`Restoration for ${target.name}`} key={target.key || target.name} sx={{ mt: 2 }}>
+            <Typography variant="subtitle2">{target.name}: {target.status}</Typography>
+            {target.note && <Typography variant="body2" color="text.secondary">{message(target.note)}</Typography>}
+            {target.errors?.map((error, index) => <Typography key={index} variant="body2" color="error">{message(error)}</Typography>)}
+            <RestoreCategories name={target.name} categories={target.categories} />
+          </Box>)}
         </Box>}
       </DialogContent>
       <DialogActions><Button onClick={close} disabled={working}>{result ? 'Close' : 'Cancel'}</Button><Button variant="contained" disabled={working || !token || !preview || Boolean(result)} onClick={deploy}>{working && feedback.action === 'deploy' ? 'Importing network…' : 'Import and deploy'}</Button></DialogActions>

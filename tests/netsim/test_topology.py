@@ -21,6 +21,29 @@ def test_parse_links_hosts_first_and_optional_properties(runner):
     assert runner.parse_links([['s2', 's1', '2us']])[0]['node1'] == 's1'
 
 
+@pytest.mark.parametrize('latency,expected', [('2 ms', '2ms'), ('2\tms', '2ms'),
+    ('0.25 \tus', '0.25us'), ('1\ns', '1s'), ('0ms', '0ms'), ('2.5s', '2.5s'),
+    (0, '0ms'), (2.5, '2.5ms')])
+def test_latency_is_one_canonical_tc_argument_through_json_load(runner, tmp_path, latency, expected):
+    path = tmp_path / 'latency.json'
+    path.write_text(json.dumps({'hosts': ['h1'], 'switches': {'s1': {}},
+                                'links': [['s1', 'h1', latency, 100]]}))
+    candidate = runner.read_topology_file(path)
+    assert candidate['links'][0] == {'node1': 'h1', 'node2': 's1', 'latency': expected, 'bandwidth': 100}
+    graph = ParsedTopo(candidate['hosts'], candidate['switches'], candidate['links'], str(tmp_path))
+    assert graph.linkInfo('h1', 's1')['delay'] == expected
+
+
+@pytest.mark.parametrize('latency', [True, -1, float('nan'), float('inf'), '2 hours', '2ms ', ' 2ms', '2 ms;echo invalid'])
+def test_native_latency_validation_rejects_invalid_delay_before_deployment(runner, tmp_path, latency):
+    path = tmp_path / 'invalid-latency.json'
+    path.write_text(json.dumps({'hosts': ['h1'], 'switches': {'s1': {}}, 'links': [['h1', 's1', latency]]}))
+    previous = runner.topology_state()
+    with pytest.raises(ValueError, match='Latency'):
+        runner.read_topology_file(path)
+    assert runner.topology_state() == previous
+
+
 @pytest.mark.parametrize('links', [None, {}, [['h1']], [['h1', 'missing']],
     [['h1', 'h1']], [['h1', 'zhost2']], [['h1', 's1', 1, 2, 3]], [[1, 's1']]])
 def test_invalid_links_rejected(runner, links):
@@ -152,3 +175,24 @@ def test_load_uses_validated_candidate_without_reopening_file(runner, tmp_path):
     runner.parse_topology_file(candidate)
     assert runner.hosts == ['h1']
     assert runner.links[0]['node1'] == 'h1'
+
+
+@pytest.mark.parametrize('name,ports,allowed', [('switchabc1', 1, True), ('switchname1', 1, False),
+                                             ('switchab1', 10, True), ('switchabc1', 10, False)])
+def test_generated_interface_name_limits_preflight_preserves_running_network(runner, tmp_path, name, ports, allowed):
+    path = tmp_path / 'interface-length.json'
+    path.write_text(json.dumps({'hosts': [], 'switches': {name: {}, 's2': {}},
+                                'links': [[name, 's2']] * ports}))
+    runner.topo_file = str(path)
+    previous = runner.topology_state()
+    runner.destroy_topology = Mock()
+    if allowed:
+        candidate = runner.read_topology_file(path)
+        graph = ParsedTopo(candidate['hosts'], candidate['switches'], candidate['links'], str(tmp_path))
+        assert len(graph.sw_port_mapping[name]) == ports
+        assert all(len(f'{name}-eth{port}') <= 15 for port, _peer in graph.sw_port_mapping[name])
+    else:
+        with pytest.raises(ValueError, match='interface'):
+            runner.run()
+        runner.destroy_topology.assert_not_called()
+    assert runner.topology_state() == previous

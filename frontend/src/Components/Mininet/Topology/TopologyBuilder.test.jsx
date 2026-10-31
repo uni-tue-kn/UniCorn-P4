@@ -416,6 +416,19 @@ describe('topology builder', () => {
     expect(axios.post).not.toHaveBeenCalled();
   });
 
+  it('blocks generated interface names that exceed Linux limits before a deployment lease or write', async () => {
+    const user = userEvent.setup();
+    context.acquireNetworkOperation = vi.fn(() => vi.fn());
+    context.loadedTopology = { hosts: [], switches: { switchaaa1: {}, s2: {} }, links: Array.from({ length: 10 }, () => ['switchaaa1', 's2']), file_name: '/topologies/draft.json' };
+    render(<TopologyBuilder />);
+    await user.click(screen.getByRole('button', { name: 'Deploy topology' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('switchaaa1-eth10');
+    expect(screen.getByRole('alert')).toHaveTextContent('15-character interface name limit');
+    expect(context.acquireNetworkOperation).not.toHaveBeenCalled();
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(axios.delete).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['horizontal', { h1: { x: 100, y: 100 }, s1: { x: 300, y: 100 } }, 200, 100, '{Enter}'],
     ['vertical', { h1: { x: 100, y: 100 }, s1: { x: 100, y: 300 } }, 100, 200, ' '],

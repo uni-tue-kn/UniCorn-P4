@@ -17,8 +17,10 @@ def validate_topology(topology):
     if not isinstance(hosts, list) or not isinstance(switches, dict) or not isinstance(links, list):
         raise ValueError('Topology requires hosts (list), switches (object), and links (list)')
     names = hosts + list(switches)
-    if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*\d', name) for name in names):
+    if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*[0-9]', name) for name in names):
         raise ValueError('Node names must start with a letter and end with a numeric ID')
+    if any(len(name) > 10 for name in names):
+        raise ValueError('Node names must be at most 10 characters to fit Linux interface names')
     if len(set(names)) != len(names):
         raise ValueError('Host and switch names must be unique')
     for group, limit in ((hosts, 254), (list(switches), 255)):
@@ -78,4 +80,9 @@ def validate_deployable_topology(topology):
         count = sum(host in link[:2] for link in topology['links'])
         if count != 1:
             raise ValueError(f'Host {host} must have exactly one switch link before deployment (found {count}).')
+    for switch in topology['switches']:
+        degree = sum(switch in link[:2] for link in topology['links'])
+        interface = f'{switch}-eth{degree}'
+        if len(interface) > 15:
+            raise ValueError(f"Switch {switch} requires interface {interface}, exceeding Linux's 15-character limit.")
     return topology
