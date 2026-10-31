@@ -1,0 +1,4 @@
+# Preserve the exact vendored upstream schemas and unified-diff context lines.
+backend/controller/p4/protos/** whitespace=-blank-at-eol
+runtime/patches/*.patch whitespace=-blank-at-eol
+runtime/thrift/*.thrift whitespace=-blank-at-eol

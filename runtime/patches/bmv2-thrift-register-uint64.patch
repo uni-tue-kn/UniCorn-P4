@@ -1,0 +1,15 @@
+diff --git a/src/bm_runtime/Standard_server.cpp b/src/bm_runtime/Standard_server.cpp
+--- a/src/bm_runtime/Standard_server.cpp
++++ b/src/bm_runtime/Standard_server.cpp
+@@ -983 +983 @@
+-    return value.get<int64_t>();
++    return static_cast<int64_t>(value.get<uint64_t>());
+@@ -995 +995 @@
+-      _return.push_back(entry.get<BmRegisterValue>());
++      _return.push_back(static_cast<int64_t>(entry.get<uint64_t>()));
+@@ -1001 +1001 @@
+-        cxt_id, register_array_name, static_cast<size_t>(index), Data(value));
++        cxt_id, register_array_name, static_cast<size_t>(index), Data(static_cast<uint64_t>(value)));
+@@ -1013 +1013 @@
+-        static_cast<size_t>(end_index), Data(value));
++        static_cast<size_t>(end_index), Data(static_cast<uint64_t>(value)));

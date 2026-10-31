@@ -102,6 +102,8 @@ class Initialize(Endpoint):
                 self.db.session.refresh(new_state)
                 current_switch_config.state_id = new_state.id
                 
+        except ValueError as e:
+            return {"error": str(e)}, 400
         except grpc.RpcError as e:
             # TODO: better error handling with json response
             return f"Failed to initialize Switch. GRPC Connection is not available: {e}", 500

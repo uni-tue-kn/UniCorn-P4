@@ -33,10 +33,13 @@ class P4Host(Host):
             cmd = "/sbin/ethtool --offload eth0 %s off" % off
             self.cmd(cmd)
 
-        # disable IPv6
-        self.cmd("sysctl -w net.ipv6.conf.all.disable_ipv6=1")
-        self.cmd("sysctl -w net.ipv6.conf.default.disable_ipv6=1")
-        self.cmd("sysctl -w net.ipv6.conf.lo.disable_ipv6=1")
+        # Allow the lecture's explicit IPv6 and SIT configuration. Suppress
+        # automatic router discovery/address configuration in these static labs.
+        for scope in ('all', 'default', 'lo'):
+            self.cmd(f"sysctl -w net.ipv6.conf.{scope}.disable_ipv6=0")
+        for scope in ('all', 'default'):
+            self.cmd(f"sysctl -w net.ipv6.conf.{scope}.accept_ra=0")
+            self.cmd(f"sysctl -w net.ipv6.conf.{scope}.autoconf=0")
 
         return r
 

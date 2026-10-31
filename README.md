@@ -1,113 +1,93 @@
-<div align="center">
- <img src="./logo.png" height=150/>
- <h2>UniCorn-P4: A Universal Control Plane and GUI for P4</h2>
+<p align="center">
+  <img src="logo.png" alt="UniCorn-P4 logo" width="150">
+</p>
 
- ![image](https://img.shields.io/badge/licence-Apache%202.0-blue) ![image](https://img.shields.io/badge/lang-python-darkred) ![image](https://img.shields.io/badge/built%20with-react-orange) ![image](https://img.shields.io/badge/v-1.1-yellow) [![Controller Build](https://github.com/uni-tue-kn/UniCorn-P4/actions/workflows/docker-image.yml/badge.svg)](https://github.com/uni-tue-kn/UniCorn-P4/actions/workflows/docker-image.yml)
+<h1 align="center">UniCorn-P4</h1>
 
-</div>
+<p align="center">
+  A browser-based P4 development platform: program switches, inspect state, and build emulated networks.
+</p>
 
-- [Overview](#overview)
-- [Supported Targets and Data Plane APIs](#supported-targets-and-data-plane-apis)
-- [Installation \& Start Instructions](#installation--start-instructions)
-- [Working with UniCorn-P4](#working-with-unicorn-p4)
-  - [1. Compiling your P4 Program](#1-compiling-your-p4-program)
-  - [2. Switch Configuration](#2-switch-configuration)
-    - [2a. Optional: Create the virtual topology using Mininet](#2a-optional-create-the-virtual-topology-using-mininet)
-    - [2b. Connecting your Switches](#2b-connecting-your-switches)
-    - [3. Loading a P4 Program onto a Switch](#3-loading-a-p4-program-onto-a-switch)
-    - [4. Managing MAT Entries](#4-managing-mat-entries)
-- [Preview of UniCorn-P4](#preview-of-unicorn-p4)
+<p align="center">
+  <a href="https://github.com/uni-tue-kn/UniCorn-P4/actions/workflows/docker-image.yml"><img src="https://github.com/uni-tue-kn/UniCorn-P4/actions/workflows/docker-image.yml/badge.svg" alt="Tests and build status"></a>
+  <img src="https://img.shields.io/badge/control_plane-P4Runtime-7b4ca0" alt="P4Runtime control plane">
+  <img src="https://img.shields.io/badge/Python-3.12-3776ab?logo=python&amp;logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/React-19-61dafb?logo=react&amp;logoColor=black" alt="React 19">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 license"></a>
+</p>
 
-## Overview
-This repository contains the source code for a universal P4 controller for rapid prototyping of P4 programs in data plane programming.
+<p align="center">
+  <img src="docs/screenshots/topology.png" alt="Interactive topology editor with link settings" width="1100">
+</p>
 
-<details open markdown='1'><summary>UniCorn-P4</summary>
+## From P4 program to running network
 
-* provides a web-based GUI for configuration and visualization of P4 switches
-* implements a control plane communicating with switches via the data plane API
-* automatically derives available MATs and their structure from compiled P4 files
-* allows manual manipulation of MAT entries or loading them from configuration files
-* includes a Mininet extension for emulating large network topologies to test P4 programs
+- **Build and visualize networks** with Mininet, a drag-and-drop topology editor, saved layouts, interface maps, and per-node terminals.
+- **Program match-action tables** discovered from P4Info, with single/bulk editing, filtering, decoding, and saved MAT snapshots.
+- **Inspect live traffic** with counters, resets, traffic graphs, and digest events emitted by your program.
+- **Configure registers and meters** through P4Runtime, with precise integer values and per-entry direct meters.
+- **Manage packet replication** through mirror sessions and multicast groups.
+- **Tune BMv2 queues** with per-port depth and packet-rate controls.
 
+<table>
+  <tr>
+    <td><img src="docs/screenshots/tables.png" alt="Match-action table editor"></td>
+    <td><img src="docs/screenshots/registers.png" alt="Register values and editing"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Match-action tables</strong></td>
+    <td align="center"><strong>Lossless register values</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/meters.png" alt="Meter rate and burst configuration"></td>
+    <td><img src="docs/screenshots/mirrors.png" alt="Mirror session management"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Meters and direct meters</strong></td>
+    <td align="center"><strong>Mirror sessions</strong></td>
+  </tr>
+</table>
 
-## Supported Targets and Data Plane APIs
-Currently any P4 target that implementes the P4 Runtime API is supported, e.g., the BMv2 software-based target with the `simple_switch_grpc` architecture.
+<details>
+  <summary><strong>Traffic and control-plane tools</strong></summary>
+  <br>
+  <img src="docs/screenshots/counters.png" alt="Live counter traffic graphs and reset controls">
+  <img src="docs/screenshots/multicast.png" alt="Multicast group configuration">
+  <img src="docs/screenshots/digests.png" alt="Digest configuration and received events">
+  <img src="docs/screenshots/queues.png" alt="BMv2 queue depth and rate controls">
+</details>
 
-## Installation & Start Instructions
+_Screenshots show a sample emulated network and switch resources._
 
-To use UniCorn-P4 for development and teaching, you only need the `docker` folder.
-UniCorn-P4 can be started via `docker-compose up` in the docker folder.
-This docker-compose file starts up the frontend, the backend, and the Mininet container.
-Place your topologies and P4 files in their corresponding folder in the `docker folder`.
-Once the container has started, navigate to `localhost:3000`.
+## Quick start
 
-## Working with UniCorn-P4
+You need Linux and Docker with Compose v2.
 
-### 1. Compiling your P4 Program
-UniCorn-P4 requires the generated P4 runtime file and the intermediate representation file from the compilation command.
-For convenience, the frontend features a compiler interface for the BMv2 model.
-
-If you want to compile it manually, you can use the following command:
-```bash
-p4c /path/to/p4_folder/basic.p4 --target bmv2 --arch v1model --p4runtime-files /path/to/p4_folder/basic.p4info.txt -o /path/to/p4_folder/
+```sh
+git clone https://github.com/uni-tue-kn/UniCorn-P4.git
+cd UniCorn-P4/docker
+docker compose up --build -d
 ```
-You may create subfolders for distinct projects there containing your compiled P4 files.
 
-### 2. Switch Configuration
-#### 2a. Optional: Create the virtual topology using Mininet
-Example topology file, placed in `docker/topologies/topology.json`:
-```json
-{
-    "hosts": [
-        "h1",
-        "h2"
-    ],
-    "switches": {
-        "s1": { },
-        "s2": { }
-    },
-    "links": [
-        ["h1", "s1"],  ["h2", "s1"], ["s1", "s2"]
-    ]
-}
-```
-Select the topology file in the GUI and click on "Load Topology".
-The Mininet container will now create your virtual testbed in the background.
+Open http://localhost:3000. Put your P4 files in `docker/p4-files/` and topology
+JSON in `docker/topologies/`, then compile, load a topology, and initialize a switch.
+The first build compiles pinned upstream runtimes. Subsequent builds use Docker's cache.
 
-If you want to use external / real network interfaces, you can configure them by adding a section like the following example to your topology file:
-```json
-{
-    "ext_intfs": [
-        ["s1", "INTERFACE_NAME_1"], 
-        ["s1", "INTERFACE_NAME_2"], 
-        ["s2", "INTERFACE_NAME_3"]
-    ]
-}
-```
-#### 2b. Connecting your Switches
-Click on "New Switch Connection". 
+Try the [sample network bundles](examples/networks/README.md) for forwarding,
+multicast, mirroring, and metering demonstrations. Import a bundle from the global network archive menu.
 
-If you are using the Mininet Extension, the switches loaded from the topology are automatically discovered and can be selected in the drop down menu.
+Published [release archives](https://github.com/uni-tue-kn/UniCorn-P4/releases) use
+the same deployment layout: extract `UniCorn-P4.tar.gz`, enter `UniCorn-P4/`, and run
+`docker compose pull` followed by `docker compose up -d`.
 
-Otherwise, enter the name, address, port, switch_id, and a log file path to connect to a switch in the network.
+## Target support
 
-#### 3. Loading a P4 Program onto a Switch
-Select a Switch in the navigation bar and click on "Edit Initialization".
+The bundled BMv2 emulator supports scalar registers up to **64 bits** through a
+P4Runtime server extension. Stock external BMv2/PI needs the explicit register
+adapter, which conservatively supports up to **63 bits**. Tables, counters, meters,
+and supported mirror sessions continue to use standard P4Runtime operations.
 
-Select the P4 Info file and the corresponding json file from the list of discovered files and click on "Initialize".
-
-The P4 program is now loaded onto the switch.
-
-#### 4. Managing MAT Entries
-After the switch is initialized, the available MATs in the P4 program are automatically discovered and can be found under "Tables".
-
-New entries can be added, and existing entries can be modified or deleted.
-
-The current state of the switch can be saved as a snapshot into your history.
-
-## Preview of UniCorn-P4
-<img alt="Dashboard" style="border-radius: 10px; border: 1px solid #000;" src="preview.png"/>
-
-<img alt="Switch Initialization" style="border-radius: 10px; border: 1px solid #000;" src="preview-2.png"/>
-
-<img alt="Managing MAT Entries" style="border-radius: 10px; border: 1px solid #000;" src="preview-3.png"/>
+See the [usage guide](docs/usage.md) for setup, resource workflows, external switches,
+testing, and releases. The [runtime notes](runtime/README.md) explain compatibility
+limits. Component versions are shown in the UI and recorded in [VERSION](VERSION).
+Development changes are listed in the [changelog](CHANGELOG.md).

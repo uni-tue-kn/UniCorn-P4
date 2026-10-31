@@ -1,0 +1,66 @@
+--- a/targets/simple_switch/primitives.cpp
++++ b/targets/simple_switch/primitives.cpp
+@@ -349,7 +349,6 @@
+   : public ActionPrimitive<MeterArray &, const Data &, Field &> {
+   void operator ()(MeterArray &meter_array, const Data &idx, Field &dst) {
+     auto i = idx.get_uint();
+-#ifndef NDEBUG
+     if (i >= meter_array.size()) {
+         BMLOG_ERROR_PKT(get_packet(),
+                         "Attempted to update meter '{}' with size {}"
+@@ -359,7 +358,6 @@
+                         meter_array.get_name(), meter_array.size(), i);
+         return;
+     }
+-#endif  // NDEBUG
+     auto color = meter_array.execute_meter(get_packet(), i);
+     dst.set(color);
+     BMLOG_TRACE_PKT(get_packet(),
+@@ -374,7 +372,6 @@
+ class count : public ActionPrimitive<CounterArray &, const Data &> {
+   void operator ()(CounterArray &counter_array, const Data &idx) {
+     auto i = idx.get_uint();
+-#ifndef NDEBUG
+     if (i >= counter_array.size()) {
+         BMLOG_ERROR_PKT(get_packet(),
+                         "Attempted to update counter '{}' with size {}"
+@@ -383,7 +380,6 @@
+                         counter_array.get_name(), counter_array.size(), i);
+         return;
+     }
+-#endif  // NDEBUG
+     counter_array.get_counter(i).increment_counter(get_packet());
+     BMLOG_TRACE_PKT(get_packet(),
+                     "Updated counter '{}' at index {}",
+@@ -397,7 +393,6 @@
+   : public ActionPrimitive<Field &, const RegisterArray &, const Data &> {
+   void operator ()(Field &dst, const RegisterArray &src, const Data &idx) {
+     auto i = idx.get_uint();
+-#ifndef NDEBUG
+     if (i >= src.size()) {
+         BMLOG_ERROR_PKT(get_packet(),
+                         "Attempted to read register '{}' with size {}"
+@@ -406,7 +401,6 @@
+                         src.get_name(), src.size(), i);
+         return;
+     }
+-#endif  // NDEBUG
+     dst.set(src[i]);
+     BMLOG_TRACE_PKT(get_packet(),
+                     "Read register '{}' at index {} read value {}",
+@@ -420,7 +414,6 @@
+   : public ActionPrimitive<RegisterArray &, const Data &, const Data &> {
+   void operator ()(RegisterArray &dst, const Data &idx, const Data &src) {
+     auto i = idx.get_uint();
+-#ifndef NDEBUG
+     if (i >= dst.size()) {
+         BMLOG_ERROR_PKT(get_packet(),
+                         "Attempted to write register '{}' with size {}"
+@@ -429,7 +422,6 @@
+                         dst.get_name(), dst.size(), i);
+         return;
+     }
+-#endif  // NDEBUG
+     dst[i].set(src);
+     BMLOG_TRACE_PKT(get_packet(),
+                     "Wrote register '{}' at index {} with value {}",

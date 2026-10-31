@@ -14,7 +14,7 @@
 # limitations under the License.
 #
 
-import sys, os, tempfile, socket
+import sys, os, tempfile, socket, subprocess, signal
 from time import sleep
 
 from mininet.node import Switch
@@ -89,6 +89,8 @@ class P4RuntimeSwitch(P4Switch):
             self.device_id = P4Switch.device_id
             P4Switch.device_id += 1
         self.nanomsg = "ipc:///tmp/bm-{}-log.ipc".format(self.device_id)
+        self._proxy = None
+        self._bmv2_pid = None
 
 
     def check_listening_on_port(self, port):
@@ -99,12 +101,17 @@ class P4RuntimeSwitch(P4Switch):
         for _ in range(SWITCH_START_TIMEOUT * 2):
             if not os.path.exists(os.path.join("/proc", str(pid))):
                 return False
-            if self.check_listening_on_port(self.grpc_port):
+            if self.check_listening_on_port(self._internal_grpc_port):
                 return True
             sleep(0.5)
 
     def start(self, controllers):
         info("Starting P4 switch {}.\n".format(self.name))
+        # The standard external endpoint includes the explicit register extension.
+        # PI itself listens on a private, per-switch loopback port.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(('127.0.0.1', 0))
+            self._internal_grpc_port = listener.getsockname()[1]
         args = [self.sw_path]
         for port, intf in self.intfs.items():
             if not intf.IP():
@@ -126,7 +133,7 @@ class P4RuntimeSwitch(P4Switch):
         if self.thrift_port:
             args.append('--thrift-port ' + str(self.thrift_port))
         if self.grpc_port:
-            args.append("-- --grpc-server-addr 0.0.0.0:" + str(self.grpc_port))
+            args.append("-- --grpc-server-addr 127.0.0.1:" + str(self._internal_grpc_port))
         cmd = ' '.join(args)
         info(cmd + "\n")
 
@@ -135,8 +142,52 @@ class P4RuntimeSwitch(P4Switch):
         with tempfile.NamedTemporaryFile() as f:
             self.cmd(cmd + ' >' + self.log_file + ' 2>&1 & echo $! >> ' + f.name)
             pid = int(f.read())
+        self._bmv2_pid = pid
         debug("P4 switch {} PID is {}.\n".format(self.name, pid))
         if not self.check_switch_started(pid):
             error("P4 switch {} did not start correctly.\n".format(self.name))
+            self.stop()
             raise RuntimeError("P4 switch {} did not start correctly.".format(self.name))
+        try:
+            with open(self.log_file + '.register-proxy.log', 'a') as proxy_log:
+                self._proxy = subprocess.Popen([
+                    sys.executable, '-m', 'runtime.register_proxy',
+                    '--listen', '0.0.0.0:' + str(self.grpc_port),
+                    '--upstream', '127.0.0.1:' + str(self._internal_grpc_port),
+                    '--thrift-port', str(self.thrift_port),
+                    '--device-id', str(self.device_id),
+                ], stdout=proxy_log, stderr=subprocess.STDOUT)
+            for _ in range(SWITCH_START_TIMEOUT * 2):
+                if self._proxy.poll() is not None:
+                    raise RuntimeError('Register P4Runtime extension failed; see proxy log')
+                if self.check_listening_on_port(self.grpc_port):
+                    break
+                sleep(0.5)
+            else:
+                raise RuntimeError('Register P4Runtime endpoint did not become ready')
+        except Exception:
+            self.stop()
+            raise
         info("P4 switch {} has been started.\n".format(self.name))
+
+    def stop(self, deleteIntfs=True):
+        if self._proxy is not None:
+            self._proxy.terminate()
+            try:
+                self._proxy.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._proxy.kill()
+                self._proxy.wait(timeout=5)
+            self._proxy = None
+        if self._bmv2_pid is not None:
+            # A terminal may still be winding down after Ctrl-C. Teardown must
+            # not send a second command into that same Mininet shell.
+            try:
+                os.kill(self._bmv2_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            self._bmv2_pid = None
+        if not self.output.closed:
+            self.output.close()
+        if deleteIntfs:
+            self.deleteIntfs()

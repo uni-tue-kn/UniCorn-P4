@@ -236,6 +236,7 @@ class Controller:
 
         # Apply update
         target_switch.update_table_entry(old_entry,new_entry)
+        return old_entry.as_json()
 
     def updateTableEntries(self, switch_id, old_entries_list, new_entries_list):
         """Update multiple switch table entries. Same as pathTableEntry but with lists as input.
@@ -249,6 +250,7 @@ class Controller:
             UpdateError: gRPG calls failed
             UpdateError: Any other error that may be caused
         """
+        applied = []
         # Iterate over all entries to update
         for i in range(0, len(old_entries_list)):
 
@@ -263,10 +265,13 @@ class Controller:
                 new_entry_dict = next(
                     filter(lambda entry: entry["id"] == entry_id, new_entries_list))
 
-                self.patchTableEntry(switch_id, old_entry_dict["switch_entry"], new_entry_dict["switch_entry"])
+                replacement = dict(new_entry_dict["switch_entry"], deleted=new_entry_dict.get("deleted", False))
+                original = self.patchTableEntry(switch_id, old_entry_dict["switch_entry"], replacement)
+                applied.append((original, replacement))
 
             # Catch any error that comes from RPC calls to switch
             except grpc.RpcError as e:
+                self._undo_table_updates(switch_id, applied)
                 # If no details are given, create custom message with possible reason
                 if e.details() == "":
                     error = str(e.code(
@@ -277,4 +282,15 @@ class Controller:
                                       e.details(), entry_id)
             # Catch any other error
             except Exception as e:
+                try:
+                    self._undo_table_updates(switch_id, applied)
+                except Exception as restore_error:
+                    raise UpdateError(f"{e}; restoring earlier edits failed: {restore_error}", entry_id) from e
                 raise (UpdateError(str(e), entry_id))
+
+    def _undo_table_updates(self, switch_id, applied):
+        for old, replacement in reversed(applied):
+            if replacement.get("deleted"):
+                self.postTableEntry(switch_id, old, is_json=False)
+            else:
+                self.patchTableEntry(switch_id, replacement, old)

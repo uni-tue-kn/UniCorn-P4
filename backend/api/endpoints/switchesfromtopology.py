@@ -4,6 +4,7 @@ from flask import jsonify, make_response, request
 import json
 import time
 from .Endpoint import Endpoint
+from .switch_config import normalize_adapter_config
 
 from ..database.TableStates import *
 from ..database.SwitchConfigs import *
@@ -22,6 +23,7 @@ class SwitchesFromTopology(Endpoint):
     def _get_or_create_switch_records(self, switch_configs):
         records = {}
         for switch in switch_configs:
+            switch = normalize_adapter_config(switch)
             key = self._switch_key(switch)
             record = SwitchConfigs.query.filter_by(
                 name=switch["name"],
@@ -32,6 +34,10 @@ class SwitchesFromTopology(Endpoint):
                 record = SwitchConfigs(**switch)
                 self.db.session.add(record)
                 self.db.session.flush()
+            else:
+                record.register_adapter_enabled = switch["register_adapter_enabled"]
+                record.register_thrift_host = switch["register_thrift_host"]
+                record.register_thrift_port = switch["register_thrift_port"]
             records[key] = record
         self.db.session.commit()
         return records

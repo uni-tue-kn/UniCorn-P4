@@ -1,69 +1,105 @@
-name: UniCorn-P4 build
+name: Test and build UniCorn-P4
 
 on:
   push:
-    branches: [ "main"]
+    branches: [main, dev, nightly-registers-runtime-ui]
   pull_request:
-    branches: [ "main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unicorn-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
+  python:
+    runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v3
-    - name: UniCorn-P4 CI
-      run: cd docker && docker compose build
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements*.txt
+            netsim/requirements*.txt
+      - run: pip install -r backend/requirements-dev.txt -r netsim/requirements-dev.txt
+      - name: Backend and component version regressions
+        env:
+          PYTHONPATH: .:backend
+          UPDATE_CHECK_ENABLED: 'false'
+        run: python -m pytest tests/backend tests/unit tests/netsim runtime/tests -q
 
-    - name: Run Backend Container
-      run: docker compose up -d unicornp4-backend
-      working-directory: docker
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
 
-    - name: Run Frontend Container
-      run: docker compose up -d unicornp4-frontend
-      working-directory: docker
-
-    - name: Run Mininet Container
-      run: docker compose up -d unicornp4-netsim
-      working-directory: docker      
-
-    - name: Wait for Containers to Start
-      run: sleep 15
-
-    - name: Test Backend
-      run: curl --fail http://localhost:5000/switches/active || (echo "Backend test failed" && exit 1)
-
-    - name: Test Frontend
-      run: curl --fail http://localhost:3000 || (echo "Frontend test failed" && exit 1)
-
-    - name: Test Mininet
-      run: curl --fail http://localhost:5001/switches/online || (echo "Mininet test failed" && exit 1)
-
-    # Step 3: Log in to Docker Hub
-    - name: Log in to Docker Hub
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    # Step 4: Tag and push the backend image
-    - name: Tag and Push Backend Image
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      run: |
-        docker push unituekn/unicornp4-backend:latest
-      working-directory: docker
-
-    # Step 5: Tag and push the frontend image
-    - name: Tag and Push Frontend Image
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      run: |
-        docker push unituekn/unicornp4-frontend:latest
-      working-directory: docker
-
-    # Step 6: Tag and push the mininet image
-    - name: Tag and Push Mininet Image
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      run: |
-        docker push unituekn/unicornp4-netsim:latest
-      working-directory: docker      
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs: [python, frontend]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+      - run: npm ci
+        working-directory: tests/e2e
+      - run: npx playwright install --with-deps chromium
+        working-directory: tests/e2e
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: docker/backend/Dockerfile
+          build-args: BUILD_JOBS=2
+          load: true
+          tags: unicorn-test-backend
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: docker/netsim/Dockerfile
+          build-args: BUILD_JOBS=2
+          load: true
+          tags: unicorn-test-netsim
+          cache-from: type=gha,scope=netsim
+          cache-to: type=gha,mode=max,scope=netsim
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: docker/frontend/Dockerfile
+          load: true
+          tags: unicorn-test-frontend
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+      - name: Build upstream runtimes and exercise real switches through the browser
+        env:
+          E2E_SKIP_BUILD: 'true'
+        run: bash scripts/test-e2e.sh
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: integration-results
+          path: |
+            test-results/
+            tests/e2e/playwright-report/
+          retention-days: 14

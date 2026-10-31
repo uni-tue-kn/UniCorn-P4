@@ -1,0 +1,15 @@
+--- a/src/BMI/bmi_interface.c
++++ b/src/BMI/bmi_interface.c
+@@ -91,6 +91,12 @@ int bmi_interface_create(bmi_interface_t **bmi, const char *device) {
+     return -1;
+   }
+ 
++  if (pcap_setnonblock(bmi_->pcap, 1, errbuf) != 0) {
++    pcap_close(bmi_->pcap);
++    free(bmi_);
++    return -1;
++  }
++
+   bmi_->fd = pcap_get_selectable_fd(bmi_->pcap);
+   if(bmi_->fd < 0) {
+     pcap_close(bmi_->pcap);

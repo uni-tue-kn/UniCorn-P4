@@ -63,14 +63,14 @@ class P4InfoHelper(object):
     def __getattr__(self, attr):
         # Synthesize convenience functions for name to id lookups for top-level entities
         # e.g. get_tables_id(name_string) or get_actions_id(name_string)
-        m = re.search("^get_(\w+)_id$", attr)
+        m = re.search(r"^get_(\w+)_id$", attr)
         if m:
             primitive = m.group(1)
             return lambda name: self.get_id(primitive, name)
 
         # Synthesize convenience functions for id to name lookups
         # e.g. get_tables_name(id) or get_actions_name(id)
-        m = re.search("^get_(\w+)_name$", attr)
+        m = re.search(r"^get_(\w+)_name$", attr)
         if m:
             primitive = m.group(1)
             return lambda id: self.get_name(primitive, id)
@@ -126,7 +126,7 @@ class P4InfoHelper(object):
             tableInfo = {}
             table_name = pre.name
             tableInfo["table_name"] = table_name
-            #tableInfo["table_id"] = pre.id
+            tableInfo["table_id"] = pre.id
 
             match_fields = {}
             for mf in t.match_fields:
@@ -331,3 +331,26 @@ class P4InfoHelper(object):
             counter["table_id"] = c.direct_table_id
             counters[pre.name] = counter
         return counters
+
+    def get_registers(self):
+        from ..managers.ResourceManager import register_type
+        return {r.preamble.name: {"id": r.preamble.id, "name": r.preamble.name,
+                "alias": r.preamble.alias, "size": r.size, "type": register_type(r, self.p4info)}
+                for r in self.p4info.registers}
+
+    def get_meters(self):
+        return {r.preamble.name: {"id": r.preamble.id, "name": r.preamble.name,
+                "alias": r.preamble.alias, "size": r.size, "unit": r.spec.unit}
+                for r in self.p4info.meters}
+
+    def get_direct_meters(self):
+        return {r.preamble.name: {"id": r.preamble.id, "name": r.preamble.name,
+                "alias": r.preamble.alias, "table_id": r.direct_table_id, "unit": r.spec.unit}
+                for r in self.p4info.direct_meters}
+
+    def get_digests(self):
+        from google.protobuf.json_format import MessageToDict
+        return {digest.preamble.name: {'id': digest.preamble.id, 'name': digest.preamble.name,
+                'alias': digest.preamble.alias,
+                'type': MessageToDict(digest.type_spec, preserving_proto_field_name=True)}
+                for digest in self.p4info.digests}

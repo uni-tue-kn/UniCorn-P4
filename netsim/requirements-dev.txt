@@ -1,0 +1,3 @@
+-r requirements.txt
+# Match the emulator's single official source installation.
+mininet @ git+https://github.com/mininet/mininet.git@6eb8973c0bfd13c25c244a3871130c5e36b5fbd7

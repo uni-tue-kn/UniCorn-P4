@@ -3,6 +3,8 @@ from flask import jsonify, make_response
 import json
 
 from .Endpoint import Endpoint
+from .switch_config import normalize_adapter_config
+from sqlalchemy.exc import IntegrityError
 
 from ..database.TableStates import *
 from ..database.SwitchConfigs import *
@@ -21,11 +23,16 @@ class SwitchesKnown(Endpoint):
         args = parser.parse_args()
             
         db_config = SwitchConfigs.query.filter_by(id = args['db_id']).first()
+        if db_config is None:
+            return {"error": "Unknown saved switch configuration"}, 404
         switch_config = {
             "name": db_config.name,
             "address": db_config.address,
             "device_id": db_config.device_id,
-            "proto_dump_file": db_config.proto_dump_file
+            "proto_dump_file": db_config.proto_dump_file,
+            "register_adapter_enabled": db_config.register_adapter_enabled,
+            "register_thrift_host": db_config.register_thrift_host,
+            "register_thrift_port": db_config.register_thrift_port
         }
         try:
             self.controller.addSwitchConnection(switch_config)
@@ -39,6 +46,8 @@ class SwitchesKnown(Endpoint):
         parser.add_argument('db_id', required = True, type=int)
         args = parser.parse_args()
         switch_to_delete = SwitchConfigs.query.filter_by(id = args['db_id']).first()
+        if switch_to_delete is None:
+            return {"error": "Unknown saved switch configuration"}, 404
         self.db.session.delete(switch_to_delete)
         self.db.session.commit()
 
@@ -48,14 +57,26 @@ class SwitchesKnown(Endpoint):
         parser.add_argument('switch_config', required = True, type=str)
         args = parser.parse_args()
         switch_to_edit = SwitchConfigs.query.filter_by(id = args['db_id']).first()
-        new_switch_config = json.loads(args['switch_config'])
+        if switch_to_edit is None:
+            return {"error": "Unknown saved switch configuration"}, 404
+        try:
+            new_switch_config = normalize_adapter_config(json.loads(args['switch_config']))
+        except (ValueError, TypeError) as error:
+            return {"error": str(error)}, 400
         switch_to_edit.name = new_switch_config["name"]
         switch_to_edit.address = new_switch_config["address"]
         switch_to_edit.device_id = new_switch_config["device_id"]
         switch_to_edit.proto_dump_file = new_switch_config["proto_dump_file"]
+        switch_to_edit.register_adapter_enabled = new_switch_config.get("register_adapter_enabled", False)
+        switch_to_edit.register_thrift_host = new_switch_config.get("register_thrift_host")
+        switch_to_edit.register_thrift_port = new_switch_config.get("register_thrift_port")
         flag_modified(switch_to_edit, "name")
         flag_modified(switch_to_edit, "address")
         flag_modified(switch_to_edit, "device_id")
         flag_modified(switch_to_edit, "proto_dump_file")
         self.db.session.add(switch_to_edit)
-        self.db.session.commit()
+        try:
+            self.db.session.commit()
+        except IntegrityError:
+            self.db.session.rollback()
+            return {"error": "A switch with this name, address and device ID already exists"}, 409

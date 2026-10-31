@@ -14,6 +14,9 @@ class SwitchConfigs(db.Model):
     address = db.Column(db.String, nullable = False)
     device_id = db.Column(db.Integer, nullable = False)
     proto_dump_file = db.Column(db.String, nullable = True)
+    register_adapter_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+    register_thrift_host = db.Column(db.String, nullable=True)
+    register_thrift_port = db.Column(db.Integer, nullable=True)
     date_created = db.Column(db.DateTime, default = datetime.utcnow)
     last_connection = db.Column(db.DateTime, default = datetime.utcnow)
     
@@ -36,6 +39,9 @@ def extractSwitchData(query):
         switchDict['address'] = switch.address
         switchDict['device_id'] = switch.device_id
         switchDict['proto_dump_file'] = switch.proto_dump_file
+        switchDict['register_adapter_enabled'] = switch.register_adapter_enabled
+        switchDict['register_thrift_host'] = switch.register_thrift_host
+        switchDict['register_thrift_port'] = switch.register_thrift_port
         switchDict['date_created'] = switch.date_created.isoformat()
         switchDict['last_connection'] = switch.last_connection.isoformat()
         data.append(switchDict)

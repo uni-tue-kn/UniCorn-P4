@@ -1,0 +1,12 @@
+diff --git a/ir/visitor.cpp b/ir/visitor.cpp
+--- a/ir/visitor.cpp
++++ b/ir/visitor.cpp
+@@ -647,7 +647,7 @@ bool ControlFlowVisitor::filter_join_point(const IR::Node *n) {
+              [this](flow_join_points_t::value_type &el) { return el.second.count == 0; });
+ #endif
+     erase_if(*flow_join_points,
+-             [this](flow_join_points_t::value_type &el) { return filter_join_point(el.first); });
++             [this](const flow_join_points_t::value_type &el) { return filter_join_point(el.first); });
+ }
+ 
+ bool ControlFlowVisitor::join_flows(const IR::Node *n) {
