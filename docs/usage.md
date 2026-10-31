@@ -6,17 +6,19 @@ shows the main screens; this guide covers operation, compatibility, and developm
 
 ## Start the platform
 
-Use Linux and Docker with Compose v2. From a source checkout, run:
+Use Linux and Docker with Compose v2. From the repository root, run:
 
 ```sh
 cd docker
-docker compose up --build -d
+docker compose pull
+docker compose up -d
 ```
 
-Open http://localhost:3000. Put programs in `docker/p4-files/` and topology JSON
-files in `docker/topologies/`. These directories and `docker/database/` are persistent
-volumes. The initial build compiles official upstream sources and can take much
-longer than cached application rebuilds.
+Open http://localhost:3000. This uses the published `latest` images. Put programs
+in `p4-files/` and topology JSON files in `topologies/` inside the current `docker/`
+directory. These directories and `database/` are persistent bind mounts.
+To update the images, run `docker compose pull` and `docker compose up -d` again
+from that directory. To run local source changes, follow the development section below.
 
 For a published deployment archive, extract `UniCorn-P4.tar.gz`, enter its
 `UniCorn-P4/` directory, and run `docker compose pull` followed by
@@ -219,25 +221,45 @@ prevent startup. See [CHANGELOG](../CHANGELOG.md) for the development changes.
 
 ## Development and tests
 
-Use Python 3.12 and Node 24, matching CI and the containers:
+Use Python 3.12 and Node 24, matching CI and the containers. Run these checks from
+the repository root:
 
 ```sh
 python -m venv .venv
 .venv/bin/pip install -r backend/requirements-dev.txt -r netsim/requirements-dev.txt
 PYTHONPATH=.:backend UPDATE_CHECK_ENABLED=false .venv/bin/python -m pytest tests/backend tests/unit tests/netsim runtime/tests
-cd frontend
-npm ci
-npm run lint
-npm test
-npm run build
-npm run dev
+npm --prefix frontend ci
+npm --prefix frontend run lint
+npm --prefix frontend test
+npm --prefix frontend run build
 ```
 
-For real BMv2/browser integration:
+To run local source changes in the full platform, rebuild its images from the
+repository root:
+
+```sh
+docker compose -f docker/docker-compose.yaml up --build -d
+```
+
+The first source build compiles the pinned upstream runtimes and can take much
+longer than later application rebuilds. Docker caches the compiled runtime layers.
+
+For frontend hot reload, keep the backend and emulator running, stop the container
+frontend to free port 3000, and start Vite from the repository root:
+
+```sh
+docker compose -f docker/docker-compose.yaml stop unicornp4-frontend
+npm --prefix frontend run dev
+```
+
+Vite proxies requests to the backend on port 5000 and emulator on port 5001.
+Stop Vite before starting the container frontend again.
+
+For real BMv2/browser integration, run from the repository root:
 
 ```sh
 npm --prefix tests/e2e ci
-cd tests/e2e && npx playwright install --with-deps chromium && cd ../..
+npm --prefix tests/e2e exec -- playwright install --with-deps chromium
 bash scripts/test-e2e.sh
 ```
 

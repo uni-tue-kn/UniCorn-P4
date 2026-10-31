@@ -66,12 +66,14 @@ You need Linux and Docker with Compose v2.
 ```sh
 git clone https://github.com/uni-tue-kn/UniCorn-P4.git
 cd UniCorn-P4/docker
-docker compose up --build -d
+docker compose pull
+docker compose up -d
 ```
 
-Open http://localhost:3000. Put your P4 files in `docker/p4-files/` and topology
-JSON in `docker/topologies/`, then compile, load a topology, and initialize a switch.
-The first build compiles pinned upstream runtimes. Subsequent builds use Docker's cache.
+Open http://localhost:3000. Put your P4 files in `p4-files/` and topology JSON in
+`topologies/` inside the current `docker/` directory, then compile, load a topology,
+and initialize a switch. This uses the published `latest` images. For local source
+changes, see [development and tests](docs/usage.md#development-and-tests).
 
 Try the [sample network bundles](examples/networks/README.md) for forwarding,
 multicast, mirroring, and metering demonstrations. Import a bundle from the global network archive menu.
