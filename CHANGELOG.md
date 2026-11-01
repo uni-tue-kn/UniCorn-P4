@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+* Updated the backend and emulator Python Thrift runtime from 0.22.0 to 0.25.0 to address dependency security advisories, including CVE-2026-41608, CVE-2026-43871, and CVE-2026-66053.
+
 ## 1.2.0 — 2026-10-31
 
 ### Added
