@@ -189,10 +189,16 @@ def test_archive_matches_deployment_layout_and_excludes_private_state(repo, tmp_
         assert archive.extractfile('UniCorn-P4/VERSION').read() == b'1.2.0\n'
         assert archive.extractfile('UniCorn-P4/p4-files/tutorial/src/headers.p4').read() == b'// included source\n'
         deployment = archive.extractfile('UniCorn-P4/docker-compose.yaml').read().decode()
-        assert deployment.count(':1.2.0') == 3
+        assert deployment.count(':latest') == 3
+        for component in ('backend', 'netsim', 'frontend'):
+            assert f'image: unituekn/unicornp4-{component}:latest' in deployment
         assert 'build:' not in deployment
         assert 'context:' not in deployment
-        assert ':latest' not in deployment
+        assert ':1.2.0' not in deployment
+        readme = archive.extractfile('UniCorn-P4/README.md').read().decode()
+        assert 'The Compose file uses published `latest` images.' in readme
+        assert 'docker compose pull\ndocker compose up -d' in readme
+        assert 'pinned to this release' not in readme
         assert not any(name.endswith(('.db', '.log', '.pcap', '.p4i')) for name in names)
         assert not any('private' in name or 'local.json' in name for name in names)
         assert all(name.startswith('UniCorn-P4') for name in names)

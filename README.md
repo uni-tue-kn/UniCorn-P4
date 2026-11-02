@@ -80,7 +80,8 @@ multicast, mirroring, and metering demonstrations. Import a bundle from the glob
 
 Published [release archives](https://github.com/uni-tue-kn/UniCorn-P4/releases) use
 the same deployment layout: extract `UniCorn-P4.tar.gz`, enter `UniCorn-P4/`, and run
-`docker compose pull` followed by `docker compose up -d`.
+`docker compose pull` followed by `docker compose up -d`. The bundle's Compose file
+uses the published `latest` images.
 
 ## Target support
 

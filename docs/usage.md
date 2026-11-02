@@ -23,7 +23,7 @@ from that directory. To run local source changes, follow the development section
 For a published deployment archive, extract `UniCorn-P4.tar.gz`, enter its
 `UniCorn-P4/` directory, and run `docker compose pull` followed by
 `docker compose up -d`. The archive root corresponds to a checkout's `docker/`
-directory and contains version-pinned images, compiled samples, and a fresh database.
+directory and uses published `latest` images, with compiled samples and a fresh database.
 
 The frontend serves a Vite production build through nginx. Same-origin `/api/`
 and `/netsim/` proxies include terminal WebSocket traffic, so a browser on another

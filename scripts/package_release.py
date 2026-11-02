@@ -19,10 +19,10 @@ def git_bytes(repo, *args):
     return subprocess.check_output(["git", "-C", str(repo), *args])
 
 
-def compose(version):
-    return f'''services:
+def compose():
+    return '''services:
   unicornp4-backend:
-    image: unituekn/unicornp4-backend:{version}
+    image: unituekn/unicornp4-backend:latest
     network_mode: host
     volumes:
       - ./p4-files:/p4
@@ -31,16 +31,16 @@ def compose(version):
     environment:
       P4_DIR: /p4/
       TOPO_DIR: /topologies
-      UPDATE_CHECK_ENABLED: ${{UPDATE_CHECK_ENABLED:-true}}
+      UPDATE_CHECK_ENABLED: ${UPDATE_CHECK_ENABLED:-true}
   unicornp4-netsim:
-    image: unituekn/unicornp4-netsim:{version}
+    image: unituekn/unicornp4-netsim:latest
     network_mode: host
     privileged: true
     cap_add: [NET_ADMIN]
     volumes:
       - ./topologies:/topologies
   unicornp4-frontend:
-    image: unituekn/unicornp4-frontend:{version}
+    image: unituekn/unicornp4-frontend:latest
     depends_on: [unicornp4-backend]
     ports: ["3000:3000"]
     extra_hosts: ["host.docker.internal:host-gateway"]
@@ -55,7 +55,7 @@ def package(repo, output, compiler_image=None, compiled_dir=None):
     version = git_bytes(repo, "show", "HEAD:VERSION").decode().strip()
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError("Deployment assets require a stable release VERSION")
-    files = {"VERSION": (version + "\n").encode(), "docker-compose.yaml": compose(version).encode(),
+    files = {"VERSION": (version + "\n").encode(), "docker-compose.yaml": compose().encode(),
              "database/.empty": b""}
     for path in tracked:
         local = PurePosixPath(path)
@@ -83,7 +83,7 @@ def package(repo, output, compiler_image=None, compiled_dir=None):
     quickstart = (f"# UniCorn-P4 {version} deployment\n\n"
         "Extract this archive, enter the UniCorn-P4 directory, then run:\n\n"
         "```sh\ndocker compose pull\ndocker compose up -d\n```\n\n"
-        "Open http://localhost:3000. All images are pinned to this release. "
+        "Open http://localhost:3000. The Compose file uses published `latest` images. "
         "P4 sources and compiled examples are in p4-files/; sample topologies "
         "are in topologies/. The database starts empty. Mininet requires Linux "
         "and the privileged container configured in docker-compose.yaml.\n\n"
