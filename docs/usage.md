@@ -32,7 +32,7 @@ Use the development services and privileged emulator terminal on a trusted netwo
 
 ## Compile and initialize a switch
 
-1. Select **P4 Compile**, choose a source file, and compile it for BMv2/v1model.
+1. Select **Editor**, choose a P4 source file, and choose **Compile** for BMv2/v1model.
 2. On **Topology**, use **Import saved** or **Import JSON** above the canvas,
    then choose **Deploy topology**.
    Automatic switch connection is enabled by default. Alternatively, use **New Switch Connection**
@@ -52,6 +52,34 @@ p4c /path/example.p4 --target bmv2 --arch v1model \
 Keep generated files alongside the corresponding program. “Keep existing entries”
 preserves an identical active pipeline; loading a different program requires an
 explicit reset because PI reconciliation cannot safely preserve every resource.
+
+## Edit P4 programs
+
+The **Editor** tab combines a workspace file tree, Monaco source editor, and
+compiler output. Open P4 programs and includes from **Files**, or create a nested
+path with **New file**. Open files have separate tabs. **Save** (Ctrl/Cmd+S) writes
+the active file, and **Save all files** writes every modified tab. Generated BMv2
+JSON and P4Info are read only. **Save file copy** creates an editable copy.
+
+Choose the main program in **P4 source file**. **Compile** (Ctrl/Cmd+Enter) saves
+all modified buffers, including includes, before invoking p4c. The compiler panel
+shows the full command/output and clickable file locations in **Problems**.
+Successful compilation updates the artifacts available for switch initialization.
+
+Unsaved buffers stay open while navigating to topology, terminals, or switches.
+The browser keeps a recovery copy of modified files for the current session and
+asks before leaving the application with unsaved changes. Saves detect external
+edits and preserve your draft rather than overwriting a newer file. Use **Save file
+copy** or explicitly reload from disk to resolve a conflict.
+
+The backend bundles a pinned P4 language server from the
+[P4 VS Code extension](https://github.com/fattaholmanan/p4-vscode-extension).
+It provides syntax diagnostics and scoped completion for unsaved P4 buffers.
+Compile with p4c for authoritative type, architecture, and target checks. The
+status indicator reports availability, and ordinary editing/compilation remain
+available if language analysis cannot start. Editor assets and the server are
+local, so this workflow does not need a CDN or an external IDE service. Existing
+`/compile` bookmarks redirect to `/editor`.
 
 ## Create and inspect topologies
 

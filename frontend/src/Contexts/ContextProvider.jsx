@@ -8,6 +8,7 @@ import { APIProvider } from './APIContext'
 import { ThemeProviderWrapper } from './ThemeContext'
 import { CounterProvider } from './CounterContext'
 import { TerminalProvider } from './TerminalContext'
+import { EditorProvider } from './EditorContext'
 
 function ContextProvider({ children }) {
   return (
@@ -20,7 +21,9 @@ function ContextProvider({ children }) {
               <InitProvider>
                 <TableProvider>
                   <CounterProvider>
-                  {children}
+                    <EditorProvider>
+                      {children}
+                    </EditorProvider>
                   </CounterProvider>
                 </TableProvider>
               </InitProvider>

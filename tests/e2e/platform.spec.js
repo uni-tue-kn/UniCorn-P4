@@ -5,6 +5,7 @@ test.describe.configure({ mode: 'serial' });
 let switchId;
 let otherId;
 let metadata;
+let editorSourcePath;
 const forward = 'IngressImpl.forward';
 const register = 'IngressImpl.test_register';
 const meter = 'IngressImpl.test_meter';
@@ -78,6 +79,8 @@ test('compile, load a two-switch topology and initialize through the browser', a
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/compile');
+  await expect(page).toHaveURL(/\/editor$/);
+  await expect(page.getByRole('link', { name: 'Editor', exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'P4 source file' }).click();
   await page.getByRole('option', { name: '/p4/resources.p4', exact: true }).click();
   const compiled = page.waitForResponse(r => r.url().endsWith('/api/compile') && r.request().method() === 'POST');
@@ -901,6 +904,108 @@ async function sampleTerminal(page, host, command) {
   await input.fill(command);
   await input.press('Enter');
 }
+
+async function newEditorFile(page, path) {
+  await page.getByRole('button', { name: 'New file', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New workspace file', exact: true });
+  await dialog.getByRole('textbox', { name: 'File path', exact: true }).fill(path);
+  await dialog.getByRole('button', { name: 'Create file', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('tab', { name: `Switch to ${path}`, exact: true })).toHaveAttribute('aria-selected', 'true');
+}
+
+async function replaceEditorText(page, content) {
+  const input = page.getByTestId('source-editor').locator('textarea.inputarea');
+  await expect(input).toBeEditable();
+  await input.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  // Paste as a user would: synthetic multiline typing invokes Monaco's
+  // per-line auto-indentation and changes the fixture's whitespace.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.evaluate(text => navigator.clipboard.writeText(text), content);
+  await page.keyboard.press('ControlOrMeta+v');
+}
+
+test('editor saves source and includes, compiles, and preserves drafts across navigation', async ({ page, request }) => {
+  await page.goto('/editor');
+  const directory = `editor-e2e-${Date.now()}`;
+  const include = `${directory}/includes/constants.p4`, source = `${directory}/main.p4`;
+  editorSourcePath = source;
+  const header = 'const bit<8> EDITOR_CONSTANT = 1;\n';
+  const program = '#include "includes/constants.p4"\n' + await readFile(new URL('../fixtures/resources.p4', import.meta.url), 'utf8');
+  await newEditorFile(page, include);
+  await replaceEditorText(page, header);
+  await newEditorFile(page, source);
+  await replaceEditorText(page, program);
+  expect((await json(await request.get('/api/workspace/file', { params: { path: include } }))).content).toBe('');
+  await page.getByRole('combobox', { name: 'P4 source file', exact: true }).click();
+  await page.getByRole('option', { name: '/p4/' + source, exact: true }).click();
+  const compiled = page.waitForResponse(response => response.url().endsWith('/api/compile') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Compile', exact: true }).click();
+  expect((await compiled).status()).toBe(200);
+  await expect(page.getByText('Compilation completed', { exact: true })).toBeVisible();
+  expect((await json(await request.get('/api/workspace/file', { params: { path: include } }))).content).toBe(header);
+  expect((await json(await request.get('/api/workspace/file', { params: { path: source } }))).content).toBe(program);
+  const files = await json(await request.get('/api/p4files'));
+  expect(files.programs.some(item => item.source === '/p4/' + source && item.bmv2 === '/p4/' + source.replace(/\.p4$/, '.json'))).toBeTruthy();
+  await replaceEditorText(page, program + '\n// retained draft\n');
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+  await page.getByRole('link', { name: 'Editor', exact: true }).click();
+  await expect(page.getByRole('tab', { name: `Switch to ${source}`, exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('1 unsaved file', { exact: true })).toBeVisible();
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/workspace/file') && response.request().method() === 'PATCH');
+  await page.getByTestId('source-editor').locator('textarea.inputarea').focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  expect((await saved).status()).toBe(200);
+  expect((await json(await request.get('/api/workspace/file', { params: { path: source } }))).content).toContain('// retained draft');
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+});
+
+test('editor language server completes from unsaved includes and clears corrected syntax diagnostics', async ({ page, request }) => {
+  await page.goto('/editor');
+  const directory = `editor-lsp-${Date.now()}`;
+  const include = `${directory}/includes/packet.h`, source = `${directory}/main.p4`;
+  await newEditorFile(page, include);
+  await replaceEditorText(page, 'struct Header { bit<8> from_browser_include; }\n');
+  await newEditorFile(page, source);
+  await replaceEditorText(page, 'struct Broken {');
+  await expect(page.getByText('P4 language server ready', { exact: true })).toBeVisible({ timeout: 25000 });
+  await expect(page.getByRole('tab', { name: /Problems \([1-9]/ })).toBeVisible({ timeout: 25000 });
+  const valid = '#include "includes/packet.h"\ncontrol Main(inout Header hdr) {\n bit<8> other;\n apply { hdr.from_browser_include = 1; }\n}\n';
+  await replaceEditorText(page, valid);
+  await expect(page.getByRole('tab', { name: 'Problems (0)', exact: true })).toBeVisible({ timeout: 25000 });
+  const input = page.getByTestId('source-editor').locator('textarea.inputarea');
+  await input.focus(); await page.keyboard.press('ControlOrMeta+Home');
+  for (let line = 0; line < 3; line++) await page.keyboard.press('ArrowDown');
+  for (let column = 0; column < 13; column++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Control+Space');
+  await expect(page.getByRole('option', { name: /from_browser_include/ })).toBeVisible({ timeout: 20000 });
+  expect((await json(await request.get('/api/workspace/file', { params: { path: include } }))).content).toBe('');
+  await page.screenshot({ path: test.info().outputPath('editor-completion.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+});
+
+test('editor keeps a draft on external-edit conflict and saves a separate copy', async ({ page, request }) => {
+  await page.goto('/editor');
+  const source = editorSourcePath;
+  await page.getByRole('button', { name: `Open ${source}`, exact: true }).click();
+  const original = await json(await request.get('/api/workspace/file', { params: { path: source } }));
+  await replaceEditorText(page, original.content + '\n// my unsaved browser work\n');
+  const external = original.content + '\n// external editor update\n';
+  await json(await request.patch('/api/workspace/file', { data: { path: source, content: external, revision: original.revision } }));
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText(/changed outside this editor/)).toBeVisible();
+  expect((await json(await request.get('/api/workspace/file', { params: { path: source } }))).content).toBe(external);
+  await page.getByRole('button', { name: 'Save file copy', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Save a file copy', exact: true });
+  await dialog.getByRole('button', { name: 'Save copy', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const copy = await json(await request.get('/api/workspace/file', { params: { path: source.replace(/\.p4$/, '-copy.p4') } }));
+  expect(copy.content).toContain('// my unsaved browser work');
+  expect(copy.content).not.toContain('// external editor update');
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+});
 
 async function samplePing(page, count = 3, interval = '0.2', { host = 'h1', destination = '10.0.1.2' } = {}) {
   await sampleTerminal(page, host, 'clear');

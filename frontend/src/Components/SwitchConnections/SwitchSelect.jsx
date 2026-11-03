@@ -80,8 +80,8 @@ function SelectSwitch() {
         <Button startIcon={<TerminalOutlinedIcon />} sx={{ color: theme => theme.palette.getContrastText(location.pathname === '/terminals' ? theme.palette.secondary.light : theme.palette.primary.light), backgroundColor: location.pathname === '/terminals' ? 'secondary.light' : 'primary.light' }}
           component={Link} to="/terminals" onClick={handleMenu}>Terminals</Button>
         <Divider orientation="vertical" flexItem />
-        <Button startIcon={<CodeIcon />} sx={{ color: theme => theme.palette.getContrastText(location.pathname === '/compile' ? theme.palette.secondary.light : theme.palette.primary.light), backgroundColor: (location.pathname === "/compile" ? 'secondary.light' : 'primary.light') }}
-          component={Link} to="/compile" onClick={handleMenu} >P4 Compile</Button>
+        <Button startIcon={<CodeIcon />} sx={{ color: theme => theme.palette.getContrastText(['/editor', '/compile'].includes(location.pathname) ? theme.palette.secondary.light : theme.palette.primary.light), backgroundColor: (['/editor', '/compile'].includes(location.pathname) ? 'secondary.light' : 'primary.light') }}
+          component={Link} to="/editor" onClick={handleMenu} >Editor</Button>
         <Divider orientation="vertical" flexItem />
         <Button startIcon={<LanOutlinedIcon />} sx={{ color: theme => theme.palette.getContrastText(location.pathname === '/' || location.pathname === '/switches' ? theme.palette.secondary.light : theme.palette.primary.light), backgroundColor: (location.pathname === "/" || location.pathname === "/switches" ? 'secondary.light' : 'primary.light') }}
           component={Link} to="/switches" onClick={handleMenu}>Switch Menu</Button>

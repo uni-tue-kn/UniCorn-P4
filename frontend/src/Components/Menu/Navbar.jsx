@@ -71,7 +71,7 @@ function Navbar() {
     const resizeSidebar = value => setSidebar(previous => ({ ...previous, width: clampWidth(value) }));
     const { darkMode, toggleDarkMode } = useTheme(); // Get dark mode state
     const location = useLocation();
-    const hideSidebarRoutes = ['/', '/topology', '/terminals', '/mininet', '/compile', '/switches'];
+    const hideSidebarRoutes = ['/', '/topology', '/terminals', '/mininet', '/compile', '/editor', '/switches'];
     const showSidebar = !hideSidebarRoutes.includes(location.pathname);
 
     return (

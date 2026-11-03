@@ -41,6 +41,7 @@ def repo(tmp_path):
     write(tmp_path, 'CHANGELOG.md', '# Changelog\n\n## Unreleased — 1.2.0\n\n### Added\n\n* New capabilities.\n\n## v1.0\n\n* Old history.\n')
     write(tmp_path, 'docs/usage.md', 'Usage guide\n')
     write(tmp_path, 'runtime/README.md', 'Runtime compatibility notes\n')
+    write(tmp_path, 'runtime/p4-language-server/README.md', 'Editor language-server notes\n')
     for screenshot in ('topology', 'tables', 'registers', 'meters', 'mirrors'):
         write(tmp_path, f'docs/screenshots/{screenshot}.png', f'tracked-screenshot-{screenshot}')
     write(tmp_path, 'docker/docker-compose.yaml', 'services: {}\n')
@@ -184,6 +185,7 @@ def test_archive_matches_deployment_layout_and_excludes_private_state(repo, tmp_
         assert 'UniCorn-P4/CHANGELOG.md' in names
         assert 'UniCorn-P4/docs/usage.md' in names
         assert 'UniCorn-P4/runtime/README.md' in names
+        assert 'UniCorn-P4/runtime/p4-language-server/README.md' in names
         for screenshot in ('topology', 'tables', 'registers', 'meters', 'mirrors'):
             assert f'UniCorn-P4/docs/screenshots/{screenshot}.png' in names
         assert archive.extractfile('UniCorn-P4/VERSION').read() == b'1.2.0\n'
