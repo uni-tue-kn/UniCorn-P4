@@ -23,8 +23,15 @@ bundling. It fails the build if an expected upstream anchor changes. The adaptat
 
 - Reads unsaved document and include buffers without writing them onto the disk.
 - Keeps completion caches per document and maps cursor positions through the
-  preprocessor source map, so includes do not shift completion scopes.
-- Publishes document versions and clears resolved diagnostics.
+  preprocessor source map, preserving LF/CRLF positions and include scopes.
+- Analyzes open includes in their open parent programs, preserving macros and
+  context-dependent fragments. With multiple parents, diagnostics combine their
+  results and completion uses the first open root. An include without an open
+  parent is analyzed on its own.
+- Publishes document versions and clears resolved diagnostics. Notifications are
+  limited to open buffers. Errors in unopened includes appear on their parent,
+  with the original file location attached, so large include trees cannot crowd
+  open-buffer diagnostics out of the bounded transport queue.
 - Decodes/encodes file URIs correctly, including paths containing spaces.
 - Restricts includes to the configured P4 workspace and bundled compiler headers,
   excludes hidden paths, and bounds file sizes and include depth/count. File reads

@@ -91,6 +91,12 @@ jobs:
           tags: unicorn-test-frontend
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+      - name: Exercise the bundled P4 language server
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" -w /workspace \
+            -e PYTHONPATH=.:backend -e UPDATE_CHECK_ENABLED=false -e PYTHONDONTWRITEBYTECODE=1 \
+            --entrypoint /bin/sh unicorn-test-backend -c \
+            'test -f "$P4_LANGUAGE_SERVER" && node --version && pip install --no-cache-dir -r backend/requirements-dev.txt && python -m pytest -p no:cacheprovider tests/backend/test_language_service.py -q'
       - name: Build upstream runtimes and exercise real switches through the browser
         env:
           E2E_SKIP_BUILD: 'true'

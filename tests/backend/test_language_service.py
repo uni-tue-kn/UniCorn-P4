@@ -314,3 +314,132 @@ def test_real_server_preserves_special_character_document_uris(language_client, 
     assert 'recovered_field' in labels and 'saved_field' not in labels
     assert main.read_text() == 'struct DiskOnly { bit<8> saved; }\n'
     assert include.read_text() == 'struct Header { bit<8> saved_field; }\n'
+
+
+@pytest.mark.parametrize('parent_first', [False, True])
+def test_real_server_analyzes_open_includes_in_parent_context_and_clears_diagnostics(language_client, source, parent_first):
+    try:
+        language._server_command()
+    except language.LanguageError:
+        pytest.skip('Requires the bundled upstream language server')
+    include = source.parent / 'types.h'
+    include.write_text('struct Header {\n FIELDS\n}\n')
+    content = '#define FIELDS bit<8> foo;\n#include "types.h"\ncontrol Main(inout Header hdr) { apply { hdr.foo = 1; } }\n'
+    source.write_text(content)
+    identifier = create(language_client)['session_id']
+
+    def diagnostics(response, path):
+        assert response.status_code == 200, response.json
+        values = [message['params'] for message in response.json['messages']
+                  if message.get('method') == 'textDocument/publishDiagnostics'
+                  and message['params']['uri'] == path.as_uri()]
+        assert values, response.json
+        return values[-1]['diagnostics']
+
+    if parent_first:
+        post(language_client, identifier, notify('didOpen', source, languageId='p4', version=1, text=content))
+        response = post(language_client, identifier, notify('didOpen', include, languageId='p4', version=1, text=include.read_text()))
+    else:
+        response = post(language_client, identifier, notify('didOpen', include, languageId='p4', version=1, text=include.read_text()))
+        assert diagnostics(response, include)  # FIELDS has no definition without a parent.
+        response = post(language_client, identifier, notify('didOpen', source, languageId='p4', version=1, text=content))
+    assert diagnostics(response, include) == []
+
+    assert diagnostics(response, source) == []
+
+    def change(path, version, text):
+        return post(language_client, identifier, {'jsonrpc': '2.0', 'method': 'textDocument/didChange', 'params': {
+            'textDocument': {'uri': path.as_uri(), 'version': version}, 'contentChanges': [{'text': text}]}})
+
+    assert diagnostics(change(include, 2, 'struct Header {\n bit<8> broken\n}\n'), include)
+    assert diagnostics(change(include, 3, include.read_text()), include) == []
+    # Another parent can contribute a real error; a successful reparse must clear it.
+    second = source.parent / 'second.p4'
+    second.write_text('#include "types.h"\n')
+    response = post(language_client, identifier, notify('didOpen', second, languageId='p4', version=1, text=second.read_text()))
+    assert diagnostics(response, include)
+    assert diagnostics(change(second, 2, '#define FIELDS bit<8> bar;\n#include "types.h"\n'), include) == []
+    # Closing all parents restores standalone analysis rather than retaining their macros.
+    post(language_client, identifier, notify('didClose', second))
+    response = post(language_client, identifier, notify('didClose', source))
+    assert diagnostics(response, include)
+    response = post(language_client, identifier, notify('didOpen', source, languageId='p4', version=1, text=content))
+    assert diagnostics(response, include) == []
+
+
+def test_real_server_include_fragment_completion_uses_parent_scope(language_client, source):
+    try:
+        language._server_command()
+    except language.LanguageError:
+        pytest.skip('Requires the bundled upstream language server')
+    include = source.parent / 'body.h'
+    include.write_text(' local = 1;\n')
+    source.write_text('control Main() {\n bit<8> local;\n apply {\n#include "body.h"\n }\n}\n')
+    identifier = create(language_client)['session_id']
+    response = post(language_client, identifier,
+                    notify('didOpen', source, languageId='p4', version=1, text=source.read_text()),
+                    notify('didOpen', include, languageId='p4', version=1, text=include.read_text()))
+    assert response.status_code == 200, response.json
+    assert all(not message['params']['diagnostics'] for message in response.json['messages']
+               if message.get('method') == 'textDocument/publishDiagnostics')
+    response = post(language_client, identifier, {'jsonrpc': '2.0', 'id': 31, 'method': 'textDocument/completion', 'params': {
+        'textDocument': {'uri': include.as_uri()}, 'position': {'line': 0, 'character': 1}}})
+    assert response.status_code == 200, response.json
+    labels = [item['label'] for item in next(message['result'] for message in response.json['messages'] if message.get('id') == 31)]
+    assert 'local' in labels
+
+
+def test_real_server_reports_many_unopened_include_errors_without_flooding_events(language_client, source):
+    try:
+        language._server_command()
+    except language.LanguageError:
+        pytest.skip('Requires the bundled upstream language server')
+    includes = [source.parent / f'header_{index}.h' for index in range(70)]
+    for index, include in enumerate(includes):
+        include.write_text(f'struct Header{index} {{ bit<8> field }}\n')
+    content = ''.join(f'#include "{include.name}"\n' for include in includes)
+    source.write_text(content)
+    identifier = create(language_client)['session_id']
+    response = post(language_client, identifier, notify('didOpen', source, languageId='p4', version=1, text=content))
+    assert response.status_code == 200, response.json
+    events = [message['params'] for message in response.json['messages'] if message.get('method') == 'textDocument/publishDiagnostics']
+    assert len(events) == 1
+    assert events[0]['uri'] == source.as_uri() and events[0]['version'] == 1
+    assert 1 <= len(events[0]['diagnostics']) <= 100
+    assert all(diagnostic['relatedInformation'][0]['location']['uri'] in {include.as_uri() for include in includes}
+               for diagnostic in events[0]['diagnostics'])
+    for index, include in enumerate(includes):
+        include.write_text(f'struct Header{index} {{ bit<8> field; }}\n')
+    response = post(language_client, identifier, {'jsonrpc': '2.0', 'method': 'workspace/didChangeWatchedFiles', 'params': {
+        'changes': [{'uri': include.as_uri(), 'type': 2} for include in includes]}})
+    assert response.status_code == 200, response.json
+    events = [message['params'] for message in response.json['messages'] if message.get('method') == 'textDocument/publishDiagnostics']
+    assert events == [{'uri': source.as_uri(), 'version': 1, 'diagnostics': []}]
+
+
+@pytest.mark.parametrize('newline', ['\n', '\r\n'])
+def test_real_server_maps_exact_diagnostics_and_completion_for_line_endings(language_client, source, newline):
+    try:
+        language._server_command()
+    except language.LanguageError:
+        pytest.skip('Requires the bundled upstream language server')
+    content = newline.join(['// pad'] * 100 + [
+        'control A() {', ' bit<8> alpha;', ' apply { alpha = 1; }', '}',
+        'control B() {', ' bit<8> beta;', ' apply { beta = 1; }', '}', ''])
+    identifier = create(language_client)['session_id']
+    response = post(language_client, identifier, notify('didOpen', source, languageId='p4', version=1, text=content))
+    assert response.status_code == 200, response.json
+    response = post(language_client, identifier, {'jsonrpc': '2.0', 'id': 30, 'method': 'textDocument/completion', 'params': {
+        'textDocument': {'uri': source.as_uri()}, 'position': {'line': 102, 'character': 10}}})
+    assert response.status_code == 200, response.json
+    labels = [item['label'] for item in next(message['result'] for message in response.json['messages'] if message.get('id') == 30)]
+    assert 'alpha' in labels and 'beta' not in labels
+    invalid = newline.join(['// pad'] * 20 + ['struct Header {', ' bit<8> field;', ' BROKEN', '}', ''])
+    response = post(language_client, identifier, {'jsonrpc': '2.0', 'method': 'textDocument/didChange', 'params': {
+        'textDocument': {'uri': source.as_uri(), 'version': 2}, 'contentChanges': [{'text': invalid}]}})
+    assert response.status_code == 200, response.json
+    diagnostics = next(message['params']['diagnostics'] for message in response.json['messages']
+                       if message.get('method') == 'textDocument/publishDiagnostics'
+                       and message['params']['uri'] == source.as_uri() and message['params']['version'] == 2)
+    assert diagnostics
+    assert diagnostics[0]['range']['start'] == {'line': 23, 'character': 0}
