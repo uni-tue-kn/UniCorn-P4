@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Unreleased — 1.2.2
 
 ### Added
 
