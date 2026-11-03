@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 const mount = (route = '/registers/visits') => render(<MemoryRouter initialEntries={[route]}><Navbar /></MemoryRouter>);
 
-it.each(['/topology', '/terminals', '/mininet'])('hides switch resources on %s', route => {
+it.each(['/topology', '/terminals', '/mininet', '/editor', '/compile'])('hides switch resources on %s', route => {
   mount(route);
   expect(screen.queryByRole('navigation', { name: 'Switch resources' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).not.toBeInTheDocument();

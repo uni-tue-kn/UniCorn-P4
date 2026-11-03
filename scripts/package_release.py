@@ -64,7 +64,7 @@ def package(repo, output, compiler_image=None, compiled_dir=None):
             destination = str(PurePosixPath(*local.parts[1:]))
         elif local.parts[:2] == ("docker", "topologies") and len(local.parts) == 3 and path.endswith('.json'):
             destination = str(PurePosixPath(*local.parts[1:]))
-        elif path in ("README.md", "LICENSE", "logo.png", "CHANGELOG.md", "docs/usage.md", "runtime/README.md"):
+        elif path in ("README.md", "LICENSE", "logo.png", "CHANGELOG.md", "docs/usage.md", "runtime/README.md", "runtime/p4-language-server/README.md"):
             destination = path
         elif local.parts[:2] == ("docs", "screenshots") and len(local.parts) == 3 and path.endswith('.png'):
             destination = path

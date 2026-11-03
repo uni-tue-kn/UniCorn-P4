@@ -171,3 +171,19 @@ it('shows a top-level topology restoration failure without claiming a successful
   expect(mocks.select).not.toHaveBeenCalled();
   expect(mocks.publish).not.toHaveBeenCalled();
 });
+
+it('reports uncaptured queue settings as an import warning without claiming deployment failed', async () => {
+  const user = userEvent.setup(); renderArchive();
+  await user.upload(screen.getByLabelText('Import network archive'), new File(['zip'], 'tutorial.zip', { type: 'application/zip' }));
+  await screen.findByRole('table', { name: 'Switches in network bundle' });
+  axios.post.mockResolvedValueOnce({ data: { status: 'partial', topology: preview.topology,
+    warnings: ['Some queue fields are unknown and will not be inferred or restored', 'queues: unavailable'],
+    switches: [{ key: 's1', name: 's1', status: 'complete', errors: [], categories: { tables: { status: 'complete', captured: 2, restored: 2, errors: [] } } }] } });
+  await user.click(screen.getByRole('button', { name: 'Import and deploy' }));
+  const report = await screen.findByRole('region', { name: 'Network restoration report' });
+  expect(within(report).getByText('Network imported with warnings.')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('Network imported with warnings. Some state was not captured or was skipped.');
+  expect(screen.getByRole('status')).not.toHaveTextContent('failed');
+  expect(screen.getByText('queues: unavailable')).toBeVisible();
+  expect(mocks.publish).toHaveBeenCalledWith(preview.topology);
+});

@@ -7,6 +7,7 @@ from flask_restful import Resource, Api, reqparse
 from flask_cors import CORS
 import os
 from unicorn_version import register_version_routes
+from .language_service import register_language_routes
 
 from controller.controller import Controller
 exampleController = Controller()
@@ -14,6 +15,7 @@ exampleController = Controller()
 def create_app():
     app = Flask(__name__)
     register_version_routes(app, "backend")
+    register_language_routes(app)
     CORS(app, methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
     app.config['CORS_HEADERS'] = 'application/json'
     
@@ -36,6 +38,8 @@ def create_app():
     api.add_resource(FileNames, '/p4files', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(Compile, '/compile', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(P4Source, '/p4src', resource_class_kwargs={"db": db, "controller": exampleController})
+    api.add_resource(Workspace, '/workspace', resource_class_kwargs={"db": db, "controller": exampleController})
+    api.add_resource(WorkspaceFile, '/workspace/file', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(SwitchesActive, '/switches/active', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(SwitchesKnown, '/switches/known', resource_class_kwargs={"db": db, "controller": exampleController})
     api.add_resource(SwitchesFromTopology, '/switches/from_topology', resource_class_kwargs={"db": db, "controller": exampleController})

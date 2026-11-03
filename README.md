@@ -22,6 +22,7 @@
 
 ## From P4 program to running network
 
+- **Edit and compile P4** in a browser workspace with file tabs, local language-server completion, syntax diagnostics, and compiler output.
 - **Build and visualize networks** with Mininet, a drag-and-drop topology editor, saved layouts, interface maps, and per-node terminals.
 - **Program match-action tables** discovered from P4Info, with single/bulk editing, filtering, decoding, and saved MAT snapshots.
 - **Inspect live traffic** with counters, resets, traffic graphs, and digest events emitted by your program.

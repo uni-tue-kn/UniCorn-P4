@@ -1,9 +1,9 @@
-import React from 'react'
+import React, { lazy, Suspense } from 'react'
 
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 import SwitchMenu from '../SwitchConnections/SwitchDashboard/SwitchMenu';
-import Compile from '../Development/Compile';
+const Editor = lazy(() => import('../Development/Editor'));
 import Dashboard from '../Dashboard/Dashboard';
 import TableContent from '../Tables/TableContent';
 import MenuHistory from '../SwitchStates/History/MenuHistory';
@@ -43,8 +43,9 @@ function MainRoutes() {
       />
       <Route
         path='/compile'
-        element={<Compile />}
+        element={<Navigate to="/editor" replace />}
       />      
+      <Route path="/editor" element={<Suspense fallback={<p>Loading editor…</p>}><Editor /></Suspense>} />
       <Route
         path='/dashboard'
         element={<Dashboard />}

@@ -5,6 +5,7 @@ test.describe.configure({ mode: 'serial' });
 let switchId;
 let otherId;
 let metadata;
+let editorSourcePath;
 const forward = 'IngressImpl.forward';
 const register = 'IngressImpl.test_register';
 const meter = 'IngressImpl.test_meter';
@@ -31,7 +32,7 @@ async function topologyAction(page, name) {
 }
 
 async function importSavedTopology(page, filename) {
-  await topologyAction(page, 'Import saved topology');
+  await page.getByRole('button', { name: 'Import saved topology', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Import saved topology', exact: true });
   await dialog.getByRole('combobox', { name: 'Saved topology', exact: true }).click();
   await page.getByRole('option', { name: filename, exact: true }).click();
@@ -78,6 +79,8 @@ test('compile, load a two-switch topology and initialize through the browser', a
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/compile');
+  await expect(page).toHaveURL(/\/editor$/);
+  await expect(page.getByRole('link', { name: 'Editor', exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'P4 source file' }).click();
   await page.getByRole('option', { name: '/p4/resources.p4', exact: true }).click();
   const compiled = page.waitForResponse(r => r.url().endsWith('/api/compile') && r.request().method() === 'POST');
@@ -569,6 +572,47 @@ test('counter resets and live traffic graphs preserve forwarding and direct mete
   await hostTraffic(page);
 });
 
+test('direct-counter entry plots show real per-entry throughput in a dialog', async ({ page }) => {
+  await selectSwitch(page);
+  const done = await hostTraffic(page, 50, false);
+  await page.getByRole('link', { name: 'Switch Menu', exact: true }).click();
+  await page.getByRole('tab', { name: 's1', exact: true }).click();
+  await page.goto('/tables/IngressImpl.observation');
+  await page.getByRole('button', { name: /^Plot counter for entry / }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Direct-counter throughput', exact: true });
+  const plot = dialog.getByRole('img', { name: 'Packet rate over time', exact: true });
+  await expect(plot).toBeVisible();
+  await expect(dialog.getByRole('img', { name: 'Bit rate over time', exact: true })).toBeVisible();
+  await expect.poll(async () => (await plot.locator('circle title').allTextContents()).some(text => Number.parseFloat(text) > 0), { timeout: 15_000 }).toBeTruthy();
+  await page.screenshot({ path: test.info().outputPath('direct-counter-throughput.png'), animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole('link', { name: 'Terminals', exact: true }).click();
+  await page.getByRole('tab', { name: 'h1 (Host)', exact: true }).click();
+  await expect(page.locator('main')).toContainText(`${done}=0`);
+});
+
+test('terminal output follows new lines and pauses while reading earlier output', async ({ page }) => {
+  await openTerminals(page);
+  await page.getByRole('tab', { name: 'h1 (Host)', exact: true }).click();
+  const marker = `SCROLL_${Date.now()}_`;
+  const input = page.locator('input').last();
+  await input.fill(`python3 -u -c 'import time; [print("${marker}"+str(i)) or time.sleep(0.02) for i in range(240)]; print("${marker}DONE")'`);
+  await input.press('Enter');
+  const viewport = page.locator('.react-terminal');
+  const distance = () => viewport.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop);
+  await expect(viewport).toContainText(`${marker}80`);
+  await expect.poll(distance).toBeLessThan(25);
+  await viewport.evaluate(element => { element.scrollTop = 0; });
+  await expect(page.getByRole('button', { name: 'Jump to latest output', exact: true })).toBeVisible();
+  await expect(viewport).toContainText(`${marker}160`);
+  expect(await viewport.evaluate(element => element.scrollTop)).toBeLessThan(50);
+  await page.getByRole('button', { name: 'Jump to latest output', exact: true }).click();
+  await expect.poll(distance).toBeLessThan(25);
+  await expect(viewport).toContainText(`\n${marker}DONE`);
+  await expect.poll(distance).toBeLessThan(25);
+});
+
 test('queue controls apply explicit native depth and rate settings through the browser', async ({ page, request }) => {
   await selectSwitch(page);
   await page.getByRole('link', { name: 'Queues', exact: true }).click();
@@ -720,6 +764,12 @@ test('topology builder saves, imports and edits a draggable topology draft', asy
   await host.press('Escape');
   await page.getByRole('button', { name: 'Select switch s1', exact: true }).press('Enter');
   await expect(page.getByRole('button', { name: /^Select link \d+:/ })).toHaveCount(1);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await (await chooser).setFiles({ name: 'toolbar-import.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(exported)) });
+  await expect(host).toHaveAttribute('transform', `translate(${exported.layout.h1.x},${exported.layout.h1.y})`);
+  await expect(link).toBeVisible();
+  await expect(page.getByText('JSON imported into the draft. Deploy to update the running network.', { exact: true })).toBeVisible();
 });
 
 test('external stock BMv2 keeps MATs available and enables registers only with the chosen adapter', async ({ page, request }) => {
@@ -853,7 +903,7 @@ test('network bundles export and restore topology, programs and live switch reso
   expect(restored.status).toBe('partial');
   expect(restored.warnings).toContain('Some queue fields are unknown and will not be inferred or restored');
   expect(restored.warnings).toContain('queues: unavailable');
-  await expect(dialog.getByText('Network imported with incomplete state.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Network imported with warnings.', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('table', { name: 'Switches in network bundle' }).locator('tbody tr').filter({ hasText: 's2' })).toContainText('queues: unavailable');
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   const init = await json(await request.get('/api/init', { params: { switch_id: switchId } }));
@@ -895,6 +945,149 @@ async function sampleTerminal(page, host, command) {
   await input.fill(command);
   await input.press('Enter');
 }
+
+async function newEditorFile(page, path) {
+  await page.getByRole('button', { name: 'New file', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New workspace file', exact: true });
+  await dialog.getByRole('textbox', { name: 'File path', exact: true }).fill(path);
+  await dialog.getByRole('button', { name: 'Create file', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('tab', { name: `Switch to ${path}`, exact: true })).toHaveAttribute('aria-selected', 'true');
+}
+
+async function replaceEditorText(page, content) {
+  const input = page.getByTestId('source-editor').locator('textarea.inputarea');
+  await expect(input).toBeEditable();
+  await input.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  // Paste as a user would: synthetic multiline typing invokes Monaco's
+  // per-line auto-indentation and changes the fixture's whitespace.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.evaluate(text => navigator.clipboard.writeText(text), content);
+  await page.keyboard.press('ControlOrMeta+v');
+}
+
+test('editor saves source and includes, compiles, and preserves drafts across navigation', async ({ page, request }) => {
+  await page.goto('/editor');
+  const directory = `editor-e2e-${Date.now()}`;
+  const include = `${directory}/includes/constants.p4`, source = `${directory}/main.p4`;
+  editorSourcePath = source;
+  const header = 'const bit<8> EDITOR_CONSTANT = 1;\n';
+  const program = '#include "includes/constants.p4"\n' + await readFile(new URL('../fixtures/resources.p4', import.meta.url), 'utf8');
+  await newEditorFile(page, include);
+  await replaceEditorText(page, header);
+  await newEditorFile(page, source);
+  await replaceEditorText(page, program);
+  expect((await json(await request.get('/api/workspace/file', { params: { path: include } }))).content).toBe('');
+  await page.getByRole('combobox', { name: 'P4 source file', exact: true }).click();
+  await page.getByRole('option', { name: '/p4/' + source, exact: true }).click();
+  const compiled = page.waitForResponse(response => response.url().endsWith('/api/compile') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Compile', exact: true }).click();
+  expect((await compiled).status()).toBe(200);
+  await expect(page.getByText('Compilation completed', { exact: true })).toBeVisible();
+  expect((await json(await request.get('/api/workspace/file', { params: { path: include } }))).content).toBe(header);
+  expect((await json(await request.get('/api/workspace/file', { params: { path: source } }))).content).toBe(program);
+  const files = await json(await request.get('/api/p4files'));
+  expect(files.programs.some(item => item.source === '/p4/' + source && item.bmv2 === '/p4/' + source.replace(/\.p4$/, '.json'))).toBeTruthy();
+  await replaceEditorText(page, program + '\n// retained draft\n');
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+  await page.getByRole('link', { name: 'Editor', exact: true }).click();
+  await expect(page.getByRole('tab', { name: `Switch to ${source}`, exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('1 unsaved file', { exact: true })).toBeVisible();
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/workspace/file') && response.request().method() === 'PATCH');
+  await page.getByTestId('source-editor').locator('textarea.inputarea').focus();
+  await page.keyboard.press('ControlOrMeta+s');
+  expect((await saved).status()).toBe(200);
+  expect((await json(await request.get('/api/workspace/file', { params: { path: source } }))).content).toContain('// retained draft');
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+});
+
+test('editor resynchronizes a reopened file while earlier language analysis is still pending', async ({ page }) => {
+  await page.goto('/editor');
+  const path = `editor-reopen-${Date.now()}.p4`;
+  const content = 'struct Header { bit<8> field; }\n';
+  const isChange = (response, text) => response.url().includes('/api/language/sessions/') && response.request().method() === 'POST'
+    && response.request().postDataJSON()?.messages?.some(message => message.params?.textDocument?.uri?.endsWith('/' + path)
+      && (message.params.textDocument.text === text || message.params.contentChanges?.[0]?.text === text));
+  await newEditorFile(page, path);
+  const firstSync = page.waitForResponse(response => isChange(response, content));
+  await replaceEditorText(page, content);
+  expect((await firstSync).status()).toBe(200);
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/workspace/file') && response.request().method() === 'PATCH');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  let release, blocked;
+  const gate = new Promise(resolve => { release = resolve; });
+  const pending = new Promise(resolve => { blocked = resolve; });
+  await page.route('**/api/language/sessions/*', async route => {
+    if (route.request().method() === 'POST' && route.request().postDataJSON()?.messages?.some(message => message.params?.contentChanges?.[0]?.text === 'struct Broken {')) {
+      blocked(); await gate;
+    }
+    await route.continue();
+  });
+  try {
+    await replaceEditorText(page, 'struct Broken {');
+    await pending;
+    await page.getByRole('button', { name: `Close ${path}`, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Close file with unsaved changes?', exact: true });
+    await dialog.getByRole('button', { name: 'Discard changes', exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await page.getByRole('button', { name: `Open ${path}`, exact: true }).click();
+    await expect(page.getByRole('tab', { name: `Switch to ${path}`, exact: true })).toHaveAttribute('aria-selected', 'true');
+    const reopenedSync = page.waitForResponse(response => isChange(response, content));
+    release();
+    expect((await reopenedSync).status()).toBe(200);
+    await expect(page.getByText('P4 language server ready', { exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Problems (0)', exact: true })).toBeVisible();
+  } finally { release(); await page.unroute('**/api/language/sessions/*'); }
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+});
+
+test('editor language server completes from unsaved includes and clears corrected syntax diagnostics', async ({ page, request }) => {
+  await page.goto('/editor');
+  const directory = `editor-lsp-${Date.now()}`;
+  const include = `${directory}/includes/packet.h`, source = `${directory}/main.p4`;
+  await newEditorFile(page, include);
+  await replaceEditorText(page, 'struct Header { bit<8> from_browser_include; }\n');
+  await newEditorFile(page, source);
+  await replaceEditorText(page, 'struct Broken {');
+  await expect(page.getByText('P4 language server ready', { exact: true })).toBeVisible({ timeout: 25000 });
+  await expect(page.getByRole('tab', { name: /Problems \([1-9]/ })).toBeVisible({ timeout: 25000 });
+  const valid = '#include "includes/packet.h"\ncontrol Main(inout Header hdr) {\n bit<8> other;\n apply { hdr.from_browser_include = 1; }\n}\n';
+  await replaceEditorText(page, valid);
+  await expect(page.getByRole('tab', { name: 'Problems (0)', exact: true })).toBeVisible({ timeout: 25000 });
+  const input = page.getByTestId('source-editor').locator('textarea.inputarea');
+  await input.focus(); await page.keyboard.press('ControlOrMeta+Home');
+  for (let line = 0; line < 3; line++) await page.keyboard.press('ArrowDown');
+  for (let column = 0; column < 13; column++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Control+Space');
+  await expect(page.getByRole('option', { name: /from_browser_include/ })).toBeVisible({ timeout: 20000 });
+  expect((await json(await request.get('/api/workspace/file', { params: { path: include } }))).content).toBe('');
+  await page.screenshot({ path: test.info().outputPath('editor-completion.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+});
+
+test('editor keeps a draft on external-edit conflict and saves a separate copy', async ({ page, request }) => {
+  await page.goto('/editor');
+  const source = editorSourcePath;
+  await page.getByRole('button', { name: `Open ${source}`, exact: true }).click();
+  const original = await json(await request.get('/api/workspace/file', { params: { path: source } }));
+  await replaceEditorText(page, original.content + '\n// my unsaved browser work\n');
+  const external = original.content + '\n// external editor update\n';
+  await json(await request.patch('/api/workspace/file', { data: { path: source, content: external, revision: original.revision } }));
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText(/changed outside this editor/)).toBeVisible();
+  expect((await json(await request.get('/api/workspace/file', { params: { path: source } }))).content).toBe(external);
+  await page.getByRole('button', { name: 'Save file copy', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Save a file copy', exact: true });
+  await dialog.getByRole('button', { name: 'Save copy', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const copy = await json(await request.get('/api/workspace/file', { params: { path: source.replace(/\.p4$/, '-copy.p4') } }));
+  expect(copy.content).toContain('// my unsaved browser work');
+  expect(copy.content).not.toContain('// external editor update');
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+});
 
 async function samplePing(page, count = 3, interval = '0.2', { host = 'h1', destination = '10.0.1.2' } = {}) {
   await sampleTerminal(page, host, 'clear');
@@ -941,7 +1134,7 @@ for (const name of ['two-host-forwarding', 'multicast-hub', 'mirror-observer', '
     if (restored.status === 'partial') {
       expect(restored.warnings.length).toBeGreaterThan(0);
       expect(restored.warnings.every(warning => warning === 'Some queue fields are unknown and will not be inferred or restored' || warning === 'queues: unavailable')).toBeTruthy();
-      await expect(dialog.getByText('Network imported with incomplete state.', { exact: true })).toBeVisible();
+      await expect(dialog.getByText('Network imported with warnings.', { exact: true })).toBeVisible();
     } else {
       expect(restored.status).toBe('complete');
       await expect(dialog.getByText('Network imported successfully.', { exact: true })).toBeVisible();

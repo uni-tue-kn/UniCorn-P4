@@ -1,5 +1,8 @@
 # BMv2 P4Runtime register extension
 
+The integrated web editor also bundles a [P4 language server](p4-language-server/README.md).
+Its syntax diagnostics and scoped completion complement the authoritative p4c compiler.
+
 The emulator runs official BMv2 and PI sources pinned in the Dockerfile. PI
 supports tables, counters and meters, but returns UNIMPLEMENTED for register
 reads and writes. Updating the protocol definitions alone does not implement

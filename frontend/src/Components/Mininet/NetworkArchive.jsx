@@ -10,6 +10,13 @@ import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 
 const message = value => typeof value === 'string' ? value : JSON.stringify(value);
 const successfulCategory = value => ['complete', 'restored', 'ok'].includes(value.status) && !value.errors?.length && !value.error;
+function importedWithWarnings(result) {
+  if (!result || result.status !== 'partial' || result.error) return false;
+  const targets = result.switches || [];
+  const deployed = Boolean(result.topology) || targets.some(target => ['complete', 'restored'].includes(target.status));
+  return deployed && !targets.some(target => target.error || target.errors?.length || ['failed', 'error'].includes(target.status)
+    || Object.values(target.categories || {}).some(category => category.error || category.errors?.length || category.failed > 0 || ['failed', 'error'].includes(category.status)));
+}
 
 function RestoreCategories({ name, categories }) {
   const entries = Object.entries(categories || {});
@@ -164,7 +171,8 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
         catch (refreshError) { setError(`The network import finished, but its live view could not be refreshed: ${refreshError.message}`); }
       }
       if (response.data.status === 'complete') feedback.complete(operation.status);
-      else feedback.fail(operation.status, 'Import finished with unavailable or failed state. Review the report below.');
+      else if (importedWithWarnings(response.data)) feedback.complete(operation.status, { warning: true, message: 'Network imported with warnings. Some state was not captured or was skipped. Review the report below.' });
+      else feedback.fail(operation.status, 'Some network state could not be restored. Review the report below.');
     } catch (failure) {
       if (!operation.controller.signal.aborted) { setError(await failureMessage(failure)); feedback.fail(operation.status); }
     } finally { finish(operation); }
@@ -217,7 +225,8 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
         </Stack>}
         {result && <Box component="section" aria-label="Network restoration report" sx={{ mt: 2 }}>
           <Typography variant="h6" sx={{ mb: 1 }}>Restoration report</Typography>
-          <Alert severity={result.status === 'complete' ? 'success' : 'warning'}>{result.status === 'complete' ? 'Network imported successfully.' : result.error && !result.topology ? 'Network import could not finish.' : 'Network imported with incomplete state.'}</Alert>
+          <Alert severity={result.status === 'complete' ? 'success' : 'warning'}>{result.status === 'complete' ? 'Network imported successfully.' : result.error && !result.topology ? 'Network import could not finish.' : importedWithWarnings(result) ? 'Network imported with warnings.' : 'Network imported with incomplete state.'}</Alert>
+          {importedWithWarnings(result) && <Typography variant="body2" sx={{ mt: 1 }}>The network was deployed. The warnings below list state that was unavailable in the archive or intentionally skipped.</Typography>}
           {result.error && <Alert severity="error" sx={{ mt: 1 }}>{message(result.error)}</Alert>}
           {result.switches?.map(target => <Box component="section" aria-label={`Restoration for ${target.name}`} key={target.key || target.name} sx={{ mt: 2 }}>
             <Typography variant="subtitle2">{target.name}: {target.status}</Typography>

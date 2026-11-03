@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, Menu, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, Menu, MenuItem, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import { TOPOLOGY_DRAFT_STORAGE_KEY, useTopology } from '../../../Contexts/TopologyContext';
 import { useSwitch } from '../../../Contexts/SwitchContext';
 import { useSnackbar } from '../../../Contexts/SnackbarContext';
@@ -162,6 +164,10 @@ export default function TopologyBuilder() {
     setMenuAnchor(null); cancelLink();
     action();
   }
+  function openSavedImport() {
+    topologyAction(() => { setError(''); setFileDialog('import'); getTopologies?.()?.catch?.(() => {}); });
+  }
+  function openJSONImport() { topologyAction(() => upload.current.click()); }
   async function refreshConnections() {
     await Promise.allSettled([getTopologies?.(), getLoadedTopology?.(), switches.getSwitches?.(), switches.getSwitchesOnline?.(), switches.getHistorySwitches?.()]);
   }
@@ -273,7 +279,11 @@ export default function TopologyBuilder() {
       <Typography variant="h6">Topology</Typography><Chip size="small" color={live ? 'success' : 'warning'} label={live ? 'Live' : 'Draft changes'} />
       <Typography variant="caption" color="text.secondary">{draft.hosts.length} hosts · {Object.keys(draft.switches).length} switches · {draft.links.length} links</Typography>
       <Box sx={{ flex: 1 }} />
-      <Button disabled={busy} aria-label="Topology menu" aria-haspopup="menu" aria-expanded={Boolean(menuAnchor)} endIcon={<MoreVertIcon />} onClick={event => setMenuAnchor(event.currentTarget)}>Topology</Button>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', width: { xs: '100%', sm: 'auto' } }}>
+        <Tooltip title="Import a saved topology from the server"><span><Button size="small" disabled={busy} aria-label="Import saved topology" startIcon={<FolderOpenOutlinedIcon />} onClick={openSavedImport}>Import saved</Button></span></Tooltip>
+        <Tooltip title="Import a topology JSON file from your computer"><span><Button size="small" disabled={busy} startIcon={<UploadFileOutlinedIcon />} onClick={openJSONImport}>Import JSON</Button></span></Tooltip>
+        <Button size="small" disabled={busy} aria-label="Topology menu" aria-haspopup="menu" aria-expanded={Boolean(menuAnchor)} endIcon={<MoreVertIcon />} onClick={event => setMenuAnchor(event.currentTarget)}>More</Button>
+      </Stack>
     </Stack>
     <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
       <Button disabled={busy} variant="outlined" onClick={() => addNode('host')}>Add host</Button>
@@ -338,7 +348,7 @@ export default function TopologyBuilder() {
             const point = position(entry.node);
             return <g key={`${entry.node}:${entry.interface}`}><title>{entry.node}:{entry.port} {entry.interface} ↔ external</title><line x1={point.x + 34} y1={point.y} x2={point.x + 90} y2={point.y + 36} stroke="#b7791f" strokeWidth="2" strokeDasharray="4 3" /><text x={point.x + 90} y={point.y + 48} textAnchor="middle" fill="currentColor" fontSize="11">{entry.interface} · {entry.node}:{entry.port}</text></g>;
           })}
-          {!names.length && <text x={canvasSize.width / 2} y={canvasSize.height / 2} textAnchor="middle" fill="currentColor" fontSize="15">Add a host and a switch, or import from the Topology menu.</text>}
+          {!names.length && <text x={canvasSize.width / 2} y={canvasSize.height / 2} textAnchor="middle" fill="currentColor" fontSize="15">Add a host and a switch, or import a topology.</text>}
         </svg>
       </Box>
       {!drawingLink && selectedLink != null && <Paper component="section" aria-label="Link properties" variant="outlined" sx={{ p: 2, minWidth: 0 }}>
@@ -366,8 +376,8 @@ export default function TopologyBuilder() {
     <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
       <MenuItem onClick={() => topologyAction(() => adopt(emptyDraft(), 'my-topology.json', true))}>New draft</MenuItem>
       <MenuItem onClick={() => topologyAction(reloadActive)}>Reload active topology</MenuItem><Divider />
-      <MenuItem onClick={() => topologyAction(() => { setError(''); setFileDialog('import'); getTopologies?.()?.catch?.(() => {}); })}>Import saved topology</MenuItem>
-      <MenuItem onClick={() => topologyAction(() => upload.current.click())}>Import topology JSON</MenuItem>
+      <MenuItem onClick={openSavedImport}>Import saved topology</MenuItem>
+      <MenuItem onClick={openJSONImport}>Import topology JSON</MenuItem>
       <MenuItem onClick={() => topologyAction(exportJSON)}>Export topology JSON</MenuItem>
       <MenuItem disabled={!Object.keys(draft.switches).length} onClick={() => topologyAction(() => { setError(''); setFileDialog('save'); })}>Save topology</MenuItem><Divider />
       <MenuItem disabled={!names.length} onClick={() => topologyAction(() => { const layout = autoLayout(draft); change({ ...draft, layout }); setCanvasSize(boundsFor({ ...draft, layout })); })}>Auto arrange</MenuItem>

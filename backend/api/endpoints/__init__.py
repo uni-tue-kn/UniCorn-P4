@@ -17,3 +17,4 @@ from .queues import Queues
 from .multicast import MulticastGroups
 from .digests import Digests, DigestEvents
 from .network import NetworkExport, NetworkImport, NetworkDeploy
+from .editor_files import Workspace, WorkspaceFile

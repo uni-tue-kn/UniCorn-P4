@@ -18,14 +18,32 @@ RUN git clone --branch "${P4C_VERSION}" --depth 1 --recurse-submodules \
       -DENABLE_P4FMT=OFF -DENABLE_P4C_GRAPHS=OFF -DENABLE_GTESTS=OFF \
     && cmake --build /src/p4c/build -j"${BUILD_JOBS}" \
     && cmake --install /src/p4c/build
+FROM node:24-bookworm-slim AS p4-language-server
+ARG P4_LANGUAGE_SERVER_REV=48428a3bd9cb5508454eb2db2c73838be4076ffd
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone https://github.com/fattaholmanan/p4-vscode-extension.git /src/p4-language-server \
+    && cd /src/p4-language-server && git checkout "${P4_LANGUAGE_SERVER_REV}"
+COPY runtime/p4-language-server/adapt-server.mjs /tmp/adapt-server.mjs
+RUN node /tmp/adapt-server.mjs /src/p4-language-server \
+    && cd /src/p4-language-server && npm ci --ignore-scripts \
+    && node esbuild.js --production \
+    && mkdir -p /opt/p4-language-server/server/out \
+    && cp server/out/server.js /opt/p4-language-server/server/out/ \
+    && cp LICENSE README.md /opt/p4-language-server/
+
 FROM python:3.12-bookworm
 ARG P4C_VERSION=v1.2.5.18
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libboost-iostreams1.74.0 libboost-graph1.74.0 libgc1 libgmp10 libprotobuf32 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=compiler /opt/p4c /opt/p4c
+COPY --from=p4-language-server /usr/local/bin/node /usr/local/bin/node
+COPY --from=p4-language-server /opt/p4-language-server /opt/p4-language-server
+COPY --from=compiler /opt/p4c/share/p4c/p4include /opt/p4-language-server/p4include
 ENV PATH=/opt/p4c/bin:$PATH
 ENV UNICORN_P4C_VERSION=${P4C_VERSION}
+ENV P4_LANGUAGE_SERVER=/opt/p4-language-server/server/out/server.js
 WORKDIR /app
 COPY backend/requirements.txt /tmp/backend-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/backend-requirements.txt

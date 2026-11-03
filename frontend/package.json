@@ -1,6 +1,6 @@
 {
   "name": "unicorn-p4-frontend",
-  "version": "1.2.1",
+  "version": "1.2.2-rc.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -14,6 +14,7 @@
     "axios": "^1.21.0",
     "ip-num": "^1.6.2",
     "json-bigint": "^1.0.0",
+    "monaco-editor": "0.57.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-router-dom": "7.18.5",
@@ -30,7 +31,8 @@
     "lint": "eslint src"
   },
   "overrides": {
-    "minimatch": "11.0.3"
+    "minimatch": "11.0.3",
+    "dompurify": "3.4.17"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
