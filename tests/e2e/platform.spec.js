@@ -1002,6 +1002,47 @@ test('editor saves source and includes, compiles, and preserves drafts across na
   await page.getByRole('link', { name: 'Topology', exact: true }).click();
 });
 
+test('editor resynchronizes a reopened file while earlier language analysis is still pending', async ({ page }) => {
+  await page.goto('/editor');
+  const path = `editor-reopen-${Date.now()}.p4`;
+  const content = 'struct Header { bit<8> field; }\n';
+  const isChange = (response, text) => response.url().includes('/api/language/sessions/') && response.request().method() === 'POST'
+    && response.request().postDataJSON()?.messages?.some(message => message.params?.textDocument?.uri?.endsWith('/' + path)
+      && (message.params.textDocument.text === text || message.params.contentChanges?.[0]?.text === text));
+  await newEditorFile(page, path);
+  const firstSync = page.waitForResponse(response => isChange(response, content));
+  await replaceEditorText(page, content);
+  expect((await firstSync).status()).toBe(200);
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/workspace/file') && response.request().method() === 'PATCH');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  let release, blocked;
+  const gate = new Promise(resolve => { release = resolve; });
+  const pending = new Promise(resolve => { blocked = resolve; });
+  await page.route('**/api/language/sessions/*', async route => {
+    if (route.request().method() === 'POST' && route.request().postDataJSON()?.messages?.some(message => message.params?.contentChanges?.[0]?.text === 'struct Broken {')) {
+      blocked(); await gate;
+    }
+    await route.continue();
+  });
+  try {
+    await replaceEditorText(page, 'struct Broken {');
+    await pending;
+    await page.getByRole('button', { name: `Close ${path}`, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Close file with unsaved changes?', exact: true });
+    await dialog.getByRole('button', { name: 'Discard changes', exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await page.getByRole('button', { name: `Open ${path}`, exact: true }).click();
+    await expect(page.getByRole('tab', { name: `Switch to ${path}`, exact: true })).toHaveAttribute('aria-selected', 'true');
+    const reopenedSync = page.waitForResponse(response => isChange(response, content));
+    release();
+    expect((await reopenedSync).status()).toBe(200);
+    await expect(page.getByText('P4 language server ready', { exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Problems (0)', exact: true })).toBeVisible();
+  } finally { release(); await page.unroute('**/api/language/sessions/*'); }
+  await page.getByRole('link', { name: 'Topology', exact: true }).click();
+});
+
 test('editor language server completes from unsaved includes and clears corrected syntax diagnostics', async ({ page, request }) => {
   await page.goto('/editor');
   const directory = `editor-lsp-${Date.now()}`;

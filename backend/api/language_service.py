@@ -43,16 +43,30 @@ def _server_command():
     return [node, '--max-old-space-size=256', str(script), '--stdio']
 
 
-def _document_path(uri):
+def _uri_path(uri):
     if not isinstance(uri, str) or len(uri) > 8192:
         raise LanguageError(400, 'Expected a workspace file URI')
-    parsed = urlsplit(uri)
+    try:
+        parsed = urlsplit(uri)
+    except ValueError:
+        raise LanguageError(400, 'Expected a valid workspace file URI') from None
     if parsed.scheme != 'file' or parsed.netloc or parsed.query or parsed.fragment:
         raise LanguageError(400, 'Only local workspace file URIs are supported')
     try:
         path = Path(unquote(parsed.path, errors='strict'))
+        if not path.is_absolute():
+            raise ValueError('Expected an absolute path')
+        path.as_posix().encode('utf-8')
+    except (ValueError, UnicodeError):
+        raise LanguageError(400, 'Expected an absolute workspace file URI') from None
+    return path
+
+
+def _document_path(uri, must_exist=True):
+    path = _uri_path(uri)
+    try:
         relative = path.relative_to(workspace_root()).as_posix()
-        resolved = resolve_workspace_path(relative)
+        resolved = resolve_workspace_path(relative, must_exist=must_exist)
     except (ValueError, UnicodeError, OSError, WorkspaceError):
         raise LanguageError(400, 'Document URI is outside the editable P4 workspace') from None
     if resolved.suffix.lower() not in ('.p4', '.h', '.hpp'):
@@ -253,8 +267,11 @@ class LanguageSession:
                 document = params.get('textDocument')
                 if not isinstance(document, dict):
                     raise LanguageError(400, 'Expected a textDocument')
-                path = _document_path(document.get('uri'))
-                uri = path.as_uri()
+                uri = _uri_path(document.get('uri')).as_uri()
+                # Closing an already validated buffer does not read the file.
+                # Its file may have been removed or replaced outside the editor.
+                if method != 'textDocument/didClose' or uri not in documents:
+                    uri = _document_path(document.get('uri')).as_uri()
                 document = {**document, 'uri': uri}
                 params = {**params, 'textDocument': document}
                 if method == 'textDocument/didOpen':
@@ -281,7 +298,7 @@ class LanguageSession:
                 for change in changes:
                     if not isinstance(change, dict) or change.get('type') not in (1, 2, 3):
                         raise LanguageError(400, 'Invalid watched file change')
-                    _document_path(change.get('uri'))
+                    _document_path(change.get('uri'), must_exist=change['type'] != 3)
             if len(documents) > MAX_DOCUMENTS or sum(len(item[1].encode()) for item in documents.values()) > MAX_BUFFER_BYTES:
                 raise LanguageError(413, 'Too many open source buffers for language analysis')
             normalized.append({'jsonrpc': '2.0', 'method': method, 'params': params, **({'id': identifier} if 'id' in message else {})})

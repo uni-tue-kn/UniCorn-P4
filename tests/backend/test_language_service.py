@@ -127,6 +127,49 @@ def test_batches_validate_before_forwarding_and_changes_require_new_versions(lan
     assert post(language_client, identifier, notify('didClose', source)).status_code == 200
 
 
+@pytest.mark.parametrize('replacement', ['missing', 'symlink'])
+def test_closing_externally_removed_or_replaced_buffer_keeps_session_usable(language_client, source, fake_server, app, replacement):
+    identifier = create(language_client)['session_id']
+    assert post(language_client, identifier, notify('didOpen', source, languageId='p4', version=1, text='struct Header {}')).status_code == 200
+    source.unlink()
+    outside = source.parent.parent / 'outside.p4'
+    outside.write_text('PRIVATE CONTENT')
+    if replacement == 'symlink':
+        source.symlink_to(outside)
+    # Equivalent file-URI spellings normalize to the already validated buffer.
+    closing = notify('didClose', source)
+    closing['params']['textDocument']['uri'] = source.as_uri().replace('file:///', 'file:/')
+    assert post(language_client, identifier, closing).status_code == 200
+    assert app.extensions['p4_language_sessions'].get(identifier).documents == {}
+    assert outside.read_text() == 'PRIVATE CONTENT'
+    next_source = source.parent / 'next.p4'
+    next_source.write_text('struct Next {}')
+    assert post(language_client, identifier, notify('didOpen', next_source, languageId='p4', version=1, text='struct Next {}')).status_code == 200
+    response = post(language_client, identifier, {'jsonrpc': '2.0', 'id': 8, 'method': 'textDocument/completion',
+        'params': {'textDocument': {'uri': next_source.as_uri()}, 'position': {'line': 0, 'character': 7}}})
+    assert response.status_code == 200
+    assert any(item.get('id') == 8 for item in response.json['messages'])
+
+
+def test_watched_file_deletions_do_not_require_the_file_to_still_exist(language_client, source, fake_server):
+    identifier = create(language_client)['session_id']
+    source.unlink()
+    message = {'jsonrpc': '2.0', 'method': 'workspace/didChangeWatchedFiles', 'params': {'changes': [{'uri': source.as_uri(), 'type': 3}]}}
+    assert post(language_client, identifier, message).status_code == 200
+    message['params']['changes'][0]['type'] = 2
+    assert post(language_client, identifier, message).status_code == 400
+    message['params']['changes'][0] = {'uri': 'file:///etc/secret.p4', 'type': 3}
+    assert post(language_client, identifier, message).status_code == 400
+
+
+@pytest.mark.parametrize('uri', ['file:relative.p4', 'file://[invalid/source.p4', 'file:///p4/\ud800.p4'])
+def test_malformed_document_uris_are_client_errors(language_client, fake_server, uri):
+    identifier = create(language_client)['session_id']
+    response = post(language_client, identifier, {'jsonrpc': '2.0', 'method': 'textDocument/didOpen',
+        'params': {'textDocument': {'uri': uri, 'languageId': 'p4', 'version': 1, 'text': ''}}})
+    assert response.status_code == 400
+
+
 def test_sessions_expire_and_delete_reaps_the_process(language_client, source, fake_server, app, monkeypatch):
     identifier = create(language_client)['session_id']
     registry = app.extensions['p4_language_sessions']

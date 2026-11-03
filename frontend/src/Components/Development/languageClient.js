@@ -10,6 +10,7 @@ export class P4LanguageClient {
     this.sent = new Map();
     this.pending = new Map();
     this.nextId = 1;
+    this.nextVersion = 1;
     this.generation = 0;
     this.closed = false;
     this.sequence = Promise.resolve();
@@ -62,7 +63,10 @@ export class P4LanguageClient {
     const next = new Map();
     for (const doc of documents) {
       const previous = this.documents.get(doc.uri);
-      next.set(doc.uri, { ...doc, version: !previous ? 1 : previous.text === doc.text ? previous.version : previous.version + 1 });
+      // A reopened URI may still be open in an unacknowledged HTTP snapshot.
+      // Never reuse its old version: that could skip changed text or accept
+      // diagnostics from its earlier lifetime. One counter bounds bookkeeping.
+      next.set(doc.uri, { ...doc, version: previous && previous.text === doc.text ? previous.version : this.nextVersion++ });
       if (!previous || previous.text !== doc.text) this.onDiagnostics({ uri: doc.uri, diagnostics: [], version: next.get(doc.uri).version });
     }
     this.documents = next;

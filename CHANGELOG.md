@@ -23,6 +23,8 @@
 * Terminals follow continuous output automatically, pause when scrolling up, and offer a jump to the latest output.
 * Network imports with uncaptured or skipped state show warnings instead of failure feedback, while actual restore failures remain visible.
 * P4 language diagnostics and completion preserve Windows line-ending positions and analyze included buffers in their parent program's macro and parser context.
+* Rapidly closing and reopening editor files preserves language-server synchronization, including while earlier requests are pending.
+* Language sessions can close externally removed or replaced buffers, and saves detect external edits made immediately after the atomic write.
 
 ## 1.2.1 — 2026-11-01
 

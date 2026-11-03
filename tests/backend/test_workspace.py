@@ -132,6 +132,22 @@ def test_late_external_change_is_detected_before_atomic_replace(client, workspac
     assert not list(workspace.glob('.unicorn-editor-*'))
 
 
+def test_save_does_not_acknowledge_an_unseen_external_revision_after_replace(client, workspace):
+    original = read(client)
+    original_replace = os.replace
+
+    def replace_then_external_edit(*args, **kwargs):
+        original_replace(*args, **kwargs)
+        (workspace / 'main.p4').write_text('// external edit after replace\n')
+
+    with patch('api.workspace.os.replace', side_effect=replace_then_external_edit):
+        response = client.patch('/workspace/file', json={'path': 'main.p4', 'content': '// browser save\n', 'revision': original['revision']})
+    assert response.status_code == 409
+    assert response.json['conflict'] is True
+    assert (workspace / 'main.p4').read_text() == '// external edit after replace\n'
+    assert not list(workspace.glob('.unicorn-editor-*'))
+
+
 def test_create_nested_file_without_overwriting_existing_file(client, workspace):
     path = 'new-project/includes/types.p4'
     response = client.post('/workspace/file', json={'path': path, 'content': '// new include\n', 'revision': None})

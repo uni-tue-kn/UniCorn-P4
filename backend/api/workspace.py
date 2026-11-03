@@ -293,4 +293,9 @@ def save_workspace_file(value, content, revision=None, create=False):
                 os.unlink(temporary, dir_fd=directory)
             except FileNotFoundError:
                 pass
-        return {**read_workspace_file(value), 'saved': True, 'created': create}
+        saved = read_workspace_file(value)
+        if saved['revision'] != _revision(encoded):
+            # Never acknowledge an unseen external revision as the browser's
+            # save: its next edit could otherwise overwrite that newer content.
+            raise WorkspaceError(409, 'The file changed again after saving. Reload it before saving')
+        return {**saved, 'saved': True, 'created': create}

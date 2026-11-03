@@ -29,6 +29,41 @@ function numberedSessions() {
     : original(url, body, options));
 }
 
+function versionedServer(pauseMethod) {
+  const documents = new Map();
+  let paused;
+  axios.post.mockImplementation((url, body) => {
+    if (url === '/language/sessions') return Promise.resolve({ data: { session_id: 'session', capabilities: {}, server: { name: 'P4' } } });
+    const messages = [];
+    for (const message of body.messages) {
+      const document = message.params.textDocument;
+      const previous = documents.get(document?.uri);
+      if (message.method === 'textDocument/didOpen' || message.method === 'textDocument/didChange') {
+        if (message.method === 'textDocument/didChange' && (!previous || document.version <= previous.version)) {
+          throw Object.assign(new Error('Document versions must increase'), { response: { status: 400, data: { error: 'Document versions must increase' } } });
+        }
+        const text = message.method === 'textDocument/didOpen' ? document.text : message.params.contentChanges[0].text;
+        documents.set(document.uri, { version: document.version, text });
+        messages.push({ method: 'textDocument/publishDiagnostics', params: { uri: document.uri, version: document.version, diagnostics: [{ message: text }] } });
+      } else if (message.method === 'textDocument/didClose') {
+        documents.delete(document.uri);
+        // An analysis already queued by the old buffer can arrive with the
+        // close response, after that URI has been reopened in the editor.
+        if (previous) messages.push({ method: 'textDocument/publishDiagnostics', params: { uri: document.uri, version: previous.version, diagnostics: [{ message: previous.text }] } });
+      } else if (message.id != null) {
+        messages.push({ jsonrpc: '2.0', id: message.id, result: [{ label: previous?.text || 'Document not open' }] });
+      }
+    }
+    const response = { data: { messages } };
+    if (!paused && body.messages.some(message => message.method === pauseMethod)) {
+      paused = { ...deferred(), response };
+      return paused.promise;
+    }
+    return Promise.resolve(response);
+  });
+  return { documents, get paused() { return paused; }, release() { paused.resolve(paused.response); } };
+}
+
 it('synchronizes unsaved content before completion and closes documents removed from the editor', async () => {
   const { value } = client(); await value.ready;
   value.sync([{ uri, text: 'header A {}' }]); await value.flush();
@@ -84,7 +119,7 @@ it('reconnects with fresh didOpen messages containing the latest unsaved buffers
   const reopened = axios.post.mock.calls.filter(([url]) => url === '/language/sessions/session-2').flatMap(([, body]) => body.messages);
   expect(reopened).toEqual([
     { jsonrpc: '2.0', method: 'textDocument/didOpen', params: { textDocument: { uri, languageId: 'p4', version: 2, text: '// latest unsaved buffer' } } },
-    { jsonrpc: '2.0', method: 'textDocument/didOpen', params: { textDocument: { uri: 'file:///p4/src/types.p4', languageId: 'p4', version: 1, text: '// unsaved include' } } },
+    { jsonrpc: '2.0', method: 'textDocument/didOpen', params: { textDocument: { uri: 'file:///p4/src/types.p4', languageId: 'p4', version: 3, text: '// unsaved include' } } },
   ]);
 });
 
@@ -199,4 +234,61 @@ it('keeps the session and unsaved buffers alive when pagehide enters the back-fo
   expect(axios.delete).not.toHaveBeenCalled();
   expect(await value.request('textDocument/completion', { textDocument: { uri }, position: { line: 0, character: 0 } })).toEqual([{ label: 'header' }]);
   expect(axios.post.mock.calls.flatMap(([, body]) => body.messages || []).find(message => message.method === 'textDocument/didOpen').params.textDocument.text).toBe('// still unsaved');
+});
+
+it.each([0, 1])('sends changed disk content when a URI is closed and reopened before its close is flushed (%s prior edits)', async edits => {
+  vi.useFakeTimers();
+  const server = versionedServer();
+  const { value, onStatus } = client(); await value.ready;
+  value.sync([{ uri, text: 'header Original {}' }]); await value.flush();
+  if (edits) { value.sync([{ uri, text: 'header Edited {}' }]); await value.flush(); }
+  const previousVersion = server.documents.get(uri).version;
+  value.sync([]);
+  value.sync([{ uri, text: 'header FromDisk {}' }]);
+  expect(await value.request('textDocument/completion', { textDocument: { uri }, position: { line: 0, character: 7 } })).toEqual([{ label: 'header FromDisk {}' }]);
+  expect(server.documents.get(uri).version).toBeGreaterThan(previousVersion);
+  expect(onStatus.mock.calls.some(([status]) => status.state === 'unavailable')).toBe(false);
+});
+
+it.each(['textDocument/didOpen', 'textDocument/didClose'])('reopens a changed buffer while %s is awaiting HTTP acknowledgement', async pendingMethod => {
+  vi.useFakeTimers();
+  const server = versionedServer(pendingMethod);
+  const { value, onDiagnostics } = client(); await value.ready;
+  value.sync([{ uri, text: 'header Original {}' }]);
+  const opening = value.flush();
+  let pending;
+  if (pendingMethod === 'textDocument/didClose') {
+    await opening;
+    value.sync([]);
+    pending = value.flush();
+  } else pending = opening;
+  await vi.advanceTimersByTimeAsync(0);
+  expect(server.paused).toBeDefined();
+  if (pendingMethod === 'textDocument/didOpen') value.sync([]);
+  value.sync([{ uri, text: 'header FromDisk {}' }]);
+  onDiagnostics.mockClear();
+  const reopening = value.flush();
+  server.release();
+  await pending;
+  expect(await reopening).toBe(true);
+  expect(server.documents.get(uri).text).toBe('header FromDisk {}');
+  expect(onDiagnostics.mock.calls.flatMap(([params]) => params.diagnostics).map(item => item.message)).not.toContain('header Original {}');
+  expect(await value.request('textDocument/completion', { textDocument: { uri }, position: { line: 0, character: 7 } })).toEqual([{ label: 'header FromDisk {}' }]);
+});
+
+it('keeps versions unique across buffers and URI reopenings while unchanged text keeps its version', async () => {
+  vi.useFakeTimers();
+  const server = versionedServer();
+  const { value } = client(); await value.ready;
+  const include = 'file:///p4/src/types.p4';
+  value.sync([{ uri, text: 'header Main {}' }, { uri: include, text: 'header Types {}' }]); await value.flush();
+  const sourceVersion = server.documents.get(uri).version;
+  const includeVersion = server.documents.get(include).version;
+  expect(includeVersion).toBeGreaterThan(sourceVersion);
+  const count = axios.post.mock.calls.length;
+  value.sync([{ uri: include, text: 'header Types {}' }, { uri, text: 'header Main {}' }]); await value.flush();
+  expect(axios.post).toHaveBeenCalledTimes(count);
+  value.sync([]); await value.flush();
+  value.sync([{ uri, text: 'header Main {}' }]); await value.flush();
+  expect(server.documents.get(uri).version).toBeGreaterThan(includeVersion);
 });
