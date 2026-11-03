@@ -1,6 +1,6 @@
 {
   "name": "unicorn-p4-frontend",
-  "version": "1.2.2-rc.1",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "engines": {
