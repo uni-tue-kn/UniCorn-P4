@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+* Topology imports have visible saved-file and local-JSON buttons with icons and tooltips above the canvas.
+
 ## 1.2.1 — 2026-11-01
 
 ### Security

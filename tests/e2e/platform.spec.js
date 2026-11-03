@@ -31,7 +31,7 @@ async function topologyAction(page, name) {
 }
 
 async function importSavedTopology(page, filename) {
-  await topologyAction(page, 'Import saved topology');
+  await page.getByRole('button', { name: 'Import saved topology', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Import saved topology', exact: true });
   await dialog.getByRole('combobox', { name: 'Saved topology', exact: true }).click();
   await page.getByRole('option', { name: filename, exact: true }).click();
@@ -720,6 +720,12 @@ test('topology builder saves, imports and edits a draggable topology draft', asy
   await host.press('Escape');
   await page.getByRole('button', { name: 'Select switch s1', exact: true }).press('Enter');
   await expect(page.getByRole('button', { name: /^Select link \d+:/ })).toHaveCount(1);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import JSON', exact: true }).click();
+  await (await chooser).setFiles({ name: 'toolbar-import.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(exported)) });
+  await expect(host).toHaveAttribute('transform', `translate(${exported.layout.h1.x},${exported.layout.h1.y})`);
+  await expect(link).toBeVisible();
+  await expect(page.getByText('JSON imported into the draft. Deploy to update the running network.', { exact: true })).toBeVisible();
 });
 
 test('external stock BMv2 keeps MATs available and enables registers only with the chosen adapter', async ({ page, request }) => {

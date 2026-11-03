@@ -33,7 +33,7 @@ Use the development services and privileged emulator terminal on a trusted netwo
 ## Compile and initialize a switch
 
 1. Select **P4 Compile**, choose a source file, and compile it for BMv2/v1model.
-2. On **Topology**, use its **Topology** menu to import a saved topology or JSON,
+2. On **Topology**, use **Import saved** or **Import JSON** above the canvas,
    then choose **Deploy topology**.
    Automatic switch connection is enabled by default. Alternatively, use **New Switch Connection**
    and enter the switch name, P4Runtime address/port, device ID, and optional log path.
@@ -69,7 +69,9 @@ Link properties provide latency and bandwidth, with **Change endpoints** availab
 for manual rewiring. **Update link** applies the settings to the draft. Node
 properties support renaming and deletion. Nodes can also be dragged directly.
 
-The **Topology** menu groups new/reload, saved-file import, JSON import/export,
+The **Import saved** and **Import JSON** buttons above the canvas load saved
+server files or local JSON directly into the draft. Their tooltips explain each source.
+The **More** menu groups new/reload, saved-file import, JSON import/export,
 save, auto-arrange, and clearing the running network. Import and save open focused
 dialogs. JSON export includes node positions. Editing and saving leave the running
 network unchanged. **Deploy topology** creates a fresh saved snapshot, recreates

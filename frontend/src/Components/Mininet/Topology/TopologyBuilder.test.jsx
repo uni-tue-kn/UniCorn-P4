@@ -87,7 +87,7 @@ describe('topology builder', () => {
     const user = userEvent.setup();
     axios.get.mockResolvedValue({ data: { '/topologies/existing.json': topology() } });
     render(<TopologyBuilder />);
-    await action(user, 'Import saved topology');
+    await user.click(screen.getByRole('button', { name: 'Import saved topology', exact: true }));
     await choose(user, 'Saved topology', 'existing.json');
     await user.click(screen.getByRole('button', { name: 'Import topology', exact: true }));
     await user.click(await screen.findByRole('button', { name: 'Select switch s1' }));
