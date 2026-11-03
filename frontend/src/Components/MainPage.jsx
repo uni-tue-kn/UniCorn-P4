@@ -7,16 +7,18 @@ import { BackendOffline } from './Helpers/Offline.jsx';
 
 import { Snackbar, Alert } from '@mui/material';
 
-import Navbar from './Menu/Navbar';
+import Navbar, { NAVBAR_HEIGHT } from './Menu/Navbar';
 
 import { useSnackbar } from '../Contexts/SnackbarContext';
 import { useAPI } from '../Contexts/APIContext';
 import MainRoutes from './Menu/MainRoutes';
+import { useLocation } from 'react-router-dom';
 
 function DashboardContent() {
 
   const { snackbarState, closeSnackbar } = useSnackbar();
   const { backendOnline } = useAPI();
+  const editor = useLocation().pathname === '/editor';
 
   const handleClose = (event, reason) => {
     if (reason === 'clickaway') {
@@ -39,11 +41,12 @@ function DashboardContent() {
             minWidth: 0,
             height: '100vh',
             overflow: 'auto',
+            ...(editor && { display: 'flex', flexDirection: 'column', overflow: 'hidden' }),
           }}
         >
-          <Toolbar sx={{ minHeight: '136px !important', flexShrink: 0 }} />
-          <Container maxWidth="xl" sx={{ mt: 4, mb: 4, pb: 3 }}>
-            <Grid>
+          <Toolbar sx={{ minHeight: `${NAVBAR_HEIGHT}px !important`, flexShrink: 0 }} />
+          <Container maxWidth={editor ? false : 'xl'} disableGutters={editor} sx={editor ? { p: { xs: 0.5, md: 1 }, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : { mt: 4, mb: 4, pb: 3 }}>
+            <Grid sx={editor ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}>
               {backendOnline ?
                 <MainRoutes />
                 :

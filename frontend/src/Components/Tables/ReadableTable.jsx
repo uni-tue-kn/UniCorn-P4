@@ -23,6 +23,7 @@ import { Stack } from '@mui/system';
 import { priorityInput } from '../Helpers/InputHelper';
 import DirectCounterReset from '../Counters/DirectCounterReset';
 import DirectMeterEditor from '../Resources/DirectMeterEditor';
+import DirectCounterPlot from '../Counters/DirectCounterPlot';
 
 
 
@@ -33,6 +34,7 @@ function ReadableTable({ tableName, tableEntries, rawTableEntries = tableEntries
     const { initializedFiles } = useInit() || {};
     const tableID = tableInfo?.[tableName]?.table_id;
     const directMeter = tableID == null ? null : Object.values(initializedFiles?.direct_meters || {}).find(meter => String(meter.table_id) === String(tableID));
+    const directCounter = tableID == null ? null : Object.values(initializedFiles?.direct_counters || {}).find(counter => String(counter.table_id) === String(tableID));
     const { callSnackbar} = useSnackbar();
 
     const initialEditEntryData = {
@@ -161,6 +163,7 @@ function ReadableTable({ tableName, tableEntries, rawTableEntries = tableEntries
                             Delete
                         </Button>
                         {directMeter && <DirectMeterEditor meter={directMeter} tableEntry={findEntry(entry.id, rawTableEntries).switch_entry} disabled={editEntryData.id !== null} />}
+                        {directCounter && <DirectCounterPlot counter={directCounter} tableID={tableID} tableEntry={findEntry(entry.id, rawTableEntries).switch_entry} disabled={editEntryData.id !== null} label={`Plot counter for entry ${entry.id}`} />}
                     </Stack>
                 </StyledTableCell>
             </StyledTableRow>

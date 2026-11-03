@@ -7,11 +7,21 @@
 * A dedicated P4 Editor tab with a workspace file tree, Monaco editing, multiple file tabs, file creation, and integrated save/compile output with clickable diagnostics.
 * Local P4 language-server syntax diagnostics and scoped completion for unsaved buffers, using a pinned upstream server from the P4 VS Code extension.
 * Atomic workspace saves with external-edit conflict detection, host file ownership preservation, read-only generated artifacts, and unsaved-buffer recovery.
+* Per-entry direct-counter throughput plots in a dialog, with packet/bit rates and polling only while open.
 
 ### Changed
 
 * Topology imports have visible saved-file and local-JSON buttons with icons and tooltips above the canvas.
 * The former P4 Compile tab is integrated into Editor, with existing `/compile` links redirected to the new workspace.
+* A consistent compact navigation header across all tabs. Editor fills the available window with compact controls, optional focus mode, and compiler output that opens on demand.
+* Editor remembers folder expansion, search, and tree scroll position across navigation and reloads in the current browser session.
+* Successful compilation reminds users to load the updated program onto their switches.
+
+### Fixed
+
+* Switch tabs retain their DOM and focus during background updates instead of being remounted and flickering.
+* Terminals follow continuous output automatically, pause when scrolling up, and offer a jump to the latest output.
+* Network imports with uncaptured or skipped state show warnings instead of failure feedback, while actual restore failures remain visible.
 
 ## 1.2.1 — 2026-11-01
 

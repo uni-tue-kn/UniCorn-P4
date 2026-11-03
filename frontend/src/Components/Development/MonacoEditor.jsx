@@ -122,5 +122,5 @@ export default function MonacoEditor({ documents, activePath, readOnly, onChange
     const position = editor.current.getModel().validatePosition({ lineNumber: reveal.line, column: reveal.column });
     editor.current.setPosition(position); editor.current.revealPositionInCenter(position); editor.current.focus();
   }, [reveal, activePath]);
-  return <Box ref={host} data-testid="source-editor" sx={{ height: '100%', minHeight: { xs: 280, md: 0 }, minWidth: 0 }} />;
+  return <Box ref={host} data-testid="source-editor" sx={{ height: '100%', minHeight: 0, minWidth: 0 }} />;
 }

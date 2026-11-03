@@ -61,10 +61,17 @@ path with **New file**. Open files have separate tabs. **Save** (Ctrl/Cmd+S) wri
 the active file, and **Save all files** writes every modified tab. Generated BMv2
 JSON and P4Info are read only. **Save file copy** creates an editable copy.
 
+All tabs share a compact navigation header, and Editor fills the available window. **Focus mode**
+hides navigation until you exit with its button or Escape. Compiler output opens
+when you compile, or when you select **Compiler output** or **Problems** in the
+status bar. Folder expansion, file search, and file-tree scroll position are kept
+for the current browser session when you navigate away or reload.
+
 Choose the main program in **P4 source file**. **Compile** (Ctrl/Cmd+Enter) saves
 all modified buffers, including includes, before invoking p4c. The compiler panel
 shows the full command/output and clickable file locations in **Problems**.
 Successful compilation updates the artifacts available for switch initialization.
+Load the updated program onto your switches to apply the changes to a running network.
 
 Unsaved buffers stay open while navigating to topology, terminals, or switches.
 The browser keeps a recovery copy of modified files for the current session and
@@ -132,6 +139,8 @@ The active topology's interface map shows actual switch ports and peers.
 **Terminals** is a dedicated page with host/switch shell tabs and Ctrl+C
 interruption. Output and the selected terminal are retained when moving between
 pages in the same running network; deploying a new network clears them.
+Continuous output follows the latest line automatically. Scroll up to pause it,
+then scroll to the bottom or select **Jump to latest output** to resume.
 Hosts permit explicit
 IPv6 and SIT tunnel configuration while automatic router discovery/addressing
 remain disabled.
@@ -149,7 +158,7 @@ The selected width and collapsed state are remembered.
 | Screen | Operations |
 | --- | --- |
 | Tables | Read, add, edit, bulk-edit, and delete MAT entries; sort/filter and choose numeric, address, hexadecimal, or binary display. |
-| Counters | Refresh or reset indexed counters, sample packet/bit rates, and view direct counters beside their matching MAT entries. |
+| Counters | Refresh or reset indexed counters, sample packet/bit rates, and use **Plot counter** beside a MAT entry to open its direct-counter throughput dialog. |
 | Registers | Read indexed cells, change display base, edit values, save, and refresh without losing integer precision. |
 | Meters | Read/write CIR, CBS, PIR, and PBS using the P4 program's packet/byte unit. Direct meters open through **Edit meter** on their owning MAT row. |
 | Mirrors | Create, modify, read, and delete clone sessions with destination port/instance replicas. |
@@ -224,6 +233,9 @@ directories. Restore recreates the emulated network and writes captured state
 in dependency order. Partial failures are reported. Retrying the same import
 token does not deploy twice. External targets need explicit destination
 mappings, and physical interface attachment is disabled unless selected.
+An import can succeed with warnings when the archive lacks state such as queue
+settings that were never recorded. The report distinguishes these capture limits
+and intentional skips from failed restore operations.
 
 The [public sample bundles](../examples/networks/README.md) demonstrate
 forwarding, multicast, mirroring, and metering/queues. They use a separate demo

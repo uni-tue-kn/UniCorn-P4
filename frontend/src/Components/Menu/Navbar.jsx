@@ -26,6 +26,7 @@ import logo from '../../assets/unicorn_p4_logo_cut.png'; // Adjust the path as n
 
 // Based on https://github.com/mui/material-ui/tree/v5.11.13/docs/data/material/getting-started/templates/dashboard
 
+export const NAVBAR_HEIGHT = 80;
 const drawerWidth = 240;
 const storageKey = 'unicorn.sidebar.v1';
 const maxWidth = () => window.innerWidth < 900 ? 480 : Math.max(220, Math.min(480, window.innerWidth - 80));
@@ -71,6 +72,7 @@ function Navbar() {
     const resizeSidebar = value => setSidebar(previous => ({ ...previous, width: clampWidth(value) }));
     const { darkMode, toggleDarkMode } = useTheme(); // Get dark mode state
     const location = useLocation();
+    const editor = location.pathname === '/editor';
     const hideSidebarRoutes = ['/', '/topology', '/terminals', '/mininet', '/compile', '/editor', '/switches'];
     const showSidebar = !hideSidebarRoutes.includes(location.pathname);
 
@@ -78,35 +80,21 @@ function Navbar() {
         <>
           <CssBaseline />
           <AppBar position="absolute" open={true}>
-            <Toolbar sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              {/* Left Side: Logo & Title */}
-              <Stack direction="row" spacing={2} sx={{ alignItems: 'center', minWidth: 0 }}>
+            <Toolbar variant="dense" sx={{ minHeight: '40px !important', px: { xs: 1, sm: 1.5 }, gap: 1 }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0, flex: 1 }}>
                 {showSidebar && <Tooltip title={desktop ? (sidebar.collapsed ? 'Expand sidebar' : 'Collapse sidebar') : 'Open resource menu'}><IconButton aria-label={desktop ? (sidebar.collapsed ? 'Expand sidebar' : 'Collapse sidebar') : 'Open resource menu'} color="inherit" onClick={() => desktop ? setSidebar(previous => ({ ...previous, collapsed: !previous.collapsed })) : setMobileMenuOpen(true)}><MenuIcon /></IconButton></Tooltip>}
-                <Box>
-                  <Box component="img" src={logo} alt="UniCorn-P4" sx={{ height: { xs: 44, sm: 60 }, display: 'block' }} />
-                </Box>
-                <Typography
-                  component="h1"
-                  variant="h5"
-                  color="inherit"
-                  noWrap
-                  sx={{ flexGrow: 1, display: { xs: 'none', md: 'block' } }}
-                  gutterBottom
-                >
-                  UniCorn-P4: A Universal Control Plane and GUI for P4
+                <Box component="img" src={logo} alt="UniCorn-P4" sx={{ height: 32, display: 'block' }} />
+                <Typography component="h1" color="inherit" noWrap sx={{ fontSize: 18, fontWeight: 500, minWidth: 0 }}>
+                  UniCorn-P4<Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>: A Universal Control Plane and GUI for P4</Box>
                 </Typography>
               </Stack>
-
-              {/* Right Side: SwitchSelect and Dark Mode Button */}
-              <Stack direction="row" spacing={{ xs: 0, sm: 2 }} sx={{ alignItems: 'center', flexShrink: 0 }}>
+              <Stack direction="row" sx={{ alignItems: 'center', flexShrink: 0 }}>
                 <VersionInfo />
                 <NetworkArchive />
-                <IconButton aria-label="Toggle color theme" onClick={toggleDarkMode} sx={{ color: 'inherit' }}>
-                  {darkMode ? <Brightness7Icon /> : <Brightness4Icon />}
-                </IconButton>
+                <IconButton aria-label="Toggle color theme" onClick={toggleDarkMode} sx={{ color: 'inherit' }}>{darkMode ? <Brightness7Icon /> : <Brightness4Icon />}</IconButton>
               </Stack>
             </Toolbar>
-            <SwitchSelect />
+            <Box sx={{ height: 40, px: 1, py: 0.5 }}><SwitchSelect compact /></Box>
           </AppBar>
           {showSidebar ? (
             <><Drawer variant="permanent" open={true} sx={{ display: { xs: 'none', md: 'block' }, flexShrink: 0, width, '& .MuiDrawer-paper': { width, overflowX: 'hidden' } }}>
@@ -116,7 +104,8 @@ function Navbar() {
                   alignItems: 'center',
                   justifyContent: 'flex-end',
                   px: [1],
-                  height: '130px',
+                  minHeight: `${NAVBAR_HEIGHT}px !important`,
+                  flexShrink: 0,
                 }}
               />
               <Divider />
@@ -130,13 +119,13 @@ function Navbar() {
                 onPointerMove={event => { if (drag.current) resizeSidebar(drag.current.width + event.clientX - drag.current.x); }}
                 onPointerUp={event => { drag.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
                 onLostPointerCapture={() => { drag.current = null; }}
-                sx={{ position: 'absolute', top: 136, bottom: 0, right: 0, width: 6, cursor: 'col-resize', touchAction: 'none', '&:hover, &:focus-visible': { bgcolor: 'primary.main' } }} />}
+                sx={{ position: 'absolute', top: NAVBAR_HEIGHT, bottom: 0, right: 0, width: 6, cursor: 'col-resize', touchAction: 'none', '&:hover, &:focus-visible': { bgcolor: 'primary.main' } }} />}
             </Drawer>
-            <MuiDrawer variant="temporary" open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} sx={{ display: { xs: 'block', md: 'none' }, '& .MuiDrawer-paper': { width: drawerWidth, pt: '136px' } }}>
+            <MuiDrawer variant="temporary" open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} sx={{ display: { xs: 'block', md: 'none' }, '& .MuiDrawer-paper': { width: drawerWidth, pt: `${NAVBAR_HEIGHT}px` } }}>
               <Box onClick={event => { if (event.target.closest('a')) setMobileMenuOpen(false); }}><MenuItems /></Box>
             </MuiDrawer></>
           ) : (
-            <Box sx={{ minWidth: 24 }} />
+            <Box sx={{ minWidth: editor ? 0 : 24 }} />
           )}
         </>
       );

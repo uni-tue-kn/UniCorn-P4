@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import Editor from './Editor';
@@ -112,5 +112,59 @@ it('disables editing and duplicate compilation while a build is pending', async 
   expect(screen.getByRole('textbox', { name: 'main.p4 editor' })).toHaveAttribute('readonly');
   await act(async () => finish({ data: { command: ['p4c', '/p4/main.p4'], stdout: 'Generated', stderr: '' } }));
   expect(await screen.findByText('Compilation completed')).toBeVisible();
+  expect(screen.getByText('Remember to load the updated program onto your switches to apply these changes.')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Compile', exact: true })).toBeEnabled();
+});
+
+it('opens output on demand and retains the current draft when leaving focus mode', async () => {
+  const user = userEvent.setup(); mount();
+  await user.click(await screen.findByRole('button', { name: 'Open main.p4' }));
+  await user.type(await screen.findByRole('textbox', { name: 'main.p4 editor' }), '\n// unsaved draft');
+  expect(screen.queryByRole('textbox', { name: 'Compiler output' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('tab', { name: 'Compiler output' }));
+  expect(screen.getByRole('textbox', { name: 'Compiler output' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Hide compiler panel' }));
+  await user.click(screen.getByRole('button', { name: 'Focus mode' }));
+  expect(screen.getByRole('button', { name: 'Exit focus mode' })).toHaveAttribute('aria-pressed', 'true');
+  await user.click(screen.getByRole('button', { name: 'New file' }));
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'Exit focus mode' })).toBeVisible();
+  await user.keyboard('{Escape}');
+  expect(screen.getByRole('button', { name: 'Focus mode' })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByRole('textbox', { name: 'main.p4 editor' })).toHaveValue('// source\n// unsaved draft');
+  expect(axios.patch).not.toHaveBeenCalled();
+});
+
+it('restores collapsed folders, search, and scroll position after leaving the editor', async () => {
+  const user = userEvent.setup(); const view = mount();
+  await user.click(await screen.findByRole('button', { name: 'Folder includes' }));
+  expect(screen.getByRole('button', { name: 'Folder includes' })).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.scroll(screen.getByRole('complementary', { name: 'P4 workspace' }), { target: { scrollTop: 120 } });
+  view.unmount();
+  const next = mount();
+  expect(await screen.findByRole('button', { name: 'Folder includes' })).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('button', { name: 'Open includes/headers.p4' })).not.toBeInTheDocument();
+  expect(screen.getByRole('complementary', { name: 'P4 workspace' }).scrollTop).toBe(120);
+  await user.type(screen.getByRole('textbox', { name: 'Find files' }), 'headers');
+  next.unmount(); mount();
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Find files' })).toHaveValue('headers'));
+  await user.clear(screen.getByRole('textbox', { name: 'Find files' }));
+  expect(await screen.findByRole('button', { name: 'Folder includes' })).toHaveAttribute('aria-expanded', 'false');
+});
+
+it('restores tree scrolling after a recovered workspace finishes loading its file list', async () => {
+  sessionStorage.setItem('unicorn.editor.recovery.v1', JSON.stringify({ root: '/p4', documents: [{
+    path: 'main.p4', absolute_path: '/p4/main.p4', content: '// draft', savedContent: '// source', revision, language: 'p4', read_only: false,
+  }] }));
+  sessionStorage.setItem('unicorn.editor.tree.v1:/p4', JSON.stringify({ collapsed: [], filter: '', scrollTop: 120 }));
+  let finish;
+  axios.get.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  mount();
+  const viewport = screen.getByRole('complementary', { name: 'P4 workspace' });
+  let top = 0;
+  Object.defineProperty(viewport, 'scrollTop', { get: () => top, set: value => { top = viewport.querySelector('[aria-label="Open main.p4"]') ? value : 0; } });
+  await act(async () => finish({ data: { root: '/p4', files: Object.keys(files).map(path => ({ path, absolute_path: '/p4/' + path, read_only: false, language: 'p4' })) } }));
+  expect(viewport.scrollTop).toBe(120);
+  expect(screen.getByRole('textbox', { name: 'main.p4 editor' })).toHaveValue('// draft');
 });

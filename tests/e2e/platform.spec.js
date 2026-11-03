@@ -572,6 +572,47 @@ test('counter resets and live traffic graphs preserve forwarding and direct mete
   await hostTraffic(page);
 });
 
+test('direct-counter entry plots show real per-entry throughput in a dialog', async ({ page }) => {
+  await selectSwitch(page);
+  const done = await hostTraffic(page, 50, false);
+  await page.getByRole('link', { name: 'Switch Menu', exact: true }).click();
+  await page.getByRole('tab', { name: 's1', exact: true }).click();
+  await page.goto('/tables/IngressImpl.observation');
+  await page.getByRole('button', { name: /^Plot counter for entry / }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Direct-counter throughput', exact: true });
+  const plot = dialog.getByRole('img', { name: 'Packet rate over time', exact: true });
+  await expect(plot).toBeVisible();
+  await expect(dialog.getByRole('img', { name: 'Bit rate over time', exact: true })).toBeVisible();
+  await expect.poll(async () => (await plot.locator('circle title').allTextContents()).some(text => Number.parseFloat(text) > 0), { timeout: 15_000 }).toBeTruthy();
+  await page.screenshot({ path: test.info().outputPath('direct-counter-throughput.png'), animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole('link', { name: 'Terminals', exact: true }).click();
+  await page.getByRole('tab', { name: 'h1 (Host)', exact: true }).click();
+  await expect(page.locator('main')).toContainText(`${done}=0`);
+});
+
+test('terminal output follows new lines and pauses while reading earlier output', async ({ page }) => {
+  await openTerminals(page);
+  await page.getByRole('tab', { name: 'h1 (Host)', exact: true }).click();
+  const marker = `SCROLL_${Date.now()}_`;
+  const input = page.locator('input').last();
+  await input.fill(`python3 -u -c 'import time; [print("${marker}"+str(i)) or time.sleep(0.02) for i in range(240)]; print("${marker}DONE")'`);
+  await input.press('Enter');
+  const viewport = page.locator('.react-terminal');
+  const distance = () => viewport.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop);
+  await expect(viewport).toContainText(`${marker}80`);
+  await expect.poll(distance).toBeLessThan(25);
+  await viewport.evaluate(element => { element.scrollTop = 0; });
+  await expect(page.getByRole('button', { name: 'Jump to latest output', exact: true })).toBeVisible();
+  await expect(viewport).toContainText(`${marker}160`);
+  expect(await viewport.evaluate(element => element.scrollTop)).toBeLessThan(50);
+  await page.getByRole('button', { name: 'Jump to latest output', exact: true }).click();
+  await expect.poll(distance).toBeLessThan(25);
+  await expect(viewport).toContainText(`\n${marker}DONE`);
+  await expect.poll(distance).toBeLessThan(25);
+});
+
 test('queue controls apply explicit native depth and rate settings through the browser', async ({ page, request }) => {
   await selectSwitch(page);
   await page.getByRole('link', { name: 'Queues', exact: true }).click();
@@ -862,7 +903,7 @@ test('network bundles export and restore topology, programs and live switch reso
   expect(restored.status).toBe('partial');
   expect(restored.warnings).toContain('Some queue fields are unknown and will not be inferred or restored');
   expect(restored.warnings).toContain('queues: unavailable');
-  await expect(dialog.getByText('Network imported with incomplete state.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Network imported with warnings.', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('table', { name: 'Switches in network bundle' }).locator('tbody tr').filter({ hasText: 's2' })).toContainText('queues: unavailable');
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   const init = await json(await request.get('/api/init', { params: { switch_id: switchId } }));
@@ -1052,7 +1093,7 @@ for (const name of ['two-host-forwarding', 'multicast-hub', 'mirror-observer', '
     if (restored.status === 'partial') {
       expect(restored.warnings.length).toBeGreaterThan(0);
       expect(restored.warnings.every(warning => warning === 'Some queue fields are unknown and will not be inferred or restored' || warning === 'queues: unavailable')).toBeTruthy();
-      await expect(dialog.getByText('Network imported with incomplete state.', { exact: true })).toBeVisible();
+      await expect(dialog.getByText('Network imported with warnings.', { exact: true })).toBeVisible();
     } else {
       expect(restored.status).toBe('complete');
       await expect(dialog.getByText('Network imported successfully.', { exact: true })).toBeVisible();
