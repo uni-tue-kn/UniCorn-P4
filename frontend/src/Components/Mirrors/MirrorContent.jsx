@@ -19,7 +19,9 @@ export function validateSession(draft) {
 
 export default function MirrorContent() {
   const { currentSwitchID } = useSwitch();
-  const writeAvailable = useInit()?.initializedFiles?.capabilities?.mirrors?.write !== false;
+  const capability = useInit()?.initializedFiles?.capabilities?.mirrors;
+  const readAvailable = capability?.read !== false;
+  const writeAvailable = readAvailable && capability?.write !== false;
   const currentID = useRef(currentSwitchID);
   currentID.current = currentSwitchID;
   const feedback = useAsyncFeedback(currentSwitchID);
@@ -32,7 +34,7 @@ export default function MirrorContent() {
   const [formError, setFormError] = useState('');
   const [deleteSession, setDeleteSession] = useState(null);
   const load = useCallback(async (signal, manual = false) => {
-    if (currentSwitchID == null) return;
+    if (currentSwitchID == null || !readAvailable) return;
     const token = begin('refresh', { quiet: !manual });
     try {
       setBusy(true); setError('');
@@ -41,7 +43,7 @@ export default function MirrorContent() {
       cancel(token); return false;
     } catch (err) { if (!signal?.aborted && !axios.isCancel(err) && currentID.current === currentSwitchID) { setError(err.response?.data?.error || err.message); fail(token); } else cancel(token); return false; }
     finally { if (!signal?.aborted && currentID.current === currentSwitchID) setBusy(false); }
-  }, [currentSwitchID, begin, complete, fail, cancel]);
+  }, [currentSwitchID, readAvailable, begin, complete, fail, cancel]);
   useEffect(() => {
     setSessions(null); setEditor(null); setDeleteSession(null); setBusy(false); setError('');
     const controller = new AbortController(); load(controller.signal);
@@ -77,6 +79,7 @@ export default function MirrorContent() {
     finally { if (currentID.current === id) setBusy(false); }
   }
   function setReplica(index, field, value) { setEditor(previous => ({ ...previous, replicas: previous.replicas.map((row, i) => i === index ? { ...row, [field]: value } : row) })); }
+  if (!readAvailable) return <Box><Typography variant="h5" gutterBottom>Mirrors</Typography><Alert severity="info">{capability?.reason || 'Mirror controls are unavailable on this switch.'}</Alert></Box>;
   return <Box>
     <Typography variant="h5" gutterBottom>Mirrors</Typography>
     <Typography sx={{ mb: 2 }} color="text.secondary">Clone sessions copy packets to one or more switch ports. The P4 program selects the session ID when cloning a packet.</Typography>

@@ -18,5 +18,8 @@ Tofino models support Tofino1, one pipe and up to 64 linked ports. They simulate
 packet behavior, not hardware throughput. External read-only Tofino connections
 discover the running program without taking ownership, but do not receive digests.
 
+Native network archives report action-profile/selector state as unavailable and
+omit dependent entries. The import report identifies this incomplete state.
+
 Resource availability follows the loaded P4 program and target. Component
 versions are shown in the UI. See [usage](usage.md) and [Tofino setup](tofino.md).

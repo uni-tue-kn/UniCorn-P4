@@ -41,7 +41,7 @@ def transport(monkeypatch, native, read_only):
     client = BfRtClient('unused.invalid:50052', client_id=2147483646, read_only=read_only)
     # Full-control subscription delivery is deterministic without a real thread.
     if not read_only:
-        client.subscribed.set()
+        threads.return_value.start.side_effect = lambda: client.subscribed.set()
     return client, channel, stub, threads
 
 

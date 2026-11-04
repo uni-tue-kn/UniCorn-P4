@@ -12,6 +12,10 @@ from .compile import compile_program
 
 
 class Handler(BaseHTTPRequestHandler):
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(15)
+
     def respond(self, status, body):
         data = json.dumps(body).encode()
         self.send_response(status)
@@ -32,20 +36,25 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/compile":
             self.respond(404, {"error": "Not found"})
             return
-        if not COMPILE_LOCK.acquire(blocking=False):
-            self.respond(429, {"error": "Tofino compiler is busy", "stdout": "", "stderr": ""})
-            return
+        acquired = False
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if size < 1 or size > 16384:
                 self.respond(413, {"error": "Invalid request size"})
                 return
-            request = json.loads(self.rfile.read(size))
+            raw = self.rfile.read(size)
+            if len(raw) != size:
+                raise ValueError("Incomplete request body")
+            request = json.loads(raw)
             root = Path(os.environ.get("P4_DIR", "/p4")).resolve()
             source = Path(request["source"]).resolve()
             output = Path(request["output"]).resolve()
             if not source.is_relative_to(root) or not output.is_relative_to(root):
                 raise ValueError("source and output must be under P4_DIR")
+            if not COMPILE_LOCK.acquire(blocking=False):
+                self.respond(429, {"error": "Tofino compiler is busy", "stdout": "", "stderr": ""})
+                return
+            acquired = True
             manifest, command, stdout, stderr = compile_program(source, output, request.get("name"))
             self.respond(200, {"manifest": manifest, "command": command, "stdout": stdout, "stderr": stderr})
         except (ValueError, KeyError, TypeError) as error:
@@ -55,10 +64,13 @@ class Handler(BaseHTTPRequestHandler):
                                "command": error.cmd, "stdout": error.stdout, "stderr": error.stderr})
         except subprocess.TimeoutExpired as error:
             self.respond(504, {"error": "Tofino compiler exceeded 300 seconds", "stdout": "", "stderr": ""})
+        except TimeoutError:
+            self.respond(408, {"error": "Compiler request timed out", "stdout": "", "stderr": ""})
         except Exception as error:
             self.respond(500, {"error": str(error), "stdout": "", "stderr": ""})
         finally:
-            COMPILE_LOCK.release()
+            if acquired:
+                COMPILE_LOCK.release()
 
 
 def main():

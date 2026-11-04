@@ -83,6 +83,18 @@ def test_failed_job_reports_error_and_releases_operation_lock():
     assert client.get('/topology/deploy/missing').status_code == 404
 
 
+def test_system_exit_marks_async_job_failed_and_releases_operation_lock():
+    def abort(**_):
+        raise SystemExit('switch port is occupied')
+    client, runner, _ = deployment_api(abort)
+    response = client.post('/topology/deploy', json={'topology_file': 'bad.json'})
+    assert runner.operation_lock.acquire(timeout=2)
+    runner.operation_lock.release()
+    result = client.get('/topology/deploy/' + response.json['deployment_id']).json
+    assert result['status'] == 'failed'
+    assert result['error'] == 'switch port is occupied'
+
+
 def test_terminal_setup_failure_preserves_successful_async_deployment():
     client, runner, ws = deployment_api(Mock())
     ws.init_clis.side_effect = RuntimeError('terminal unavailable')

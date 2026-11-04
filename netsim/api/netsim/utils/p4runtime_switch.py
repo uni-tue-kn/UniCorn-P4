@@ -45,13 +45,16 @@ class P4RuntimeSwitch(P4Switch):
         assert (sw_path)
         self.sw_path = sw_path
         # make sure that the provided sw_path is valid
-        pathCheck(sw_path)
+        try:
+            pathCheck(sw_path)
+        except SystemExit as failure:
+            raise RuntimeError('Switch executable is unavailable: ' + str(sw_path)) from failure
 
         if json_path is not None:
             # make sure that the provided JSON file exists
             if not os.path.isfile(json_path):
                 error("Invalid JSON file.\n")
-                exit(1)
+                raise ValueError('Invalid switch JSON file: ' + str(json_path))
             self.json_path = json_path
         else:
             self.json_path = None
@@ -70,7 +73,7 @@ class P4RuntimeSwitch(P4Switch):
 
         if self.check_listening_on_port(self.grpc_port):
             error('%s cannot bind port %d because it is bound by another process\n' % (self.name, self.grpc_port))
-            exit(1)
+            raise RuntimeError('%s cannot bind port %d because it is already in use' % (self.name, self.grpc_port))
 
         self.verbose = verbose
         logfile = "/tmp/p4s.{}.log".format(self.name)

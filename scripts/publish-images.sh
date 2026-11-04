@@ -6,7 +6,7 @@ set -euo pipefail
 # The optional workflow publishes a separate family after native validation.
 case "${IMAGE_FAMILY:-standard}" in
     standard) components=(backend netsim frontend) ;;
-    tofino) components=(backend-tofino netsim-tofino compiler-tofino) ;;
+    tofino) components=(backend-tofino netsim-tofino compiler-tofino frontend-tofino) ;;
     *) echo 'IMAGE_FAMILY must be standard or tofino' >&2; exit 1 ;;
 esac
 [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {

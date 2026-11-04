@@ -140,6 +140,8 @@ class BfRtResources:
 
     def direct_entries(self, resource_id, prefix):
         table = self.helper.table(resource_id)
+        if not table.get("table_type", "").startswith("MatchAction"):
+            raise ValueError("Select a match-action table for a direct resource")
         if not any(field["name"].startswith(prefix) for field in fields(table.get("data", []))):
             raise ValueError("Table has no requested direct resource")
         selector = pb.TableEntry(table_id=resource_id)

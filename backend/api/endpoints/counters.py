@@ -2,7 +2,7 @@
 import grpc
 from flask import request
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from .resources import rpc_error
 from controller.managers.CounterManager import CounterManager
 from controller.managers.ResourceManager import integer

@@ -21,7 +21,7 @@ _NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]{0,63}')
 # Group 1 is the directive prefix and group 2 the quoted path. Shared with
 # network archives so every include walker parses the same directives.
 INCLUDE_PATTERN = re.compile(r'(?m)^(\s*#\s*include\s*)"([^"\n]+)"')
-_ARCHITECTURE = re.compile(r'(?m)^\s*#\s*include\s*[<"](tna|t2na)\.p4[>"]')
+_ARCHITECTURE = re.compile(r'(?m)^\s*#\s*include\s*[<"](tna|t2na|v1model)\.p4[>"]')
 # Quoted standard includes use the compiler's SDK search path when no local
 # override exists. The backend does not mount the optional compiler's headers.
 TOFINO_SYSTEM_HEADERS = frozenset({
@@ -48,12 +48,22 @@ def program_root():
     return Path(os.environ.get('P4_DIR', '/p4')).expanduser().resolve()
 
 
+def build_root():
+    directory = program_root() / '.unicorn-builds'
+    if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+        raise BuildError('The build directory must be a real workspace directory')
+    return directory
+
+
 def contained_file(value, root=None):
     """Validate every component; artifact manifests never authorize symlink reads."""
-    root = root or program_root()
+    original_root = Path(root) if root is not None else program_root()
+    root = original_root.resolve()
     if not isinstance(value, (str, Path)) or not str(value):
         raise BuildError('Select an existing program file')
     path = Path(value)
+    if path.is_absolute() and original_root != root and path.is_relative_to(original_root):
+        path = root / path.relative_to(original_root)
     if not path.is_absolute():
         path = root / path
     try:
@@ -227,10 +237,14 @@ def program_architecture(source):
     found = set()
     try:
         for _path, _raw, text in include_closure(source, strict=False):
+            text = re.sub(r'"(?:\\.|[^"\\])*"|/\*[\s\S]*?\*/|//[^\n]*',
+                          lambda match: match.group(0) if match.group(0).startswith('"') else '\n' * match.group(0).count('\n'), text)
             found.update(_ARCHITECTURE.findall(text))
     except (BuildError, OSError):
         pass
-    return 't2na' if 't2na' in found else 'tna' if 'tna' in found else None
+    # Multi-target programs commonly select their architecture with #if. The
+    # worker compiles for Tofino 1; let its preprocessor select the active branch.
+    return 'tna' if 'tna' in found else 'v1model' if 'v1model' in found else 't2na' if 't2na' in found else None
 
 
 def source_target(source, requested='auto'):
@@ -312,7 +326,10 @@ def prune_builds(keep, referenced):
     under the cleanup lock, so it sees every reference committed by a
     use_build() block that already ended. If it fails, nothing is deleted.
     """
-    directory = program_root() / '.unicorn-builds'
+    try:
+        directory = build_root()
+    except BuildError:
+        return
     with _PRUNE_LOCK:
         try:
             referenced = set(referenced()) | set(_PINNED)
@@ -369,8 +386,9 @@ class BuildJobs:
             return dict(self.jobs[identifier])
 
     def _compile(self, identifier, source, worker):
-        directory = program_root() / '.unicorn-builds' / identifier
+        directory = None
         try:
+            directory = build_root() / identifier
             with self.lock:
                 self.jobs[identifier]['status'] = 'running'
             # Freeze quoted includes too; a host editor cannot change the build
@@ -430,7 +448,8 @@ class BuildJobs:
             with self.lock:
                 self.jobs[identifier].update(status='complete', result=result)
         except Exception as error:
-            shutil.rmtree(directory, ignore_errors=True)
+            if directory is not None and not directory.parent.is_symlink():
+                shutil.rmtree(directory, ignore_errors=True)
             with self.lock:
                 self.jobs[identifier].update(status='failed', error=str(error)[:8192],
                     result={'stderr': str(error)[:8192], 'stdout': '', 'command': []})

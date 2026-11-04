@@ -42,7 +42,7 @@ export default function QueueContent() {
   selected.current = currentSwitchID;
   const load = useCallback(async (signal, manual = false) => {
     if (currentSwitchID == null) return;
-    if (capability?.read === false) { setData({ configured: false, write_available: false, message: 'Queue controls are unavailable on this switch.' }); return; }
+    if (capability?.read === false) { setData({ configured: false, write_available: false, message: capability?.reason || 'Queue controls are unavailable on this switch.' }); return; }
     const token = begin('refresh', { quiet: !manual });
     setBusy(true); setError('');
     try {
@@ -88,7 +88,7 @@ export default function QueueContent() {
     } finally { if (selected.current === switchId) setBusy(false); }
   }
 
-  if (capability?.read === false) return <Box><Typography variant="h5" gutterBottom>Queues</Typography><Alert severity="info">Queue controls are unavailable on this switch.</Alert></Box>;
+  if (capability?.read === false) return <Box><Typography variant="h5" gutterBottom>Queues</Typography><Alert severity="info">{capability.reason || 'Queue controls are unavailable on this switch.'}</Alert></Box>;
   return <Box>
     <Typography variant="h5" gutterBottom>Queues</Typography>
     <Typography color="text.secondary" sx={{ mb: 2 }}>{portOnly ? 'Configure packet rate and burst allowance for one egress port. Supported settings are shown below.' : 'Configure egress queue capacity in packets and maximum rate in packets per second. Settings apply to every priority queue on the selected port or all ports.'}</Typography>
@@ -140,8 +140,9 @@ export default function QueueContent() {
           <TableCell>Port</TableCell>{depthAvailable && <TableCell>Depth (packets)</TableCell>}<TableCell>Rate (packets/s)</TableCell>{burstAvailable && <TableCell>Burst (packets)</TableCell>}<TableCell>Applied at</TableCell>
         </TableRow></TableHead><TableBody>{data.last_applied.map((entry, index) => <TableRow key={index}>
           <TableCell>{entry.port == null ? 'All ports' : entry.port}</TableCell>
-          <TableCell>{entry.depth_packets ?? '—'}</TableCell>
+          {depthAvailable && <TableCell>{entry.depth_packets ?? '—'}</TableCell>}
           <TableCell>{entry.rate_pps === '0' ? 'Unlimited (0)' : entry.rate_pps ?? '—'}</TableCell>
+          {burstAvailable && <TableCell>{entry.burst_packets ?? '—'}</TableCell>}
           <TableCell>{entry.applied_at}</TableCell>
         </TableRow>)}</TableBody></Table></TableContainer>}
         </AccordionDetails>

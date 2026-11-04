@@ -176,6 +176,7 @@ export function priorityInput(entryData, handler, id = null, deleted = false, si
       disabled={deleted}
       size={size}
       label="Priority"
+      title="Larger priority values take precedence."
       name="priority"
       value={entryData.priority ?? ""}
       required

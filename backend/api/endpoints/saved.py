@@ -2,7 +2,7 @@ from flask_restful import reqparse
 from flask import jsonify, make_response
 from ..database.TableStates import *
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 
 
 class SavedStates(Endpoint):

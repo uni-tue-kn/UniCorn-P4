@@ -258,6 +258,18 @@ def test_tofino2_programs_are_rejected_before_compilation(workspace, requested):
     assert source_target(source, 'bmv2') == 'bmv2'
 
 
+def test_multigeneration_workshop_uses_the_available_tofino1_branch(workspace):
+    source = workspace / 'main.p4'
+    source.write_text('#if __TARGET_TOFINO__ == 2\n#include <t2na.p4>\n#else\n#include <tna.p4>\n#endif\n')
+    assert source_target(source) == 'tofino'
+
+
+def test_commented_architecture_does_not_change_a_bmv2_program(workspace):
+    source = workspace / 'main.p4'
+    source.write_text('/*\n#include <t2na.p4>\n*/\n#include <v1model.p4>\n')
+    assert source_target(source) == 'bmv2'
+
+
 def test_listing_skips_artifact_hashing_but_loading_verifies_it(workspace):
     directory = workspace / '.unicorn-builds' / 'example'
     metadata = make_bundle(directory)
@@ -275,7 +287,7 @@ def test_successful_build_prunes_only_unreferenced_builds_of_the_same_source(wor
     for name, origin in (('stale', source), ('saved', source), ('other', workspace / 'other.p4')):
         directory = workspace / '.unicorn-builds' / name
         metadata = make_bundle(directory)
-        metadata.update(source=str(origin), created_at='2026-11-03T10:00:00Z')
+        metadata.update(source=str(origin), created_at='2000-01-01T00:00:00Z')
         (directory / 'manifest.json').write_text(json.dumps(metadata))
 
     def compile_request(request, timeout):
@@ -297,7 +309,7 @@ def test_builds_are_kept_when_references_are_unknown(workspace, monkeypatch):
     source.write_text('#include <tna.p4>\n')
     old = workspace / '.unicorn-builds' / 'old'
     metadata = make_bundle(old)
-    metadata.update(source=str(source))
+    metadata.update(source=str(source), created_at='2000-01-01T00:00:00+00:00')
     (old / 'manifest.json').write_text(json.dumps(metadata))
     monkeypatch.setattr('api.program_builds.urlrequest.urlopen', lambda request, timeout: io.BytesIO(
         json.dumps({'manifest': make_bundle(Path(json.loads(request.data)['output']))}).encode()))
@@ -305,7 +317,44 @@ def test_builds_are_kept_when_references_are_unknown(workspace, monkeypatch):
     jobs.referenced = Mock(side_effect=RuntimeError('database unavailable'))
     jobs.jobs['fresh'] = {'status': 'pending'}
     jobs._compile('fresh', source, 'http://compiler:8080')
+    assert jobs.get('fresh')['status'] == 'complete'
+    jobs.referenced.assert_called_once_with()
     assert old.is_dir()
+    # Prove that age/source would otherwise make this exact build removable.
+    from api.program_builds import prune_builds
+    prune_builds(workspace / '.unicorn-builds' / 'fresh', lambda: set())
+    assert not old.exists()
+
+
+def test_compile_and_prune_refuse_a_symlinked_build_root(workspace, tmp_path_factory, monkeypatch):
+    from api.program_builds import prune_builds
+    outside = tmp_path_factory.mktemp('outside-build-root')
+    (workspace / '.unicorn-builds').symlink_to(outside, target_is_directory=True)
+    source = workspace / 'main.p4'
+    source.write_text('#include <tna.p4>\n')
+    request = Mock()
+    monkeypatch.setattr('api.program_builds.urlrequest.urlopen', request)
+    jobs = BuildJobs()
+    jobs.jobs['refused'] = {'status': 'pending'}
+    jobs._compile('refused', source, 'http://compiler:8080')
+    assert jobs.get('refused')['status'] == 'failed'
+    request.assert_not_called()
+    assert list(outside.iterdir()) == []
+    prune_builds(outside, set)
+    assert outside.is_dir()
+
+
+def test_explicit_symlinked_workspace_root_is_canonicalized(tmp_path):
+    real = tmp_path / 'real'
+    real.mkdir()
+    source = real / 'main.p4'
+    source.write_text('// canonical file')
+    alias = tmp_path / 'alias'
+    alias.symlink_to(real, target_is_directory=True)
+    assert contained_file(alias / 'main.p4', alias) == source
+    (real / 'linked.p4').symlink_to(source)
+    with pytest.raises(BuildError):
+        contained_file(alias / 'linked.p4', alias)
 
 
 def _build(workspace, name, source, created_at=None):

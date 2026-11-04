@@ -19,6 +19,8 @@
 * Legacy preview images are stored in `docs/screenshots/`.
 * GitHub release notes start with concise launch instructions for BMv2 and optional Tofino models.
 * Program listings skip artifact hashing. Successful Tofino compiles clean older unused builds while preserving builds used by initialization, connected switches and saved/history states.
+* Optional Tofino releases promote a matching frontend alias with their runtime images, keeping the `latest` image family aligned.
+* Native archives explicitly report unsupported action-profile/selector state and omit dependent entries, keeping partial snapshots importable.
 
 ### Fixed
 
@@ -28,6 +30,17 @@
 * Native IPv6 values encode correctly, and read-only table fields no longer block entry edits or restores.
 * Automatic target detection skips unavailable includes and rejects unsupported Tofino 2 programs before compilation.
 * Topology deployment bounds every request and the complete operation, with retries for transient polling failures.
+* Local pipeline validation failures preserve the active program. Failed native reconnects clean up their streams and can be retried.
+* Failed emulator starts clean up partial networks and finish asynchronous jobs, including legacy `SystemExit` failures. Switch IDs and control ports follow Mininet's natural order.
+* Native archive validation returns client errors for malformed state, and filtered topology validation runs before existing connections are removed.
+* Native table rollback omits read-only fields, direct-resource operations reject indexed-resource IDs, and replay tolerates identical entries installed by the pipeline.
+* Native resource requests and archive capture/replay are serialized with pipeline replacement. Connection changes and manager creation are synchronized.
+* Queued native requests release the global connection lock while waiting, keeping other switches responsive and rejecting replaced connections safely.
+* Table priorities use the same larger-first order on both targets. Native TCAM groups survive edits, eight-group IPv6 addresses encode correctly, and signed range bounds compare numerically.
+* Compiler timeouts terminate the complete process group. Slow request bodies have a timeout and do not occupy the compilation lock.
+* Import and editor polling tolerate transient failures. Deployment warnings survive topology refreshes, BMv2 setup hints remain actionable, and queue-history columns match supported fields.
+* The network import dialog retries transient progress requests. Unavailable mirror/multicast controls show their capability reason, repeated register fields tolerate missing/scalar responses, and terminal input returns promptly during model startup.
+* Forwarder readiness belongs to the newly started process. Native logs retain bounded recent output and reset per deployment, workspace build roots reject symlinks, and archive source selection retains the exact file path.
 * Native network archives retain default table actions, their parameters, and attached direct meters.
 * Native archives omit fields that cannot be written back and report partial state instead of rejecting their own exports.
 * Closed native control streams report a disconnected state instead of appearing healthy.

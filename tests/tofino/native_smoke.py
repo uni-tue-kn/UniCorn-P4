@@ -1,17 +1,29 @@
 """Run inside a live official model container with the resources sample loaded."""
 import json
+import os
 import socket
 import time
 import bfrt_grpc.client as gc
 
+priority_check = os.environ.get('UNICORN_NATIVE_PRIORITY') == 'true'
+program_name = 'unicorn_priority' if priority_check else 'unicorn_resources'
 interface = gc.ClientInterface(grpc_addr='127.0.0.1:50052', client_id=77, device_id=0)
-interface.bind_pipeline_config('unicorn_resources')
-info = interface.bfrt_info_get('unicorn_resources')
+interface.bind_pipeline_config(program_name)
+info = interface.bfrt_info_get(program_name)
 target = gc.Target(device_id=0, pipe_id=0xffff)
 print(json.dumps({name: table.info.data_field_name_list_get() for name, table in info.table_dict.items() if 'Ingress.' in name}, indent=2))
 forward = info.table_get('Ingress.forwarding')
-forward.entry_add(target, [forward.make_key([gc.KeyTuple('intrinsic.ingress_port', 0)])],
-                  [forward.make_data([gc.DataTuple('port', 1), gc.DataTuple('index', 7)], 'Ingress.forward')])
+if priority_check:
+    # Only the lower 24 bits control precedence; the upper byte is a TCAM
+    # group. Larger UI priorities 1, 2 and 2**24 map to smaller native values.
+    for priority, index in ((1, 6), (2, 8), (1 << 24, 7)):
+        forward.entry_add(target, [forward.make_key([
+            gc.KeyTuple('intrinsic.ingress_port', 0, mask=511),
+            gc.KeyTuple('$MATCH_PRIORITY', (1 << 24) - priority)])],
+            [forward.make_data([gc.DataTuple('port', 1), gc.DataTuple('index', index)], 'Ingress.forward')])
+else:
+    forward.entry_add(target, [forward.make_key([gc.KeyTuple('intrinsic.ingress_port', 0)])],
+                      [forward.make_data([gc.DataTuple('port', 1), gc.DataTuple('index', 7)], 'Ingress.forward')])
 register = info.table_get('Ingress.packet_register')
 key = register.make_key([gc.KeyTuple('$REGISTER_INDEX', 7)])
 field = register.info.data_field_name_list_get()[0]
@@ -40,9 +52,14 @@ while True:
 register.operations_execute(target, 'Sync')
 values = list(register.entry_get(target, [key], {'from_hw': True}))[0][0].to_dict()[field]
 assert values[0] == 101, values
+if priority_check:
+    for index in (6, 8):
+        unused = register.make_key([gc.KeyTuple('$REGISTER_INDEX', index)])
+        assert all(value == 0 for value in list(register.entry_get(target, [unused], {'from_hw': True}))[0][0].to_dict()[field])
 counter.operations_execute(target, 'Sync')
 counts = list(counter.entry_get(target, [ckey], {'from_hw': True}))[0][0].to_dict()
 assert counts['$COUNTER_SPEC_PKTS'] == 1, counts
 assert counts['$COUNTER_SPEC_BYTES'] >= len(packet), counts
-print(json.dumps({'forwarded_bytes': len(received), 'register_pipe_values': values, 'counter': counts, 'meter': meter_read, 'result': 'PASS'}, indent=2))
+print(json.dumps({'forwarded_bytes': len(received), 'register_pipe_values': values, 'counter': counts, 'meter': meter_read,
+                  'priority_check': priority_check, 'result': 'PASS'}, indent=2))
 interface.tear_down_stream()

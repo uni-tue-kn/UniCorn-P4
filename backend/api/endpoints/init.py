@@ -6,8 +6,8 @@ import grpc
 
 from ..database.TableStates import *
 
-from .Endpoint import Endpoint
-from ..program_builds import BuildError, use_build
+from .Endpoint import SwitchEndpoint as Endpoint
+from ..program_builds import BuildError, use_build, contained_file
 
 
 # Initializes (new) p4 program
@@ -68,7 +68,7 @@ class Initialize(Endpoint):
                 raise ValueError('Program target does not match switch target')
             if reinitialized_state is not None:
                 # A state must refer to the program that produced its entries.
-                if args['program_id'] and args['program_id'] != reinitialized_state.program_manifest:
+                if args['program_id'] and bundle['manifest_path'] != str(contained_file(reinitialized_state.program_manifest)):
                     raise ValueError('Selected program does not match saved state')
                 self.controller.initializeStoredState(switch_id_arg, reinitialized_state,
                     keep_entries=bool(args['keep_entries']), bundle=bundle)

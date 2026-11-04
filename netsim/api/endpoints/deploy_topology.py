@@ -45,7 +45,7 @@ class DeployTopology(Endpoint):
                     job['topology'] = runner.topology_state(include_switches_online=True)
                     job['switches'] = dict(runner.deployment.get('switches', {}))
                     job['status'] = 'ready'
-            except Exception as failure:
+            except BaseException as failure:
                 if replacement_started:
                     runner.topo_file = None
                 job.update(status='failed', error=str(failure), switches=dict(runner.deployment.get('switches', {})))

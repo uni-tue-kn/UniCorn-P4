@@ -53,9 +53,9 @@ def text_number(value):
     if "." in value:
         return int(ipaddress.ip_address(value))
     groups = value.split(":")
-    # aa:bb:cc:dd:ee:ff is a byte string. Anything else with colons (short
-    # or long groups, "::" compression) must be a valid IPv6 address.
-    if all(len(group) == 2 for group in groups):
+    # MAC-style byte strings remain valid, but eight groups always mean IPv6,
+    # including addresses whose groups happen to contain only two digits.
+    if len(groups) != 8 and all(len(group) == 2 for group in groups):
         return int("".join(groups), 16)
     return int(ipaddress.IPv6Address(value))
 

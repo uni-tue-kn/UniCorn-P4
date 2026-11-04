@@ -189,6 +189,8 @@ class SwitchManager:
         queues_configured = bool(self.config.get("register_thrift_host") and self.config.get("register_thrift_port"))
         result["queues"] = {"read": queues_configured, "write": queues_configured, "readback": False,
                             "source": "thrift", "state": "last_applied"}
+        if not queues_configured:
+            result["queues"]["reason"] = "Configure a Thrift host and port in the switch connection settings to enable queue controls."
         return result
 
     def manager(self, kind):

@@ -66,6 +66,13 @@ PY
   SUPERVISOR_PID=
 }
 run_program /sources/resources.p4 unicorn_resources native_smoke.py
+python3 - "${TEST_ROOT}/priority.p4" <<'PY'
+from pathlib import Path
+import sys
+source = Path('/sources/resources.p4').read_text()
+Path(sys.argv[1]).write_text(source.replace('intrinsic.ingress_port: exact;', 'intrinsic.ingress_port: ternary;'))
+PY
+UNICORN_NATIVE_PRIORITY=true run_program "${TEST_ROOT}/priority.p4" unicorn_priority native_smoke.py
 if [[ -f /workshop/tofino_workshop.p4 ]]; then
   run_program /workshop/tofino_workshop.p4 tofino_workshop workshop_smoke.py
 fi

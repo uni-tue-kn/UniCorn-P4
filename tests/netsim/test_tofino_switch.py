@@ -8,9 +8,34 @@ import pytest
 from netsim.api.netsim.utils.tofino_switch import TofinoSwitch
 
 
+def test_forwarder_waits_for_its_own_bind_confirmation(tmp_path, monkeypatch):
+    instance = switch()
+    instance.work_dir = SimpleNamespace(name=str(tmp_path))
+    instance.log_file = str(tmp_path / 'switch.log')
+    def start(command, **kwargs):
+        Path(command[command.index('--ready-file') + 1]).write_text('123')
+        return Mock(pid=123, poll=Mock(return_value=None))
+    monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.subprocess.Popen', start)
+    TofinoSwitch.start_forwarder(instance)
+    assert instance.forwarder.pid == 123
+
+
+def test_stale_ready_file_does_not_confirm_a_different_forwarder(tmp_path, monkeypatch):
+    instance = switch()
+    instance.work_dir = SimpleNamespace(name=str(tmp_path))
+    instance.log_file = str(tmp_path / 'switch.log')
+    (tmp_path / 'forwarder.ready').write_text('456')
+    monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.subprocess.Popen', lambda *args, **kwargs: Mock(pid=123, poll=Mock(return_value=None)))
+    monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.monotonic', Mock(side_effect=[0, 0, 11]))
+    monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.sleep', lambda _: None)
+    with pytest.raises(RuntimeError, match='did not become ready'):
+        TofinoSwitch.start_forwarder(instance)
+
+
 def switch():
     instance = object.__new__(TofinoSwitch)
     instance.name = 's2'
+    instance.pid = 321
     instance.device_id = 5
     instance.grpc_port = 51052
     instance.model_port_base = 18016

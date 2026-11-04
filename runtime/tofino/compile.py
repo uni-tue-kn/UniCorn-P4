@@ -6,9 +6,10 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import signal
 
 
-def compile_program(source, output, name=None):
+def compile_program(source, output, name=None, timeout=300):
     source, output = Path(source).resolve(), Path(output).resolve()
     name = name or source.stem
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name):
@@ -20,9 +21,21 @@ def compile_program(source, output, name=None):
     compiler = os.environ.get("UNICORN_TOFINO_COMPILER", str(install / "bin/bf-p4c"))
     command = [compiler, "--target", "tofino", "--arch", "tna", "--std", "p4-16",
                     "--program-name", name, "-o", str(output), str(source)]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=300)
-    if result.returncode:
-        raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          start_new_session=True) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except BaseException:
+            # p4c's driver can spawn a preprocessor and backend. Terminate the
+            # entire build before releasing the worker's compilation lock.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+            raise
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
     compiler_manifest = output / "manifest.json"
     if compiler_manifest.exists():
         compiler_manifest.rename(output / "compiler-manifest.json")
@@ -45,7 +58,7 @@ def compile_program(source, output, name=None):
                 "profiles": profiles}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     shutil.copyfile(source, output / "source.p4")
-    return manifest, command, result.stdout, result.stderr
+    return manifest, command, stdout, stderr
 
 
 def main():

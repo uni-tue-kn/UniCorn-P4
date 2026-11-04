@@ -176,12 +176,22 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
         ...(native ? { async: true } : {}) }, { signal: operation.controller.signal, timeout: native ? 30000 : 300000 });
       if (response.status === 202) {
         let job = response.data;
+        const deadline = Date.now() + 30 * 60 * 1000;
+        let failures = 0;
         while (['pending', 'running'].includes(job.status)) {
-          setProgress(job.progress?.message || job.progress?.phase || 'Starting network…');
+          if (Date.now() >= deadline) throw new Error('Network import monitoring timed out. Refresh the topology to check its current state.');
+          setProgress(failures ? 'Connection interrupted; checking import progress again…'
+            : job.progress?.message || job.progress?.phase || 'Starting network…');
           await new Promise(resolve => setTimeout(resolve, 1000));
           if (operation.controller.signal.aborted) return;
-          job = (await axios.get('/network/import/deploy', { params: { import_token: token },
-            signal: operation.controller.signal, timeout: 15000 })).data;
+          try {
+            job = (await axios.get('/network/import/deploy', { params: { import_token: token },
+              signal: operation.controller.signal, timeout: Math.min(15000, Math.max(1, deadline - Date.now())) })).data;
+            failures = 0;
+          } catch (failure) {
+            if (operation.controller.signal.aborted) return;
+            if ((failure.response && failure.response.status < 500) || ++failures >= 10) throw failure;
+          }
         }
         if (!job.result) throw new Error(job.error || 'The network import did not return a restoration report.');
         response = { data: job.result };

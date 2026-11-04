@@ -1,6 +1,6 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import QueueContent, { validateQueueSettings } from './QueueContent';
@@ -197,4 +197,16 @@ describe('queue controls', () => {
     expect(screen.getByRole('table', { name: 'Per-port queue configuration' })).toHaveTextContent('Unknown');
     expect(screen.getByRole('table', { name: 'Per-port queue configuration' })).toHaveTextContent('Not discovered');
   });
+});
+
+it('aligns history columns with a port rate/burst target that has no depth control', async () => {
+  context.initializedFiles = { capabilities: { queues: { read: true, write: true, depth_packets: false, burst_packets: true, all_ports: false } } };
+  axios.get.mockResolvedValue({ data: { ...initial, scope: 'port', last_applied: [{ port: 0, rate_pps: '100', burst_packets: '20', applied_at: 'now' }] } });
+  const user = userEvent.setup();
+  render(<QueueContent />);
+  await user.click(await screen.findByRole('button', { name: 'Change history' }));
+  const history = await screen.findByRole('table', { name: 'Queue changes' });
+  const rows = within(history).getAllByRole('row');
+  expect(within(rows[0]).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Port', 'Rate (packets/s)', 'Burst (packets)', 'Applied at']);
+  expect(within(rows[1]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['0', '100', '20', 'now']);
 });

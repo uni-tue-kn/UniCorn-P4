@@ -93,6 +93,31 @@ def test_unknown_host_name_and_duplicate_nodes_rejected(runner, tmp_path):
             runner.read_topology_file(str(path))
 
 
+def test_switch_addresses_follow_natural_order_not_json_key_order(runner, monkeypatch):
+    from netsim.api.netsim import netsim
+    runner.hosts = []
+    runner.switches = {'s10': {}, 's2': {}, 's1': {}}
+    runner.links = []
+    monkeypatch.setattr(netsim, 'Mininet', Mock())
+    monkeypatch.setattr(netsim, 'configureP4Switch', lambda **options: options)
+    topology = Mock()
+    monkeypatch.setattr(netsim, 'ParsedTopo', topology)
+    runner.create_network()
+    classes = topology.call_args.kwargs['switch_classes']
+    assert {name: value['grpc_port'] for name, value in classes.items()} == {'s1': 50051, 's2': 50052, 's10': 50053}
+    assert {name: value['device_id'] for name, value in classes.items()} == {'s1': 0, 's2': 1, 's10': 2}
+
+
+def test_system_exit_during_network_creation_runs_cleanup(runner):
+    runner.destroy_topology = Mock()
+    runner.create_network = Mock(side_effect=SystemExit('port busy'))
+    candidate = {'hosts': [], 'switches': {}, 'links': [], 'ext_intfs': [], 'layout': {}}
+    with pytest.raises(SystemExit):
+        runner.run(candidate=candidate)
+    assert runner.destroy_topology.call_count == 2
+    assert runner.deployment['status'] == 'failed'
+
+
 def test_saved_layout_survives_load_and_state(runner, tmp_path):
     path = tmp_path / 'layout.json'
     layout = {'h1': {'x': 12, 'y': 34}, 's1': {'x': 100.5, 'y': 50}}

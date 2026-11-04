@@ -21,6 +21,7 @@ services:
   frontend:
     image: unicorn-tofino-test-frontend:local
   compiler:
+    init: true
     image: ${TOFINO_COMPILER_IMAGE:-unicorn-tofino-test-compiler:local}
     build:
       context: ..

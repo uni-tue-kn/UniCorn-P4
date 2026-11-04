@@ -171,8 +171,19 @@ export function EditorProvider({ children }) {
       let { data } = await axios.post('/compile', { file: source.absolute_path });
       if (data?.job_id) {
         const jobID = data.job_id;
+        const deadline = Date.now() + 15 * 60 * 1000;
+        let failures = 0;
         for (;;) {
-          const job = (await axios.get(`/compile/jobs/${encodeURIComponent(jobID)}`)).data;
+          if (Date.now() >= deadline) throw new Error('Compilation monitoring timed out. Refresh the program list to check for a completed build.');
+          let job;
+          try {
+            job = (await axios.get(`/compile/jobs/${encodeURIComponent(jobID)}`, { timeout: Math.min(15000, deadline - Date.now()) })).data;
+            failures = 0;
+          } catch (failure) {
+            if ((failure.response && failure.response.status < 500) || ++failures >= 10) throw failure;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            continue;
+          }
           if (!mounted.current) return false;
           if (job.status === 'complete') { data = job.result; break; }
           if (job.status === 'failed') throw { response: { data: job.result || { error: job.error || 'Compilation failed.' } } };

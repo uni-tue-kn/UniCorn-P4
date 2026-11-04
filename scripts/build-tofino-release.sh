@@ -11,6 +11,7 @@ backend="unituekn/unicornp4-backend:$VERSION"
 netsim="unituekn/unicornp4-netsim:$VERSION"
 docker pull "$backend"
 docker pull "$netsim"
+docker pull "unituekn/unicornp4-frontend:$VERSION"
 docker pull "$TOFINO_SDK_IMAGE"
 for target in compiler runtime backend; do
     component=$target
@@ -22,3 +23,5 @@ for target in compiler runtime backend; do
         --build-arg "BACKEND_IMAGE=$backend" --build-arg "NETSIM_IMAGE=$netsim" \
         -t "unituekn/unicornp4-$component-tofino:$VERSION" .
 done
+# Keep the matching UI on the optional release's promotion schedule as well.
+docker tag "unituekn/unicornp4-frontend:$VERSION" "unituekn/unicornp4-frontend-tofino:$VERSION"

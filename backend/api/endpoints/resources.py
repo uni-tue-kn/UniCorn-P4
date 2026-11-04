@@ -5,7 +5,7 @@ from google.protobuf.message import DecodeError
 from controller.p4.v1 import p4runtime_pb2
 from flask import request
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from controller.managers.ResourceManager import integer
 
 

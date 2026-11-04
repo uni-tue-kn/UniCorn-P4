@@ -3,7 +3,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import socket
 import sys
 import tempfile
 from time import monotonic, sleep
@@ -51,6 +50,9 @@ class TofinoSwitch(P4Switch):
 
     def start(self, controllers):
         self.cmd('ip link set lo up')
+        # Each deployment owns a fresh aggregate log; stop() retains only the
+        # bounded tail of this deployment's native diagnostics.
+        Path(self.log_file).write_text('')
         self.work_dir = tempfile.TemporaryDirectory(prefix=f'unicorn-tofino-{self.name}-')
         work = Path(self.work_dir.name)
         port_map = work / 'ports.json'
@@ -60,6 +62,7 @@ class TofinoSwitch(P4Switch):
                    '--work-dir', str(work), '--port-map', str(port_map),
                    '--bfrt-port', str(self.grpc_port), '--model-port-base', str(self.model_port_base),
                    '--status-port', str(self.status_port),
+                   '--switch-log', self.log_file,
                    '--startup-timeout', str(self.startup_timeout)]
         try:
             with open(self.log_file, 'a') as output:
@@ -83,22 +86,26 @@ class TofinoSwitch(P4Switch):
             raise
 
     def start_forwarder(self):
+        ready = Path(self.work_dir.name) / 'forwarder.ready'
+        ready.unlink(missing_ok=True)
         with open(self.log_file, 'a') as output:
             self.forwarder = subprocess.Popen([
                 sys.executable, '-m', 'runtime.tofino.port_forward',
                 '--listen', f'127.0.0.1:{self.grpc_port}',
                 '--netns-pid', str(self.pid),
                 '--upstream', f'127.0.0.1:{self.grpc_port}',
+                '--ready-file', str(ready),
             ], stdout=output, stderr=subprocess.STDOUT)
         deadline = monotonic() + 10
         while monotonic() < deadline:
             if self.forwarder.poll() is not None:
                 raise RuntimeError(f'Control endpoint for {self.name} exited; see switch log')
             try:
-                with socket.create_connection(('127.0.0.1', self.grpc_port), timeout=.2):
+                if ready.read_text() == str(self.forwarder.pid):
                     return
             except OSError:
-                sleep(.1)
+                pass
+            sleep(.1)
         raise RuntimeError(f'Control endpoint for {self.name} did not become ready')
 
     def read_state(self):

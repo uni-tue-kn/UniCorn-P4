@@ -1,10 +1,11 @@
 """Tofino target adapter. Native BF-RT protocol and metadata stay behind this API."""
 from copy import deepcopy
+from threading import RLock
 
 import grpc
 
 from ..managers.ResourceManager import integer
-from .bfrt_client import BfRtClient, BfRtError, validate_bundle_scope
+from .bfrt_client import BfRtClient, BfRtError, NoProgramLoaded, validate_bundle_scope
 from .bfrt_proto import bfruntime_pb2 as pb
 from .bfrt_resources import BfRtResources
 from .bfrt_tables import BfRtTableEntry, table_key
@@ -18,7 +19,8 @@ class TofinoTarget:
     target = "tofino"
 
     def __init__(self, id, config):
-        self.id, self.config, self.db_id = id, config, -1
+        self.id, self.config, self.db_id = id, deepcopy(config), -1
+        self.operation_lock = RLock()
         self.connected = False
         self.state_id = None
         self.p4_helper = None
@@ -46,18 +48,18 @@ class TofinoTarget:
             try:
                 self.p4_helper = self.client.discover((self.config.get("target_options") or {}).get("program_name"))
                 self.tables = self
-            except RuntimeError as error:
-                if "No BF Runtime program is loaded" not in str(error):
-                    raise
+            except NoProgramLoaded:
+                pass
         except Exception:
             self.shutdown()
             raise
 
     def shutdown(self):
-        try:
-            self.client.close()
-        finally:
-            self.connected = False
+        with self.operation_lock:
+            try:
+                self.client.close()
+            finally:
+                self.connected = False
 
     def require_initialized(self):
         if not self.connected or self.p4_helper is None:
@@ -71,22 +73,30 @@ class TofinoTarget:
 
     def initialize_bundle(self, bundle, keep_entries=False):
         self.ensure_writable()
-        if not self.connected:
-            raise RuntimeError("Switch is not connected")
         if keep_entries:
             raise ValueError("Keeping entries across a Tofino pipeline replacement is not supported")
         if bundle.get("target") != self.target:
             raise ValueError("Program bundle target does not match switch target")
         validate_bundle_scope(bundle, self.client.pipe_id)
-        # A failed warm reload may already have replaced the target program;
-        # never continue presenting the previous program's metadata as active.
+        with self.operation_lock:
+            try:
+                helper = self.client.initialize_bundle(bundle, on_send=self._clear_program)
+            except BaseException:
+                if self.client.stub is None:
+                    self.connected = False
+                raise
+            self.connected = True
+            self.p4_helper = helper
+            self.program_manifest = bundle.get("manifest_path") or bundle.get("program_manifest")
+            self.tables, self.bundle = self, deepcopy(bundle)
+            self._managers = {}
+
+    def _clear_program(self):
+        # After local validation, the pipeline RPC may change the program even
+        # when its response is lost. Earlier failures leave the old state intact.
         self.p4_helper, self.tables = None, None
         self.bundle, self.program_manifest = None, None
-        self.p4_helper = self.client.initialize_bundle(bundle)
-        self.program_manifest = bundle.get("manifest_path") or bundle.get("program_manifest")
-        self.tables, self.bundle = self, deepcopy(bundle)
         self._managers = {}
-        self.config.setdefault("target_options", {})["program_name"] = bundle["program_name"]
 
     def initialize(self, *_args, **_kwargs):
         self.ensure_writable()
@@ -94,6 +104,7 @@ class TofinoTarget:
 
     def capabilities(self):
         from .bfrt_fixed import has_fields
+        helper = self.p4_helper
         supported = {name: {"read": True, "write": True, "source": "bfrt"}
                      for name in ("tables", "registers", "counters", "direct_counters", "meters", "direct_meters")}
         supported["direct_counters"].update(default_reset=False, reset_scope="non_default_entries", reason="The native model driver does not safely support default-entry counter resets")
@@ -105,17 +116,17 @@ class TofinoTarget:
                           "mirrors": {"read": False, "write": False, "reason": "Mirror mapping requires supported fixed-function metadata"},
                           "multicast": {"read": False, "write": False, "reason": "BF Runtime PRE nodes and groups require native resource management"},
                           "queues": {"read": False, "write": False, "reason": "Tofino traffic-manager queue units differ from BMv2 queue controls"}})
-        if has_fields(self.p4_helper, "$mirror.cfg", {"$session_enable", "$direction", "$ucast_egress_port", "$ucast_egress_port_valid", "$ingress_cos", "$max_pkt_len"}):
+        if has_fields(helper, "$mirror.cfg", {"$session_enable", "$direction", "$ucast_egress_port", "$ucast_egress_port_valid", "$ingress_cos", "$max_pkt_len"}):
             supported["mirrors"] = {"read": True, "write": True, "source": "bfrt", "max_replicas": 1,
                                     "instance": 0, "directions": ["INGRESS", "EGRESS", "BOTH"]}
-        if (has_fields(self.p4_helper, "$pre.mgid", {"$MULTICAST_NODE_ID", "$MULTICAST_NODE_L1_XID_VALID", "$MULTICAST_NODE_L1_XID", "$MULTICAST_ECMP_ID", "$MULTICAST_ECMP_L1_XID_VALID", "$MULTICAST_ECMP_L1_XID"})
-                and has_fields(self.p4_helper, "$pre.node", {"$MULTICAST_RID", "$MULTICAST_LAG_ID", "$DEV_PORT"})):
+        if (has_fields(helper, "$pre.mgid", {"$MULTICAST_NODE_ID", "$MULTICAST_NODE_L1_XID_VALID", "$MULTICAST_NODE_L1_XID", "$MULTICAST_ECMP_ID", "$MULTICAST_ECMP_L1_XID_VALID", "$MULTICAST_ECMP_L1_XID"})
+                and has_fields(helper, "$pre.node", {"$MULTICAST_RID", "$MULTICAST_LAG_ID", "$DEV_PORT"})):
             supported["multicast"] = {"read": True, "write": True, "source": "bfrt", "node_ownership": "connection", "max_replicas": 256}
-        if self.p4_helper:
-            shape = next((table["name"] for table in self.p4_helper.tables if table["name"].endswith(".tm.port.sched_shaping")), None)
-            config = next((table["name"] for table in self.p4_helper.tables if table["name"].endswith(".tm.port.sched_cfg")), None)
-            if (has_fields(self.p4_helper, shape, {"unit", "max_rate", "max_burst_size"})
-                    and has_fields(self.p4_helper, config, {"max_rate_enable"})):
+        if helper:
+            shape = next((table["name"] for table in helper.tables if table["name"].endswith(".tm.port.sched_shaping")), None)
+            config = next((table["name"] for table in helper.tables if table["name"].endswith(".tm.port.sched_cfg")), None)
+            if (has_fields(helper, shape, {"unit", "max_rate", "max_burst_size"})
+                    and has_fields(helper, config, {"max_rate_enable"})):
                 supported["queues"] = {"read": True, "write": True, "source": "bfrt", "scope": "port",
                                        "rate_pps": True, "burst_packets": True, "depth_packets": False,
                                        "all_ports": False, "rate_readback": "hardware_quantized"}
@@ -197,6 +208,8 @@ class TofinoTarget:
         originals = self.client.read([selector])
         # Preserve the current meter configuration when a table action/key
         # changes. Counter values remain untouched for action-only MODIFY.
+        if old.entry == new.entry and not getattr(new, "deleted", False):
+            return
         if originals:
             from .bfrt_metadata import fields
             meter_ids = {field["id"] for field in fields(old.table.get("data", [])) if field["name"].startswith("$METER_SPEC_")}
@@ -214,7 +227,19 @@ class TofinoTarget:
                 self.write_table_entry(new)
             except Exception as error:
                 try:
-                    self.client.write(originals or [old.entry], pb.Update.INSERT)
+                    from .bfrt_metadata import fields
+                    restored = []
+                    for original in originals or [old.entry]:
+                        copy = pb.TableEntry.FromString(original.SerializeToString())
+                        action = next((item for item in old.table.get("action_specs", []) if item["id"] == copy.data.action_id), {})
+                        readonly = {field["id"] for field in fields(old.table.get("data", [])) + fields(action.get("data", [])) if field.get("read_only")}
+                        writable = [field for field in copy.data.fields if field.field_id not in readonly]
+                        del copy.data.fields[:]
+                        copy.data.fields.extend(writable)
+                        copy.ClearField("table_flags")
+                        copy.ClearField("entry_tgt")
+                        restored.append(copy)
+                    self.client.write(restored, pb.Update.INSERT)
                 except Exception as restore_error:
                     raise RuntimeError(f"{error}; restoring original entry also failed: {restore_error}") from error
                 raise
@@ -226,24 +251,25 @@ class TofinoTarget:
     def reset_direct_counter(self, table_id, table_entry=None): return self.resources.reset_direct(table_id, table_entry)
 
     def manager(self, kind):
-        self.require_initialized()
-        if kind not in self._managers:
-            from .bfrt_fixed import BfRtMirrors, BfRtMulticast, BfRtPortQueues
-            capability = self.capabilities().get(kind, {})
-            if kind == "digests":
-                manager = BfRtDigests(self)
-            elif kind == "queues":
-                manager = BfRtPortQueues(self) if capability.get("read") else BfRtQueues(self)
-            elif not capability.get("read"):
-                unsupported(capability.get("reason", "Resource is unavailable on this target"))
-            elif kind == "mirrors":
-                manager = BfRtMirrors(self)
-            elif kind == "multicast":
-                manager = BfRtMulticast(self)
-            else:
-                raise ValueError("Unknown resource manager: " + kind)
-            self._managers[kind] = manager
-        return self._managers[kind]
+        with self.operation_lock:
+            self.require_initialized()
+            if kind not in self._managers:
+                from .bfrt_fixed import BfRtMirrors, BfRtMulticast, BfRtPortQueues
+                capability = self.capabilities().get(kind, {})
+                if kind == "digests":
+                    manager = BfRtDigests(self)
+                elif kind == "queues":
+                    manager = BfRtPortQueues(self) if capability.get("read") else BfRtQueues(self)
+                elif not capability.get("read"):
+                    unsupported(capability.get("reason", "Resource is unavailable on this target"))
+                elif kind == "mirrors":
+                    manager = BfRtMirrors(self)
+                elif kind == "multicast":
+                    manager = BfRtMulticast(self)
+                else:
+                    raise ValueError("Unknown resource manager: " + kind)
+                self._managers[kind] = manager
+            return self._managers[kind]
 
 
 class BfRtDigests:

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Full native browser integration with disposable state and a pinned public lab.
 set -euo pipefail
+export BUILDX_BUILDER=default
 cd "$(dirname "$0")/.."
 compose=(docker compose -p "${E2E_PROJECT:-unicorn-tofino-integration}" -f docker/docker-compose.test.yaml -f docker/docker-compose.tofino.test.yaml)
 export E2E_UI_PORT="${E2E_UI_PORT:-3002}"

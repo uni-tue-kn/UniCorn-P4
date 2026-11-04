@@ -1,7 +1,7 @@
 import grpc
 from flask import request
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from .resources import rpc_error
 from controller.managers.DigestManager import DigestManager
 from controller.managers.ResourceManager import integer
@@ -61,6 +61,8 @@ class DigestEvents(Endpoint):
             return {'error': str(error)}, 400
         except RuntimeError as error:
             return {'error': str(error)}, 409
+        except grpc.RpcError as error:
+            return rpc_error(error, write=clear)
 
     def get(self):
         return self.dispatch()

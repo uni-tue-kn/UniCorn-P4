@@ -62,6 +62,10 @@ def validate_bundle_scope(bundle, pipe_id):
             raise ValueError(f"Program profile pipe_scope must match the selected connection pipe [{pipe_id}]")
 
 
+class NoProgramLoaded(RuntimeError):
+    pass
+
+
 class BfRtClient:
     def __init__(self, address, device_id=0, client_id=0, pipe_id=0, timeout=15, read_only=False):
         if not isinstance(read_only, bool):
@@ -95,26 +99,36 @@ class BfRtClient:
         self.state_lock = Lock()
 
     def connect(self):
-        self.channel = grpc.insecure_channel(self.address, options=[("grpc.max_receive_message_length", 128 * 1024 * 1024)])
-        grpc.channel_ready_future(self.channel).result(timeout=self.timeout)
-        self.stub = bfruntime_pb2_grpc.BfRuntimeStub(self.channel)
-        if self.read_only:
-            return
+        self.close()
         with self.state_lock:
-            self.generation += 1
-            generation, requests, subscribed = self.generation, self.requests, self.subscribed
-        self.stream = self.stub.StreamChannel(self._request_stream(requests))
-        self.thread = Thread(target=self._receive, args=(self.stream, subscribed, generation),
-                             name="unicorn-bfrt-stream", daemon=True)
-        self.thread.start()
-        request = pb.StreamMessageRequest(client_id=self.client_id)
-        request.subscribe.device_id = self.device_id
-        request.subscribe.notifications.enable_learn_notifications = True
-        requests.put(request)
-        if not subscribed.wait(self.timeout):
-            raise RuntimeError("BF Runtime subscription timed out")
-        if self.stream_error:
-            raise self.stream_error
+            self.requests, self.subscribed = Queue(), Event()
+            self.stream_error, self.closed = None, False
+        channel = grpc.insecure_channel(self.address, options=[("grpc.max_receive_message_length", 128 * 1024 * 1024)])
+        try:
+            grpc.channel_ready_future(channel).result(timeout=self.timeout)
+            self.channel = channel
+            self.stub = bfruntime_pb2_grpc.BfRuntimeStub(channel)
+            if self.read_only:
+                return
+            with self.state_lock:
+                self.generation += 1
+                generation, requests, subscribed = self.generation, self.requests, self.subscribed
+            self.stream = self.stub.StreamChannel(self._request_stream(requests))
+            self.thread = Thread(target=self._receive, args=(self.stream, subscribed, generation),
+                                 name="unicorn-bfrt-stream", daemon=True)
+            self.thread.start()
+            request = pb.StreamMessageRequest(client_id=self.client_id)
+            request.subscribe.device_id = self.device_id
+            request.subscribe.notifications.enable_learn_notifications = True
+            requests.put(request)
+            if not subscribed.wait(self.timeout):
+                raise RuntimeError("BF Runtime subscription timed out")
+            if self.stream_error:
+                raise self.stream_error
+        except BaseException:
+            channel.close()
+            self.close()
+            raise
 
     def _request_stream(self, requests=None):
         requests = self.requests if requests is None else requests
@@ -181,11 +195,14 @@ class BfRtClient:
         thread = getattr(self, "thread", None)
         if thread:
             thread.join(timeout=2)
+        self.channel, self.stub, self.stream, self.thread = None, None, None, None
 
     def discover(self, program_name=None):
         result = self.stub.GetForwardingPipelineConfig(pb.GetForwardingPipelineConfigRequest(
             device_id=self.device_id, client_id=self.client_id), timeout=self.timeout)
         programs = list(result.config)
+        if not programs:
+            raise NoProgramLoaded("No BF Runtime program is loaded")
         if program_name is not None:
             programs = [program for program in programs if program.p4_name == program_name]
         if len(programs) != 1:
@@ -268,7 +285,7 @@ class BfRtClient:
             entry.entry_tgt.CopyFrom(self.target())
             entry.entry_tgt.pipe_id = 0xffff
 
-    def initialize_bundle(self, bundle):
+    def initialize_bundle(self, bundle, on_send=None):
         self.ensure_writable()
         validate_bundle_scope(bundle, self.pipe_id)
         from pathlib import Path
@@ -282,6 +299,10 @@ class BfRtClient:
         for profile in bundle["profiles"]:
             config.profiles.add(profile_name=profile["profile_name"], context=Path(profile["context"]).read_bytes(),
                                 binary=Path(profile["binary"]).read_bytes(), pipe_scope=profile["pipe_scope"])
+        if self.stub is None:
+            self.connect()
+        if on_send is not None:
+            on_send()
         self.stub.SetForwardingPipelineConfig(request, timeout=max(self.timeout, 60))
         # Replacing a program cancels every stream bound to a removed program
         # in the official BF-RT server. Its RPC may return before that stream

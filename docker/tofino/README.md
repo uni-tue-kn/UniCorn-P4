@@ -38,7 +38,9 @@ After the standard release, dispatch **Publish optional Tofino release images**
 from `main` with its stable release tag. The pinned public SDK is the default.
 The workflow validates actual model packets and externs before publishing
 versioned images and promoting `latest`. The deployment archive contains a
-pull-only Compose override. See [native tests](../../tests/tofino/README.md).
+pull-only Compose override. Its frontend image is an alias of the same release's
+standard UI, promoted together with the Tofino images so `latest` versions stay
+aligned. See [native tests](../../tests/tofino/README.md).
 
 ## Optional SDK source build
 

@@ -803,7 +803,7 @@ test('external stock BMv2 keeps MATs available and enables registers only with t
     await page.getByRole('tab', { name: 'ExternalBMv2', exact: true }).click();
     await page.getByRole('button', { name: 'Registers', exact: true }).click();
     await page.getByRole('link', { name: register, exact: true }).click();
-    await expect(page.getByText(/Check the switch connection settings or select another resource/)).toBeVisible();
+    await expect(page.getByText(/enable the register adapter and configure its Thrift host and port/)).toBeVisible();
 
     await json(await request.delete('/api/switches/active', { data: { device_id: externalId } }));
     await connect({ ...connection, register_thrift_host: '127.0.0.1', register_thrift_port: 59090 });

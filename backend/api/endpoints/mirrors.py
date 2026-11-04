@@ -1,7 +1,7 @@
 import grpc
 from flask import request
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from .resources import rpc_error
 from controller.managers.MirrorManager import MirrorManager
 from controller.managers.ResourceManager import integer
@@ -27,6 +27,8 @@ class Mirrors(Endpoint):
             return {"error": str(error)}, 400
         except grpc.RpcError as error:
             return rpc_error(error, write=update_type is not None)
+        except RuntimeError as error:
+            return {"error": str(error)}, 409
 
     def get(self):
         return self.dispatch()

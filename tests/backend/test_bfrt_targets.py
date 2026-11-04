@@ -348,7 +348,10 @@ def test_pipeline_reload_resubscribes_before_binding_removed_program(tmp_path):
 
 
 def test_failed_pipeline_reload_invalidates_previous_metadata(native):
-    native.client.initialize_bundle.side_effect = RuntimeError('warm reload failed')
+    def fail(_bundle, on_send):
+        on_send()
+        raise RuntimeError('warm reload failed')
+    native.client.initialize_bundle.side_effect = fail
     with pytest.raises(RuntimeError): native.initialize_bundle({'target': 'tofino', 'profiles': [{'pipe_scope': [0]}]})
     assert native.p4_helper is None
     assert native.get_loaded_config()['table_info'] is None

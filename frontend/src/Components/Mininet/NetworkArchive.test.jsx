@@ -230,3 +230,37 @@ it('reports uncaptured queue settings as an import warning without claiming depl
   expect(screen.getByText('queues: unavailable')).toBeVisible();
   expect(mocks.publish).toHaveBeenCalledWith(preview.topology);
 });
+
+it('keeps monitoring a native import after network and gateway polling failures', async () => {
+  const native = { ...preview, switches: [{ ...preview.switches[0], target: 'tofino' }] };
+  axios.post.mockResolvedValueOnce({ data: { preview: native, import_token: 'native-token' } });
+  axios.post.mockResolvedValueOnce({ status: 202, data: { status: 'running' } });
+  axios.get.mockRejectedValueOnce(new Error('network unavailable'));
+  axios.get.mockRejectedValueOnce({ response: { status: 502, data: { error: 'gateway unavailable' } } });
+  axios.get.mockResolvedValueOnce({ data: { status: 'complete', result: { status: 'complete', topology: preview.topology, switches: [] } } });
+  const user = userEvent.setup();
+  renderArchive();
+  await user.upload(screen.getByLabelText('Import network archive'), new File(['zip'], 'native.zip', { type: 'application/zip' }));
+  await screen.findByRole('table', { name: 'Switches in network bundle' });
+  await user.click(screen.getByRole('button', { name: 'Import and deploy' }));
+  await screen.findByText('Connection interrupted; checking import progress again…', {}, { timeout: 3000 });
+  await screen.findByText('Network imported successfully.', {}, { timeout: 6000 });
+  expect(axios.get).toHaveBeenCalledTimes(3);
+  expect(axios.post).toHaveBeenCalledTimes(2);
+  expect(mocks.release).toHaveBeenCalled();
+});
+
+it('reports a missing native import job immediately instead of retrying it', async () => {
+  const native = { ...preview, switches: [{ ...preview.switches[0], target: 'tofino' }] };
+  axios.post.mockResolvedValueOnce({ data: { preview: native, import_token: 'expired' } });
+  axios.post.mockResolvedValueOnce({ status: 202, data: { status: 'running' } });
+  axios.get.mockRejectedValueOnce({ response: { status: 404, data: { error: 'Import job expired' } } });
+  const user = userEvent.setup();
+  renderArchive();
+  await user.upload(screen.getByLabelText('Import network archive'), new File(['zip'], 'native.zip', { type: 'application/zip' }));
+  await screen.findByRole('table', { name: 'Switches in network bundle' });
+  await user.click(screen.getByRole('button', { name: 'Import and deploy' }));
+  await screen.findByText('Import job expired', {}, { timeout: 3000 });
+  expect(axios.get).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Import and deploy' })).toBeEnabled();
+});

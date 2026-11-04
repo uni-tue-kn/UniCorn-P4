@@ -31,6 +31,7 @@ from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.link import TCLink, Intf
 from mininet.cli import CLI
+from mininet.util import natural
 
 RESERVED_EXTERNAL_INTERFACES = {"lo"}
 
@@ -388,9 +389,12 @@ class MininetRunner:
             self.program_hosts()
             self.interface_mapping = self.build_interface_mapping()
             self.deployment = {'status': 'ready', 'switches': {name: 'ready' for name in self.switches}}
-        except Exception as failure:
+        except BaseException as failure:
             phases = dict(self.deployment['switches'])
-            self.destroy_topology()
+            try:
+                self.destroy_topology()
+            except Exception as cleanup:
+                failure.add_note('Network cleanup failed: ' + str(cleanup))
             self.deployment = {'status': 'failed', 'error': str(failure), 'switches': phases}
             raise
 
@@ -522,7 +526,8 @@ class MininetRunner:
         self.logger("Building mininet topology.")
 
         switch_classes = {}
-        for index, (name, properties) in enumerate(self.switches.items()):
+        for index, name in enumerate(sorted(self.switches, key=natural)):
+            properties = self.switches[name]
             if properties.get('target', 'bmv2') == 'tofino':
                 options = dict(device_id=index, grpc_port=51051 + index,
                                model_port_base=18000 + index * 16, status_port=17000 + index,

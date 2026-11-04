@@ -124,7 +124,9 @@ export default function ResourceContent({ kind, resource, resourceName }) {
   return <Box>
     <Typography variant="h5" gutterBottom sx={{ overflowWrap: 'anywhere' }}>{resourceName}</Typography>
     <Typography color="text.secondary" sx={{ mb: 2 }}>{kind === 'registers' ? `${registerFields(displayedResource).length > 1 ? `${registerFields(displayedResource).length} fields` : `${registerKind}<${registerType.bitwidth || resource.bitwidth || '?'}>`} · ${resource.size} cells` : `${direct ? 'Direct meter' : `${resource.size} meters`} · ${meterUnit(resource)}`}</Typography>
-    {(declaredUnsupported || targetUnsupported) && <Alert severity="info" sx={{ mb: 2 }}>This resource operation is unavailable. Check the switch connection settings or select another resource.</Alert>}
+    {(declaredUnsupported || targetUnsupported) && <Alert severity="info" sx={{ mb: 2 }}>{kind === 'registers' && initializedFiles?.target !== 'tofino'
+      ? 'Register access is unavailable. For an external switch, enable the register adapter and configure its Thrift host and port in the connection settings.'
+      : capability?.reason || 'This resource operation is unavailable. Check the switch connection settings or select another resource.'}</Alert>}
     {capability?.write === false && !declaredUnsupported && <Alert severity="info" sx={{ mb: 2 }}>This resource is available for reading. Changes are unavailable on this switch.</Alert>}
     <Paper sx={{ p: { xs: 2, md: 3 } }}>
       <Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'flex-start', flexWrap: 'wrap' }} useFlexGap>

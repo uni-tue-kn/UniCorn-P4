@@ -294,6 +294,32 @@ describe('Save & Compile', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('recovers transient compilation poll failures without losing the job', async () => {
+    await start();
+    await call('openFile', 'main.p4');
+    const originalGet = axios.get.getMockImplementation();
+    let polls = 0;
+    axios.get.mockImplementation((url, options) => {
+      if (!url.startsWith('/compile/jobs/')) return originalGet(url, options);
+      expect(options.timeout).toBeGreaterThan(0);
+      expect(options.timeout).toBeLessThanOrEqual(15000);
+      polls++;
+      if (polls === 1) return Promise.reject({ message: 'Network Error' });
+      if (polls === 2) return Promise.reject({ response: { status: 502 } });
+      return Promise.resolve({ data: { status: 'complete', result: { stdout: 'Program built', stderr: '', command: [] } } });
+    });
+    axios.post.mockResolvedValueOnce({ status: 202, data: { job_id: 'resilient' } });
+    vi.useFakeTimers();
+    try {
+      let compilation;
+      await act(async () => { compilation = editor.compile(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); await compilation; });
+      expect(polls).toBe(3);
+      expect(editor.compileStatus).toBe('success');
+      expect(editor.output).toContain('Program built');
+    } finally { vi.useRealTimers(); }
+  });
+
   it('reports a failed compilation job without losing saved buffers', async () => {
     await start();
     await call('openFile', 'main.p4');

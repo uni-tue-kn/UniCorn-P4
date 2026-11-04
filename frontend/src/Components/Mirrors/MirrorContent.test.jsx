@@ -95,3 +95,12 @@ it('reads existing observer entries and disables add, edit and delete', async ()
   expect(axios.patch).not.toHaveBeenCalled();
   expect(axios.delete).not.toHaveBeenCalled();
 });
+
+it('explains unavailable mirror support without claiming read access or issuing a request', async () => {
+  context.initializedFiles = { capabilities: { mirrors: { read: false, write: false, reason: 'Mirror metadata is unavailable' } } };
+  render(<MirrorContent />);
+  expect(screen.getByRole('alert')).toHaveTextContent('Mirror metadata is unavailable');
+  expect(screen.queryByText(/This connection allows reading/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Add mirror session' })).not.toBeInTheDocument();
+  expect(axios.get).not.toHaveBeenCalled();
+});

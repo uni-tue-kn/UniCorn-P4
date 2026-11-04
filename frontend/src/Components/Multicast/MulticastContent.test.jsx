@@ -100,3 +100,12 @@ it('reads existing observer entries and disables add, edit and delete', async ()
   expect(axios.patch).not.toHaveBeenCalled();
   expect(axios.delete).not.toHaveBeenCalled();
 });
+
+it('explains unavailable multicast support without claiming read access or issuing a request', async () => {
+  context.initializedFiles = { capabilities: { multicast: { read: false, write: false, reason: 'PRE metadata is unavailable' } } };
+  render(<MulticastContent />);
+  expect(screen.getByRole('alert')).toHaveTextContent('PRE metadata is unavailable');
+  expect(screen.queryByText(/This connection allows reading/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Add multicast group' })).not.toBeInTheDocument();
+  expect(axios.get).not.toHaveBeenCalled();
+});

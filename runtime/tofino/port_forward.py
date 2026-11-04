@@ -5,6 +5,7 @@ import os
 import signal
 import socket
 import threading
+from pathlib import Path
 
 
 def endpoint(value):
@@ -54,12 +55,15 @@ def main():
     parser.add_argument('--listen', required=True)
     parser.add_argument('--netns-pid', required=True, type=int)
     parser.add_argument('--upstream', required=True)
+    parser.add_argument('--ready-file')
     args = parser.parse_args()
     target_fd = os.open(f'/proc/{args.netns_pid}/ns/net', os.O_RDONLY)
     listener = socket.socket()
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(endpoint(args.listen))
     listener.listen(64)
+    if args.ready_file:
+        Path(args.ready_file).write_text(str(os.getpid()))
     listener.settimeout(0.5)
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())

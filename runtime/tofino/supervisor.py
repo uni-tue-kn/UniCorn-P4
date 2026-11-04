@@ -59,6 +59,22 @@ def device_ready(port):
         return False
 
 
+def trim_log(path, limit=8 * 1024 * 1024):
+    """Keep recent diagnostics while append-mode writers retain their handles."""
+    try:
+        with Path(path).open("r+b") as log:
+            if log.seek(0, os.SEEK_END) <= limit:
+                return
+            log.seek(-limit // 2, os.SEEK_END)
+            tail = log.read()
+            log.seek(0)
+            log.write(tail)
+            log.truncate()
+    except OSError:
+        # A missing or unwritable log must not stop forwarding.
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True)
@@ -71,6 +87,7 @@ def main():
     parser.add_argument("--status-port", type=int, required=True)
     parser.add_argument("--cli-port", type=int)
     parser.add_argument("--startup-timeout", type=float, default=180)
+    parser.add_argument("--switch-log")
     args = parser.parse_args()
     install = Path(os.environ.get("SDE_INSTALL", "/opt/open-p4studio/install")).resolve()
     check_available(args.bundle, install)
@@ -128,7 +145,7 @@ def main():
                       "--conf-file", str(conf), "--tcp-port-base", str(args.model_port_base),
                       "--bfrt-grpc-port", str(args.bfrt_port), "--status-port", str(args.status_port)])]
         for name, command in commands:
-            log = (work / f"{name}.log").open("wb")
+            log = (work / f"{name}.log").open("ab")
             logs.append(log)
             proc = subprocess.Popen(command, cwd=work, env=env, stdin=subprocess.DEVNULL,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -139,6 +156,7 @@ def main():
                 # Do not probe the model register socket: it accepts exactly its driver.
                 time.sleep(0.5)
         deadline = time.monotonic() + args.startup_timeout
+        next_log_check = 0
         while not stopping:
             for proc in processes:
                 if proc.poll() is not None:
@@ -149,6 +167,11 @@ def main():
                     publish()
                 elif time.monotonic() > deadline:
                     raise TimeoutError(f"Tofino initialization exceeded {args.startup_timeout}s; inspect {work}")
+            if time.monotonic() >= next_log_check:
+                for path in (work / "model.log", work / "switchd.log", args.switch_log):
+                    if path:
+                        trim_log(path)
+                next_log_check = time.monotonic() + 1
             time.sleep(0.2)
     except Exception as error:
         state.update(status="error", error=str(error))

@@ -120,8 +120,9 @@ class WebsocketManager:
         if not isinstance(message, dict):
             return
         target = message.get("target")
-        with self.mn_runner.lifecycle_lock:
-            cli = self.clis.get(target) if isinstance(target, str) else None
+        # Deployment closes adapters before replacing nodes. Do not queue input
+        # behind model startup: a closed/missing adapter reports unavailable.
+        cli = self.clis.get(target) if isinstance(target, str) else None
         if cli is None:
             self.socket.emit("response", json.dumps({"name": target,
                 "data": "Terminal is unavailable. Load a topology first.\n"}))

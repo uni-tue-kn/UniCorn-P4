@@ -135,9 +135,10 @@ def test_optional_builds_reuse_pinned_sdk_and_matching_versioned_bases(shell):
     result = run(shell, 'build-tofino-release.sh')
     assert result.returncode == 0, result.stderr
     recorded = calls(shell)
-    assert recorded[:3] == [['docker', 'pull', image] for image in (
-        'unituekn/unicornp4-backend:1.2.0', 'unituekn/unicornp4-netsim:1.2.0', SDK)]
-    for call, target, component in zip(recorded[3:], ('compiler', 'runtime', 'backend'), ('compiler', 'netsim', 'backend')):
+    assert recorded[:4] == [['docker', 'pull', image] for image in (
+        'unituekn/unicornp4-backend:1.2.0', 'unituekn/unicornp4-netsim:1.2.0', 'unituekn/unicornp4-frontend:1.2.0', SDK)]
+    assert recorded[-1] == ['docker', 'tag', 'unituekn/unicornp4-frontend:1.2.0', 'unituekn/unicornp4-frontend-tofino:1.2.0']
+    for call, target, component in zip(recorded[4:-1], ('compiler', 'runtime', 'backend'), ('compiler', 'netsim', 'backend')):
         assert call[:6] == ['docker', 'buildx', 'build', '--builder', 'default', '--load']
         assert call[call.index('--target') + 1] == target
         assert f'SDK_IMAGE={SDK}' in call
@@ -157,7 +158,7 @@ def test_tofino_tags_follow_standard_no_downgrade_policy(shell, current, promote
     result = run(shell, 'publish-images.sh', IMAGE_FAMILY='tofino', CURRENT_VERSION=current)
     assert result.returncode == 0, result.stderr
     recorded = [call for call in calls(shell) if call[0] == 'docker']
-    images = [f'unituekn/unicornp4-{component}-tofino' for component in ('backend', 'netsim', 'compiler')]
+    images = [f'unituekn/unicornp4-{component}-tofino' for component in ('backend', 'netsim', 'compiler', 'frontend')]
     expected = [['docker', 'push', f'{image}:1.2.0'] for image in images]
     if promote:
         expected += [['docker', 'buildx', 'imagetools', 'create', '--tag', f'{image}:latest', f'{image}:1.2.0'] for image in images]

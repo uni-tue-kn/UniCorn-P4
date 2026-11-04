@@ -54,6 +54,8 @@ def tofino_compose():
     """Pull-only override for the deployment archive, not a source build."""
     return '''# Optional native model; combine with docker-compose.yaml on Linux x64.
 services:
+  unicornp4-frontend:
+    image: unituekn/unicornp4-frontend-tofino:latest
   unicornp4-backend:
     image: unituekn/unicornp4-backend-tofino:latest
     environment:
@@ -63,6 +65,7 @@ services:
     volumes:
       - ./p4-files:/p4
   unicornp4-compiler:
+    init: true
     image: unituekn/unicornp4-compiler-tofino:latest
     command: [python3, -m, runtime.tofino.compiler_service, --host, 127.0.0.1, --port, '8080']
     network_mode: host

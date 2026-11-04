@@ -3,11 +3,17 @@ import json
 from copy import deepcopy
 
 from ..managers.ResourceManager import integer
-from .bfrt_metadata import fields, encode_fields, decode_fields, encode_bytes, decode_bytes, field_type
+from .bfrt_metadata import fields, encode_fields, decode_fields, encode_bytes, decode_bytes, field_type, number
 from .bfrt_proto import bfruntime_pb2 as pb
 
 
-def encode_key(table, values, priority=None, default=False):
+def priority_limit(field):
+    # The pinned pipe manager reserves the upper byte for independent TCAM
+    # groups, not precedence. Invert only its 24-bit priority component.
+    return 1 << min(24, field_type(field).get("bitwidth", 32))
+
+
+def encode_key(table, values, priority=None, default=False, priority_group=0):
     if not isinstance(values, dict):
         raise ValueError("match_fields must contain a JSON object")
     definitions = {field["name"]: field for field in table.get("key", [])}
@@ -18,8 +24,14 @@ def encode_key(table, values, priority=None, default=False):
     result = pb.TableKey()
     for name, field in definitions.items():
         if name == "$MATCH_PRIORITY":
-            if priority is not None:
-                result.fields.add(field_id=field["id"]).exact.value = encode_bytes(priority, field)
+            if not default and priority is not None:
+                # BF-RT's smaller-first order is inverted at the API boundary;
+                # the shared UI always uses larger-first positive priorities.
+                limit = priority_limit(field)
+                value = limit - integer(priority, "priority", minimum=1, maximum=limit)
+                group_max = ((1 << field_type(field).get("bitwidth", 32)) - 1) // limit
+                value += integer(priority_group, "priority group", maximum=group_max) * limit
+                result.fields.add(field_id=field["id"]).exact.value = encode_bytes(value, field)
             continue
         if name not in values:
             if not default and field.get("match_type") == "Exact":
@@ -47,7 +59,7 @@ def encode_key(table, values, priority=None, default=False):
                 key.ternary.value, key.ternary.mask = encode_bytes(numeric, field), mask
             else:
                 key.range.low, key.range.high = encode_bytes(value[0], field), encode_bytes(value[1], field)
-                if key.range.low > key.range.high:
+                if number(value[0], field) > number(value[1], field):
                     raise ValueError("Range lower bound exceeds upper bound")
         else:
             raise ValueError("Unsupported BF-RT match type: " + kind)
@@ -62,7 +74,8 @@ def decode_key(table, key):
         kind = item.WhichOneof("match_type")
         body = getattr(item, kind)
         if field["name"] == "$MATCH_PRIORITY":
-            priority = int.from_bytes(body.value, "big")
+            limit = priority_limit(field)
+            priority = limit - (int.from_bytes(body.value, "big") % limit)
             continue
         if kind in ("exact", "optional"):
             if kind == "optional" and not body.is_valid:
@@ -95,7 +108,8 @@ class BfRtTableEntry:
         table = helper.table(value["table_name"])
         self.table = table
         self.entry = pb.TableEntry(table_id=table["id"], is_default_entry=value.get("is_default_action", False))
-        self.entry.key.CopyFrom(encode_key(table, value.get("match_fields", {}), value.get("priority"), self.entry.is_default_entry))
+        self.entry.key.CopyFrom(encode_key(table, value.get("match_fields", {}), value.get("priority"), self.entry.is_default_entry,
+                                          value.get("_priority_group", 0)))
         action_name = value.get("action_name")
         params = value.get("action_params") or {}
         if action_name:
@@ -142,6 +156,14 @@ class BfRtTableEntry:
         data = {"table_name": self.table["name"], "match_fields": match, "priority": priority,
                 "is_default_action": self.entry.is_default_entry, "action_name": action["name"] if action else None,
                 "action_params": {name: value for name, value in values.items() if name in action_names}}
+        # Preserve external TCAM groups through edits and saved state without
+        # exposing driver-specific grouping as a normal table control.
+        priority_field = next((field for field in self.table.get("key", []) if field["name"] == "$MATCH_PRIORITY"), None)
+        if priority_field:
+            native = next((field for field in self.entry.key.fields if field.field_id == priority_field["id"]), None)
+            group = int.from_bytes(native.exact.value, "big") // priority_limit(priority_field) if native else 0
+            if group:
+                data["_priority_group"] = group
         direct = {name: value for name, value in values.items() if name not in action_names
                   and not name.startswith(("$COUNTER_SPEC_", "$METER_SPEC_"))}
         if direct:

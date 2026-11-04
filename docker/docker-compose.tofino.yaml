@@ -23,6 +23,7 @@ services:
       - ./p4-files:/p4
 
   unicornp4-compiler:
+    init: true
     image: unicornp4-compiler-tofino:local
     build:
       context: ../

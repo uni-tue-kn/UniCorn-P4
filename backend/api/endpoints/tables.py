@@ -4,7 +4,7 @@ import json
 import grpc
 from controller.managers.SwitchManager import table_entry_key
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from ..database.TableStates import *
 
 # Operations on the currently initialized p4 program 

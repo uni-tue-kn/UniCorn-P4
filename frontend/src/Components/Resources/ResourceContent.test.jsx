@@ -118,7 +118,7 @@ describe('indexed resources', () => {
     axios.get.mockRejectedValue({ response: { status: 501, data: { error: 'Register access unsupported by target' } } });
     render(<ResourceContent kind="registers" resource={register} resourceName="state" />);
     expect(await screen.findByText('Register access unsupported by target')).toBeVisible();
-    expect(screen.getByText(/Check the switch connection settings/)).toBeVisible();
+    expect(screen.getByText(/enable the register adapter and configure its Thrift host and port/)).toBeVisible();
   });
 
   it('shows per-switch unsupported capability without repeatedly querying a stock target', async () => {
@@ -229,4 +229,16 @@ describe('indexed resources', () => {
     expect(await screen.findByText('Reset complete')).toBeVisible();
     expect(screen.getAllByText('Unconfigured — always green')).toHaveLength(2);
   });
+});
+
+it.each([[undefined, []], ['7', ['7']]])('edits a repeated field safely when the target returns a non-array value %s', async (value, initial) => {
+  const user = userEvent.setup();
+  const fields = [{ name: 'samples', type: { kind: 'uint32', bitwidth: 32, repeated: true } }];
+  axios.get.mockResolvedValue({ data: { total: 1, fields, entries: [{ index: 0, value }] } });
+  render(<ResourceContent kind="registers" resource={{ id: 3, size: 1, fields }} resourceName="samples" />);
+  await screen.findByTestId('value-0');
+  await user.click(screen.getByRole('button', { name: 'Edit' }));
+  await user.click(screen.getByRole('button', { name: 'Add samples value' }));
+  await user.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(axios.patch).toHaveBeenCalledWith('/registers', { switch_id: 0, register_id: 3, entries: [{ index: 0, value: [...initial, '0'] }] }));
 });

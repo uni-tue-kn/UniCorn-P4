@@ -212,9 +212,9 @@ def test_archive_matches_deployment_layout_and_excludes_private_state(repo, tmp_
         assert 'context:' not in deployment
         assert ':1.2.0' not in deployment
         native = archive.extractfile('UniCorn-P4/docker-compose.tofino.yaml').read().decode()
-        for component in ('backend', 'netsim', 'compiler'):
+        for component in ('backend', 'netsim', 'compiler', 'frontend'):
             assert f'image: unituekn/unicornp4-{component}-tofino:latest' in native
-        assert native.count(':latest') == 3
+        assert native.count(':latest') == 4
         assert 'build:' not in native and 'context:' not in native and '../' not in native
         assert 'TOFINO_COMPILER_URL: http://127.0.0.1:8080' in native
         assert '--host, 127.0.0.1' in native

@@ -2,7 +2,7 @@ from flask import request
 import grpc
 from .resources import rpc_error
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from controller.managers.QueueManager import QueueManager, QueueApplyError, QueueEndpointRequired
 from controller.managers.ResourceManager import integer
 
@@ -33,6 +33,8 @@ class Queues(Endpoint):
             return {**manager.snapshot(discover=False), 'error': str(error), 'code': 'UNIMPLEMENTED' if error.unsupported else 'THRIFT_ERROR',
                     'applied': error.applied, 'failed_setting': error.failed_setting,
                     'uncertain': error.uncertain}, 501 if error.unsupported else 503
+        except RuntimeError as error:
+            return {'error': str(error)}, 409
 
     def get(self):
         return self.dispatch()

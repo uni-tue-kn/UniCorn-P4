@@ -1,6 +1,6 @@
 """Portable, bounded network snapshots. Import validation never contacts targets."""
 from collections import defaultdict
-from contextlib import nullcontext
+from contextlib import nullcontext, ExitStack
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 import uuid
 import zipfile
 
@@ -29,7 +30,7 @@ from controller.p4.v1 import p4runtime_pb2 as pb
 from controller.utils.helper import P4InfoHelper
 from unicorn_version import local_version
 from .topology_schema import validate_topology, validate_deployable_topology
-from .program_builds import INCLUDE_PATTERN as _INCLUDE, TOFINO_SYSTEM_HEADERS, sdk_header
+from .program_builds import INCLUDE_PATTERN as _INCLUDE, TOFINO_SYSTEM_HEADERS, sdk_header, program_root
 from .endpoints.switch_config import normalize_adapter_config
 
 
@@ -307,6 +308,11 @@ def sanitize_dependencies(entities, categories, info):
 
 
 def capture_native(switch, files, prefix, deadline):
+    with getattr(switch, 'operation_lock', None) or nullcontext():
+        return _capture_native(switch, files, prefix, deadline)
+
+
+def _capture_native(switch, files, prefix, deadline):
     """Add a portable native manifest using the existing archive categories."""
     from controller.targets.bfrt_proto import bfruntime_pb2 as native
     from controller.targets.bfrt_metadata import fields
@@ -331,8 +337,17 @@ def capture_native(switch, files, prefix, deadline):
     frozen = Path(path).parent / 'source'
     if frozen.is_dir():
         sources = list(frozen.rglob('*.p4'))
-        original = Path(bundle.get('source', '')).name
-        candidate = next((item for item in sources if item.name == original), sources[0] if len(sources) == 1 else None)
+        original = Path(bundle['source']) if bundle.get('source') else None
+        candidate = None
+        if original is not None:
+            if original.is_absolute() and original.is_relative_to(program_root()):
+                candidate = frozen / original.relative_to(program_root())
+            elif not original.is_absolute():
+                candidate = Path(path).parent / original
+        elif len(sources) == 1:
+            candidate = sources[0]
+        if candidate is not None and (not candidate.is_file() or not candidate.resolve().is_relative_to(frozen.resolve())):
+            candidate = None
         if candidate:
             closure = source_closure(candidate, frozen.resolve(), prefix + '/source', [])
             files.update(closure)
@@ -368,6 +383,11 @@ def capture_native(switch, files, prefix, deadline):
             table_type = {'registers': 'Register', 'counters': 'Counter', 'meters': 'Meter'}[category]
             tables = [table for table in switch.p4_helper.tables if table.get('table_type') == table_type]
         for table in tables:
+            if table.get('table_type', '').startswith('MatchAction_Indirect'):
+                message = 'Action-profile/selector state cannot yet be restored; dependent entries were omitted'
+                if message not in categories[category]['errors']:
+                    categories[category]['errors'].append(message)
+                continue
             definitions = fields(table.get('data', []))
             if category.startswith('direct_'):
                 prefix_field = '$COUNTER_SPEC_' if category == 'direct_counters' else '$METER_SPEC_'
@@ -464,6 +484,13 @@ def capture_native(switch, files, prefix, deadline):
 
 
 def validate_native(record, pipeline, files):
+    try:
+        return _validate_native(record, pipeline, files)
+    except (json_format.ParseError, KeyError, AttributeError, TypeError, IndexError) as error:
+        raise ValueError('Malformed native network snapshot: ' + str(error)) from error
+
+
+def _validate_native(record, pipeline, files):
     from types import SimpleNamespace
     from controller.targets.bfrt_proto import bfruntime_pb2 as native
     from controller.targets.bfrt_metadata import BfRtMetadata, fields, encode_fields, decode_fields
@@ -477,7 +504,7 @@ def validate_native(record, pipeline, files):
     if not isinstance(manifest_path, str) or manifest_path not in files or not manifest_path.startswith(prefix):
         raise ValueError('Native pipeline manifest is missing from its switch program')
     with tempfile.TemporaryDirectory(prefix='unicorn-native-validate-') as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         for name, raw in files.items():
             if name.startswith(prefix):
                 path = root / name
@@ -1238,7 +1265,22 @@ def _restore_entity(manager, entity, category, info):
             if category == 'tables' and entity.is_default_entry and table.get('has_const_default_action'):
                 return False
             kind = native.Update.MODIFY if category != 'tables' or entity.is_default_entry else native.Update.INSERT
-            manager.client.write([entity], kind)
+            try:
+                manager.client.write([entity], kind)
+            except grpc.RpcError as error:
+                if category != 'tables' or error.code() != grpc.StatusCode.ALREADY_EXISTS:
+                    raise
+                # Pipeline installation also creates constant entries. Accept
+                # an existing entry only when its writable action data matches.
+                selector = native.TableEntry(table_id=entity.table_id, is_default_entry=entity.is_default_entry)
+                selector.key.CopyFrom(entity.key)
+                wanted = {field.field_id: field.SerializeToString(deterministic=True) for field in entity.data.fields}
+                current = manager.client.read([selector])
+                if not any(row.data.action_id == entity.data.action_id and
+                           {field.field_id: field.SerializeToString(deterministic=True) for field in row.data.fields if field.field_id in wanted} == wanted
+                           for row in current):
+                    raise
+                return False
         return True
     entity = pb.Entity.FromString(entity.SerializeToString())
     kind = pb.Update.MODIFY
@@ -1264,9 +1306,12 @@ def restore_switch(controller, config, item, project, db, restore_queues=False, 
     record = item['record']
     result = {'key': record['key'], 'name': config['name'], 'device_id': config['device_id'],
               'status': 'complete', 'categories': {}, 'errors': []}
+    locks = ExitStack()
     try:
         controller.addSwitchConnection(config)
         manager = controller.switch_configs[config['device_id']]
+        if config['target'] == 'tofino' and getattr(manager, 'operation_lock', None) is not None:
+            locks.enter_context(manager.operation_lock)
         _persist_connection(manager, config, db)
         if item['info'] is None:
             result['status'] = 'partial'
@@ -1354,6 +1399,8 @@ def restore_switch(controller, config, item, project, db, restore_queues=False, 
             db.session.rollback()
         result['status'] = 'partial'
         result['errors'].append(str(error)[:1024])
+    finally:
+        locks.close()
     return result
 
 
@@ -1373,7 +1420,10 @@ def deploy_import(controller, db, body, app=None):
             raise KeyError('Import token is unknown or expired; import the archive again')
         external = deployment_options(stage, body)
         if stage['topology'] is not None:
-            validate_deployable_topology(stage['topology'])
+            effective = json_load(json_bytes(stage['topology']))
+            if not body.get('attach_external_interfaces', False):
+                effective['ext_intfs'] = []
+            validate_deployable_topology(effective)
         if stage['in_use']:
             if asynchronous and stage.get('deployment'):
                 return json_load(json_bytes(stage['deployment']))
@@ -1433,8 +1483,18 @@ def _load_import_topology(path, topology, stage):
     identifier = deployment.get('deployment_id') if isinstance(deployment, dict) else None
     if not isinstance(identifier, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', identifier):
         raise ValueError('Emulator did not return a topology deployment ID')
+    failures = 0
     while time.monotonic() < deadline:
-        status = netsim_request('/topology/deploy/' + identifier, timeout=10)
+        try:
+            status = netsim_request('/topology/deploy/' + identifier, timeout=min(10, max(.1, deadline - time.monotonic())))
+            failures = 0
+        except OSError as error:
+            if (isinstance(error, HTTPError) and error.code < 500) or failures >= 9:
+                raise
+            failures += 1
+            _deployment_progress(stage, 'Waiting for the emulator', retry=failures)
+            time.sleep(.5)
+            continue
         _deployment_progress(stage, 'Starting network', topology_deployment=status)
         if status.get('status') == 'ready':
             return status.get('topology')
@@ -1473,6 +1533,7 @@ def _deploy_reserved(controller, db, body, stage, external):
             if topology.get('ext_intfs') and not body.get('attach_external_interfaces', False):
                 topology['ext_intfs'] = []
                 result['warnings'].append('Physical interface attachments were retained in the archive but omitted during this deployment')
+            validate_deployable_topology(topology)
             topo_root = Path(os.environ.get('TOPO_DIR', '/topologies')).resolve()
             topo_root.mkdir(parents=True, exist_ok=True)
             topology_path = topo_root / (identifier + '.json')

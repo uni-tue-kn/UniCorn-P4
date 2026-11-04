@@ -44,7 +44,12 @@ class FixedTable:
             if key is not None and error.code() == grpc.StatusCode.NOT_FOUND:
                 return []
             raise
-        return [(decode_key(self.table, entry.key)[0], decode_fields(self.definitions, entry.data.fields), entry) for entry in native]
+        result = []
+        for entry in native:
+            action = next((item for item in self.table.get("action_specs", []) if item["id"] == entry.data.action_id), {})
+            definitions = self.definitions + fields(action.get("data", []))
+            result.append((decode_key(self.table, entry.key)[0], decode_fields(definitions, entry.data.fields), entry))
+        return result
 
     def write(self, key, values, operation, action=None):
         self.switch.ensure_writable()

@@ -19,7 +19,9 @@ export function validateGroup(draft) {
 
 export default function MulticastContent() {
   const { currentSwitchID } = useSwitch();
-  const writeAvailable = useInit()?.initializedFiles?.capabilities?.multicast?.write !== false;
+  const capability = useInit()?.initializedFiles?.capabilities?.multicast;
+  const readAvailable = capability?.read !== false;
+  const writeAvailable = readAvailable && capability?.write !== false;
   const feedback = useAsyncFeedback(currentSwitchID);
   const { begin, complete, fail, cancel } = feedback;
   const currentID = useRef(currentSwitchID);
@@ -32,7 +34,7 @@ export default function MulticastContent() {
   const [formError, setFormError] = useState('');
   const [deleteGroup, setDeleteGroup] = useState(null);
   const load = useCallback(async (signal, manual = false) => {
-    if (currentSwitchID == null) return;
+    if (currentSwitchID == null || !readAvailable) return;
     const token = begin('refresh', { quiet: !manual });
     try {
       setBusy(true); setError('');
@@ -43,7 +45,7 @@ export default function MulticastContent() {
       if (!signal?.aborted && !axios.isCancel(err) && currentID.current === currentSwitchID) { setError(err.response?.data?.error || err.message); fail(token); } else cancel(token);
       return false;
     } finally { if (!signal?.aborted && currentID.current === currentSwitchID) setBusy(false); }
-  }, [currentSwitchID, begin, complete, fail, cancel]);
+  }, [currentSwitchID, readAvailable, begin, complete, fail, cancel]);
   useEffect(() => {
     setGroups(null); setEditor(null); setDeleteGroup(null); setError(''); setBusy(false);
     const controller = new AbortController(); load(controller.signal);
@@ -80,6 +82,7 @@ export default function MulticastContent() {
     finally { if (currentID.current === id) setBusy(false); }
   }
   function setReplica(index, field, value) { setEditor(previous => ({ ...previous, replicas: previous.replicas.map((row, i) => i === index ? { ...row, [field]: value } : row) })); }
+  if (!readAvailable) return <Box><Typography variant="h5" gutterBottom>Multicast groups</Typography><Alert severity="info">{capability?.reason || 'Multicast controls are unavailable on this switch.'}</Alert></Box>;
   return <Box>
     <Typography variant="h5" gutterBottom>Multicast groups</Typography>
     <Typography sx={{ mb: 2 }} color="text.secondary">Replicate packets to a group of switch ports. The P4 program selects the group through its multicast metadata.</Typography>
