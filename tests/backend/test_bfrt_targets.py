@@ -394,3 +394,87 @@ def test_transport_rejects_bundle_scope_before_reading_artifacts_or_native_rpc()
     with pytest.raises(ValueError, match='selected connection pipe \\[2\\]'):
         client.initialize_bundle({'profiles': [{'pipe_scope': [0]}], 'bfrt_json': '/missing/metadata.json'})
     client.stub.SetForwardingPipelineConfig.assert_not_called()
+
+
+def test_late_reader_from_replaced_stream_does_not_touch_new_connection():
+    client = BfRtClient('unused.invalid')
+    old_subscribed, old_generation = client.subscribed, client.generation
+    client.close()
+    # initialize_bundle resets the connection state before reconnecting.
+    client.closed, client.stream_error = False, None
+    client.generation += 1
+    from threading import Event
+    client.subscribed = Event()
+
+    class Cancelled(grpc.RpcError):
+        pass
+
+    def cancelled_stream():
+        raise Cancelled()
+        yield
+
+    client._receive(cancelled_stream(), old_subscribed, old_generation)
+    assert client.stream_error is None
+    assert not client.subscribed.is_set()
+    assert old_subscribed.is_set()
+
+
+@pytest.mark.parametrize('value, expected', [
+    ('2001:db8::1', 0x20010db8000000000000000000000001),
+    ('::ffff:10.0.0.1', 0xffff0a000001),
+    ('fe80:0:0:0:0:0:0:1', 0xfe800000000000000000000000000001),
+    ('aa:bb:cc:dd:ee:ff', 0xaabbccddeeff),
+    ('10.0.0.1', 0x0a000001),
+    ('0x10', 16),
+])
+def test_native_numbers_accept_ipv6_mac_ipv4_and_hex(value, expected):
+    from controller.targets.bfrt_metadata import number
+    field = {'name': 'addr', 'type': {'type': 'bytes', 'width': 128}}
+    assert number(value, field) == expected
+
+
+def test_native_number_rejects_malformed_colon_values():
+    from controller.targets.bfrt_metadata import number
+    with pytest.raises(ValueError, match='Invalid numeric value'):
+        number('2001:db8::1::2', {'name': 'addr', 'type': {'type': 'bytes', 'width': 128}})
+
+
+def test_read_only_native_data_fields_round_trip_through_entry_json():
+    table = {'name': 'pipe.t', 'id': 1, 'table_type': 'MatchAction_Direct',
+             'key': [{'id': 1, 'name': 'hdr.x', 'match_type': 'Exact', 'type': {'type': 'bytes', 'width': 8}}],
+             'action_specs': [{'id': 7, 'name': 'pipe.hit', 'data': []}],
+             'data': [{'singleton': {'id': 65, 'name': '$ENTRY_HIT_STATE', 'read_only': True,
+                                     'type': {'type': 'uint32'}}}]}
+    helper = Mock(table=Mock(return_value=table))
+    entry = BfRtTableEntry(helper, {'table_name': 'pipe.t', 'match_fields': {'hdr.x': '5'},
+                                    'action_name': 'pipe.hit', 'data_fields': {'$ENTRY_HIT_STATE': '1'}})
+    assert [field.field_id for field in entry.entry.data.fields] == []
+    with pytest.raises(ValueError, match='Unknown fields'):
+        BfRtTableEntry(helper, {'table_name': 'pipe.t', 'match_fields': {'hdr.x': '5'},
+                                'action_name': 'pipe.hit', 'data_fields': {'$NOT_A_FIELD': '1'}})
+
+
+def test_old_reader_waiting_to_report_cannot_overwrite_a_reconnected_stream():
+    from threading import Event, Thread
+    client = BfRtClient('unused.invalid')
+    old_generation, old_subscribed = client.generation, client.subscribed
+
+    class Cancelled(grpc.RpcError):
+        pass
+
+    def cancelled_stream():
+        raise Cancelled()
+        yield
+
+    reader = Thread(target=client._receive, args=(cancelled_stream(), old_subscribed, old_generation))
+    with client.state_lock:
+        # The reader is now blocked on its report while the connection is
+        # replaced, as close() followed by the initialize_bundle reset does.
+        reader.start()
+        reader.join(timeout=0.2)
+        assert reader.is_alive()
+        client.closed, client.generation = True, client.generation + 1
+        client.closed, client.stream_error, client.subscribed = False, None, Event()
+    reader.join(timeout=2)
+    assert not reader.is_alive()
+    assert client.stream_error is None

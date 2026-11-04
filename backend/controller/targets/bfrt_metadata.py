@@ -46,13 +46,27 @@ def field_info(field):
             "read_only": field.get("read_only", False), "mandatory": field.get("mandatory", False)}
 
 
+def text_number(value):
+    """Parse hex, IPv4/IPv6 and colon-separated byte strings (MAC style)."""
+    if value.startswith("0x"):
+        return int(value, 16)
+    if "." in value:
+        return int(ipaddress.ip_address(value))
+    groups = value.split(":")
+    # aa:bb:cc:dd:ee:ff is a byte string. Anything else with colons (short
+    # or long groups, "::" compression) must be a valid IPv6 address.
+    if all(len(group) == 2 for group in groups):
+        return int("".join(groups), 16)
+    return int(ipaddress.IPv6Address(value))
+
+
 def number(value, field):
     spec = field_type(field)
     width = spec.get("bitwidth", 32)
     signed = spec["kind"].startswith("int")
     if isinstance(value, str) and (value.startswith("0x") or ":" in value or "." in value):
         try:
-            value = int(value, 16) if value.startswith("0x") else int(ipaddress.ip_address(value)) if "." in value else int(value.replace(":", ""), 16)
+            value = text_number(value)
         except ValueError as error:
             raise ValueError("Invalid numeric value for " + field["name"]) from error
     return integer(value, field["name"], minimum=-(1 << (width - 1)) if signed else 0,

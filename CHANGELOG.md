@@ -18,10 +18,16 @@
 * Deployment archives include only Compose/runtime files, public examples and user documentation. Build/test instructions and preview images stay in the repository.
 * Legacy preview images are stored in `docs/screenshots/`.
 * GitHub release notes start with concise launch instructions for BMv2 and optional Tofino models.
+* Program listings skip artifact hashing. Successful Tofino compiles clean older unused builds while preserving builds used by initialization, connected switches and saved/history states.
 
 ### Fixed
 
 * Restored physical network interface setup instructions in the usage guide and deployment archive.
+* Editing saved switch connections preserves the target, target options and register-adapter settings.
+* Late BF Runtime stream readers cannot overwrite the replacement connection's state.
+* Native IPv6 values encode correctly, and read-only table fields no longer block entry edits or restores.
+* Automatic target detection skips unavailable includes and rejects unsupported Tofino 2 programs before compilation.
+* Topology deployment bounds every request and the complete operation, with retries for transient polling failures.
 * Native network archives retain default table actions, their parameters, and attached direct meters.
 * Native archives omit fields that cannot be written back and report partial state instead of rejecting their own exports.
 * Closed native control streams report a disconnected state instead of appearing healthy.

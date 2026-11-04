@@ -64,7 +64,7 @@ describe('topology deployment boundaries', () => {
     axios.post.mockResolvedValueOnce({ data: { name: '/topologies/deploy.json' } }).mockResolvedValueOnce({ data: { deployment_id: 'job1' } }).mockResolvedValueOnce({ data: [] });
     axios.get.mockResolvedValueOnce({ data: { status: 'ready', topology: active(), warnings } });
     expect(await deployTopology(graph(), 'deploy.json')).toEqual({ ...active(), deployment_warnings: warnings });
-    expect(axios.post).toHaveBeenLastCalledWith('/switches/from_topology', expect.objectContaining({ create_switches: true }));
+    expect(axios.post).toHaveBeenLastCalledWith('/switches/from_topology', expect.objectContaining({ create_switches: true }), expect.objectContaining({ timeout: expect.any(Number) }));
   });
   it('never changes the emulator when saving fails', async () => {
     axios.post.mockRejectedValueOnce(new Error('Disk full'));
@@ -159,5 +159,49 @@ describe('live topology normalization', () => {
     const name = deploymentFilename('a'.repeat(110) + '.json');
     expect(name.length).toBeLessThanOrEqual(124);
     expect(deploymentFilename('sample-deploy-12345-abc1.json')).toMatch(/^sample-deploy-\d+-[a-z0-9]+\.json$/);
+  });
+});
+describe('deployment polling', () => {
+  const start = () => axios.post.mockResolvedValueOnce({ data: { name: '/topologies/deploy.json' } }).mockResolvedValueOnce({ data: { deployment_id: 'job1' } }).mockResolvedValueOnce({ data: [] });
+  it('survives transient status request failures', async () => {
+    start();
+    axios.get.mockRejectedValueOnce({ message: 'Network Error' }).mockRejectedValueOnce({ response: { status: 502 }, message: 'Bad gateway' })
+      .mockResolvedValueOnce({ data: { status: 'ready', topology: active() } });
+    expect(await deployTopology(graph(), 'deploy.json', true, () => {}, { interval: 0 })).toEqual(active());
+    expect(axios.get).toHaveBeenCalledTimes(3);
+  });
+  it('reports definite errors and repeated failures without connecting switches', async () => {
+    start();
+    axios.get.mockRejectedValueOnce({ response: { status: 404 }, message: 'Unknown deployment' });
+    await expect(deployTopology(graph(), 'deploy.json', true, () => {}, { interval: 0 })).rejects.toMatchObject({ message: 'Unknown deployment' });
+    axios.post.mockReset(); start();
+    axios.get.mockReset().mockRejectedValue({ message: 'Network Error' });
+    await expect(deployTopology(graph(), 'deploy.json', true, () => {}, { interval: 0 })).rejects.toMatchObject({ message: 'Network Error' });
+    expect(axios.get).toHaveBeenCalledTimes(10);
+    expect(axios.post).toHaveBeenCalledTimes(2);
+  });
+  it('stops polling after the deployment deadline', async () => {
+    start();
+    axios.get.mockResolvedValue({ data: { status: 'running', switches: { s1: 'starting' } } });
+    await expect(deployTopology(graph(), 'deploy.json', true, () => {}, { deadline: 50, interval: 10 })).rejects.toThrow('did not finish within');
+    expect(axios.post).toHaveBeenCalledTimes(2);
+  });
+  it('bounds every request, including a start request that never answers', async () => {
+    vi.useFakeTimers();
+    try {
+      // Like axios, the mocked request rejects once its timeout expires.
+      const hang = (url, body, config) => new Promise((resolve, reject) => setTimeout(() => reject({ message: `timeout of ${config.timeout}ms exceeded` }), config.timeout));
+      axios.post.mockResolvedValueOnce({ data: { name: '/topologies/deploy.json' } }).mockImplementationOnce(hang);
+      const outcome = expect(deployTopology(graph(), 'deploy.json', true, () => {}, { deadline: 20000 })).rejects.toThrow('did not finish within');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(axios.post.mock.calls.map(call => call[2].timeout)).toEqual([20000, 20000]);
+      await vi.advanceTimersByTimeAsync(20000);
+      await outcome;
+      expect(axios.get).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it('fails before sending anything once the deadline is exhausted', async () => {
+    await expect(deployTopology(graph(), 'deploy.json', true, () => {}, { deadline: 0 })).rejects.toThrow('did not finish within');
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });

@@ -112,10 +112,17 @@ class BfRtTableEntry:
             self.entry.data.fields.extend(encode_fields(definitions, params))
         elif params:
             raise ValueError("action_name is required for action_params")
-        native_data = value.get("data_fields", {})
+        native_data = value.get("data_fields") or {}
+        if not isinstance(native_data, dict):
+            raise ValueError("data_fields must contain a JSON object")
         if self.entry.is_default_entry and any(name.startswith("$COUNTER_SPEC_") for name in native_data):
             raise ValueError("Native default-entry counter values must not be written with table actions")
-        self.entry.data.fields.extend(encode_fields(fields(table.get("data", [])), native_data))
+        data_definitions = fields(table.get("data", []))
+        # as_json reports read-only native fields for display. They round-trip
+        # through edits and saved states, but the target owns their values.
+        read_only = {field["name"] for field in data_definitions if field.get("read_only")}
+        native_data = {name: item for name, item in native_data.items() if name not in read_only}
+        self.entry.data.fields.extend(encode_fields(data_definitions, native_data))
 
     @classmethod
     def from_native(cls, helper, native):

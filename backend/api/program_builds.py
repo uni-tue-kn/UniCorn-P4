@@ -1,4 +1,6 @@
 """Target-neutral program builds and bounded asynchronous native compilation."""
+from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -16,7 +18,10 @@ MAX_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_BUILD_BYTES = 128 * 1024 * 1024
 _NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]{0,63}')
-_INCLUDE = re.compile(r'^\s*#\s*include\s*"([^"]+)"', re.MULTILINE)
+# Group 1 is the directive prefix and group 2 the quoted path. Shared with
+# network archives so every include walker parses the same directives.
+INCLUDE_PATTERN = re.compile(r'(?m)^(\s*#\s*include\s*)"([^"\n]+)"')
+_ARCHITECTURE = re.compile(r'(?m)^\s*#\s*include\s*[<"](tna|t2na)\.p4[>"]')
 # Quoted standard includes use the compiler's SDK search path when no local
 # override exists. The backend does not mount the optional compiler's headers.
 TOFINO_SYSTEM_HEADERS = frozenset({
@@ -26,6 +31,11 @@ TOFINO_SYSTEM_HEADERS = frozenset({
     *('tofino/' + name + '.p4'
       for name in ('psa', 'wred', 'stateful_alu', 'meter', 'lpf', 'p4_14_prim', 'stratum')),
 })
+
+
+def sdk_header(include, candidate):
+    """A quoted standard include without a local override resolves in the SDK."""
+    return include in TOFINO_SYSTEM_HEADERS and not candidate.exists() and not candidate.is_symlink()
 
 
 class BuildError(ValueError):
@@ -73,8 +83,12 @@ def _json_file(path, maximum=MAX_ARTIFACT_BYTES):
         raise BuildError('Program metadata is not valid JSON') from None
 
 
-def validate_bundle(value, root=None):
-    """Resolve a portable manifest into the absolute native adapter contract."""
+def validate_bundle(value, root=None, verify=True):
+    """Resolve a portable manifest into the absolute native adapter contract.
+
+    Listing builds passes verify=False to skip hashing every artifact. Loading
+    a build always verifies its checksums.
+    """
     path = contained_file(value, root)
     metadata = _json_file(path, 1024 * 1024)
     if not isinstance(metadata, dict) or metadata.get('target') not in ('bmv2', 'tofino'):
@@ -104,7 +118,7 @@ def validate_bundle(value, root=None):
         if not size or size > MAX_ARTIFACT_BYTES or total > MAX_BUILD_BYTES:
             raise BuildError('Program artifacts are empty or exceed the supported size')
         expected = checksums.get(reference)
-        if expected and hashlib.sha256(result.read_bytes()).hexdigest() != expected:
+        if verify and expected and hashlib.sha256(result.read_bytes()).hexdigest() != expected:
             raise BuildError('Program artifact checksum does not match its build')
         return str(result)
 
@@ -113,9 +127,10 @@ def validate_bundle(value, root=None):
         resolved['bmv2_json'] = artifact(metadata.get('bmv2_json'))
     else:
         resolved['bfrt_json'] = artifact(metadata.get('bfrt_json'))
-        info = _json_file(Path(resolved['bfrt_json']))
-        if not isinstance(info, dict) or not isinstance(info.get('tables'), list):
-            raise BuildError('Program build has invalid resource metadata')
+        if verify:
+            info = _json_file(Path(resolved['bfrt_json']))
+            if not isinstance(info, dict) or not isinstance(info.get('tables'), list):
+                raise BuildError('Program build has invalid resource metadata')
         profiles = metadata.get('profiles')
         if not isinstance(profiles, list) or len(profiles) != 1:
             raise BuildError('A model program must have one pipeline profile')
@@ -132,8 +147,8 @@ def validate_bundle(value, root=None):
     return resolved
 
 
-def build_description(value):
-    bundle = validate_bundle(value)
+def build_description(value, verify=True):
+    bundle = validate_bundle(value, verify=verify)
     source = bundle.get('source')
     name = bundle.get('display_name', bundle['program_name'])
     if source:
@@ -158,7 +173,7 @@ def discover_builds():
         candidates.extend(directory.glob('*/manifest.json'))
     for path in sorted(set(candidates)):
         try:
-            program = build_description(path)
+            program = build_description(path, verify=False)
             key = (program['target'], program['source']) if program['source'] and path.is_relative_to(directory) else program['id']
             previous = builds.get(key)
             if previous is None or (program.get('created_at') or '') > (previous.get('created_at') or ''):
@@ -168,86 +183,167 @@ def discover_builds():
     return sorted(builds.values(), key=lambda program: (program['name'], program['id']))
 
 
-def source_target(source, requested='auto'):
-    if requested not in ('auto', 'bmv2', 'tofino'):
-        raise BuildError('Select a supported switch target')
-    if requested != 'auto':
-        return requested
-    visited, size = set(), 0
+def include_closure(source, strict=True):
+    """Yield (path, raw, text) for a source and its quoted-include closure.
 
-    def inspect(path):
-        nonlocal size
-        path = contained_file(path)
+    strict=False skips includes that are missing, outside P4_DIR, symlinked
+    or not UTF-8 instead of raising. Size and count limits always apply.
+    """
+    visited, total, pending = set(), 0, [Path(source)]
+    while pending:
+        try:
+            path = contained_file(pending.pop())
+        except BuildError:
+            if strict:
+                raise
+            continue
         if path in visited:
-            return False
+            continue
         visited.add(path)
-        if len(visited) > 128:
-            raise BuildError('Program contains too many include files')
-        raw = path.read_bytes()
-        size += len(raw)
-        if size > MAX_SOURCE_BYTES:
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            if strict:
+                raise BuildError('Program file is unavailable or outside the workspace') from None
+            continue
+        total += len(raw)
+        if len(visited) > 128 or total > MAX_SOURCE_BYTES:
             raise BuildError('Program sources exceed the supported build size')
         try:
             text = raw.decode('utf-8')
         except UnicodeError:
-            raise BuildError('Program sources must be UTF-8 text') from None
-        if re.search(r'^\s*#\s*include\s*[<"](?:tna|t2na)\.p4[>"]', text, re.MULTILINE):
-            return True
-        for include in _INCLUDE.findall(text):
-            candidate = path.parent / include
-            if candidate.is_file() and inspect(candidate):
-                return True
-        return False
+            if strict:
+                raise BuildError('Program sources must be UTF-8 text') from None
+            continue
+        yield path, raw, text
+        for match in INCLUDE_PATTERN.finditer(text):
+            candidate = path.parent / match.group(2)
+            if not sdk_header(match.group(2), candidate):
+                pending.append(candidate)
 
-    return 'tofino' if inspect(source) else 'bmv2'
+
+def program_architecture(source):
+    """Best-effort TNA detection. The compiler reports genuine include errors."""
+    found = set()
+    try:
+        for _path, _raw, text in include_closure(source, strict=False):
+            found.update(_ARCHITECTURE.findall(text))
+    except (BuildError, OSError):
+        pass
+    return 't2na' if 't2na' in found else 'tna' if 'tna' in found else None
+
+
+def source_target(source, requested='auto'):
+    if requested not in ('auto', 'bmv2', 'tofino'):
+        raise BuildError('Select a supported switch target')
+    if requested == 'bmv2':
+        return requested
+    architecture = program_architecture(source)
+    if architecture == 't2na':
+        raise BuildError('Tofino 2 programs (t2na.p4) are not supported. '
+                         'The Tofino compiler and model in this deployment target Tofino 1 (tna.p4).')
+    if requested == 'tofino':
+        return requested
+    return 'tofino' if architecture == 'tna' else 'bmv2'
 
 
 def snapshot_sources(source, destination):
     root = program_root()
-    visited, hashes, total = set(), {}, 0
-
-    def copy(path):
-        nonlocal total
-        path = contained_file(path)
-        if path in visited:
-            return
-        visited.add(path)
-        raw = path.read_bytes()
-        total += len(raw)
-        if len(visited) > 128 or total > MAX_SOURCE_BYTES:
-            raise BuildError('Program sources exceed the supported build size')
+    hashes = {}
+    for path, raw, text in include_closure(source):
         relative = path.relative_to(root)
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         hashes[relative.as_posix()] = hashlib.sha256(raw).hexdigest()
-        try:
-            text = raw.decode('utf-8')
-        except UnicodeError:
-            raise BuildError('Program sources must be UTF-8 text') from None
-        for include in _INCLUDE.findall(text):
-            candidate = path.parent / include
-            if include in TOFINO_SYSTEM_HEADERS and not candidate.exists() and not candidate.is_symlink():
-                continue
-            copy(candidate)
+
         # Absolute workspace includes must also resolve within the frozen copy.
         # Relative includes already retain their workspace directory layout.
-        def frozen_include(match):
-            include = match.group(1)
+        def frozen_include(match, target=target):
+            include = match.group(2)
             if not Path(include).is_absolute():
                 return match.group(0)
             included = contained_file(include)
             replacement = os.path.relpath(destination / included.relative_to(root), target.parent)
-            return match.group(0).replace('"' + include + '"', '"' + replacement + '"')
-        target.write_text(_INCLUDE.sub(frozen_include, text), encoding='utf-8')
+            return match.group(1) + '"' + replacement + '"'
+        target.write_text(INCLUDE_PATTERN.sub(frozen_include, text), encoding='utf-8')
+    return destination / Path(source).relative_to(root), hashes
 
-    copy(source)
-    return destination / source.relative_to(root), hashes
+
+# Serializes cleanup with use_build(). A build is either pinned (in use and
+# not yet referenced by a state or switch) or visible to cleanup's reference
+# check, never neither.
+_PRUNE_LOCK = threading.Lock()
+_PINNED = Counter()
+
+
+@contextmanager
+def use_build(value, root=None):
+    """Validate a build and protect it from cleanup until the block ends.
+
+    Hold it until the build is referenced durably, e.g. until the history
+    state recording an initialization is committed.
+    """
+    with _PRUNE_LOCK:
+        bundle = validate_bundle(value, root)
+        manifest = bundle['manifest_path']
+        _PINNED[manifest] += 1
+    try:
+        yield bundle
+    finally:
+        with _PRUNE_LOCK:
+            _PINNED[manifest] -= 1
+            if _PINNED[manifest] <= 0:
+                del _PINNED[manifest]
+
+
+def _created_at(metadata):
+    try:
+        value = datetime.fromisoformat(metadata['created_at'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def prune_builds(keep, referenced):
+    """Delete unreferenced builds of the same source and target that are
+    strictly older than keep. Builds without a readable age are kept.
+
+    referenced is a callable returning the manifest paths in use. It runs
+    under the cleanup lock, so it sees every reference committed by a
+    use_build() block that already ended. If it fails, nothing is deleted.
+    """
+    directory = program_root() / '.unicorn-builds'
+    with _PRUNE_LOCK:
+        try:
+            referenced = set(referenced()) | set(_PINNED)
+            current = _json_file(keep / 'manifest.json', 1024 * 1024)
+            identity, newest = (current.get('target'), current.get('source')), _created_at(current)
+            if newest is None or identity[1] is None:
+                return
+            for manifest in directory.glob('*/manifest.json'):
+                build = manifest.parent
+                if build == keep or build.is_symlink() or str(manifest.resolve()) in referenced:
+                    continue
+                try:
+                    metadata = _json_file(manifest, 1024 * 1024)
+                except (OSError, BuildError):
+                    continue
+                if not isinstance(metadata, dict) or (metadata.get('target'), metadata.get('source')) != identity:
+                    continue
+                created = _created_at(metadata)
+                if created is not None and created < newest:
+                    shutil.rmtree(build, ignore_errors=True)
+        except (OSError, BuildError):
+            pass
 
 
 class BuildJobs:
     def __init__(self):
         self.lock = threading.Lock()
         self.jobs = {}
+        # Returns the manifest paths still used by states or switches. Without
+        # it, old builds are kept because pruning could break a saved state.
+        self.referenced = None
 
     def start(self, source):
         worker = os.environ.get('TOFINO_COMPILER_URL', '').rstrip('/')
@@ -323,6 +419,14 @@ class BuildJobs:
             for key in ('stdout', 'stderr'):
                 result[key] = str(result[key]).replace(str(directory / 'source') + os.sep, str(program_root()) + os.sep)
             result['program'] = program
+            # Prune while this job still counts as running, so start() cannot
+            # begin another build until cleanup has finished. A cleanup failure
+            # never fails or removes this finished build.
+            if self.referenced is not None:
+                try:
+                    prune_builds(directory, self.referenced)
+                except Exception:
+                    pass
             with self.lock:
                 self.jobs[identifier].update(status='complete', result=result)
         except Exception as error:

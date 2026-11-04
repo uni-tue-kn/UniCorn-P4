@@ -30,6 +30,18 @@ def create_app():
         db.create_all()
         migrate_switch_adapter_fields(db.engine)
 
+    def referenced_builds():
+        # Saved and history states replay their exact build. Connected switches
+        # report the build they run. These manifests are never pruned.
+        from .database.TableStates import TableStates
+        with app.app_context():
+            paths = {state.program_manifest for state in
+                     TableStates.query.filter(TableStates.program_manifest.isnot(None))}
+        paths.update(getattr(switch, 'program_manifest', None) for switch in list(exampleController.switch_configs.values()))
+        return {path for path in paths if path}
+
+    app.extensions['program_builds'].referenced = referenced_builds
+
     api = Api(app)
     
     api.add_resource(HistoryStates, '/history', resource_class_kwargs={"db": db, "controller": exampleController})

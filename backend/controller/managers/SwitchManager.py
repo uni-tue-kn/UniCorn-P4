@@ -279,9 +279,10 @@ class SwitchManager:
             loaded_config[key] = getattr(self.p4_helper, "get_" + key)() if self.p4_helper is not None else None
         loaded_config["target"] = self.target
         loaded_config["target_options"] = self.config.get("target_options", {})
+        # Probe first so capabilities and register_access agree in one response.
+        self._probe_register_access()
         loaded_config["capabilities"] = self.capabilities()
         loaded_config["p4runtime_api_version"] = self.p4runtime_api_version
-        self._probe_register_access()
         loaded_config["register_access"] = dict(self.register_access)
         return loaded_config
 

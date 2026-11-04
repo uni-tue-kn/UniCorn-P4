@@ -29,7 +29,7 @@ from controller.p4.v1 import p4runtime_pb2 as pb
 from controller.utils.helper import P4InfoHelper
 from unicorn_version import local_version
 from .topology_schema import validate_topology, validate_deployable_topology
-from .program_builds import TOFINO_SYSTEM_HEADERS
+from .program_builds import INCLUDE_PATTERN as _INCLUDE, TOFINO_SYSTEM_HEADERS, sdk_header
 from .endpoints.switch_config import normalize_adapter_config
 
 
@@ -53,7 +53,6 @@ CATEGORIES = {
     'digests': 'digest_entry',
 }
 RESTORE_ORDER = tuple(CATEGORIES)
-_INCLUDE = re.compile(r'(?m)^(\s*#\s*include\s*)"([^"\n]+)"')
 _STAGES = {}
 _RESULTS = {}
 _STAGE_LOCK = threading.RLock()
@@ -148,7 +147,7 @@ def source_closure(source, root, prefix, warnings):
         text = raw.decode('utf-8')
         def include(match):
             target = (path.parent / match.group(2)).resolve()
-            if match.group(2) in TOFINO_SYSTEM_HEADERS and not target.exists():
+            if sdk_header(match.group(2), target):
                 return match.group(0)
             if not target.is_relative_to(root) or not target.is_file():
                 warnings.append(f'Quoted include {match.group(2)!r} is not portable; source closure is incomplete')

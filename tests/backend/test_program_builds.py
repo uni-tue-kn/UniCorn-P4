@@ -196,7 +196,7 @@ def test_observer_cannot_initialize_or_restore_before_program_validation(client,
     switch.read_only = True
     switch.initialize_bundle = Mock()
     validator = Mock(side_effect=AssertionError('An observer must not load program artifacts'))
-    monkeypatch.setattr('api.endpoints.init.validate_bundle', validator)
+    monkeypatch.setattr('api.program_builds.validate_bundle', validator)
     result = client.post('/init', json={'switch_id': 0, **selection})
     assert result.status_code == 403
     assert 'read only' in result.json['error']
@@ -235,3 +235,182 @@ def test_native_initialization_saves_program_reference_and_generic_metadata(clie
         assert state.program_name == 'workshop'
         assert state.program_manifest == str(workspace / 'manifest.json')
         assert state.p4_info_file == state.bmv2_file == ''
+
+
+def test_auto_detection_ignores_unreadable_includes_and_keeps_bmv2(workspace, tmp_path_factory):
+    outside = tmp_path_factory.mktemp('shared') / 'headers.p4'
+    outside.write_text('header h_t { bit<8> x; }\n')
+    source = workspace / 'main.p4'
+    source.write_text('#include <v1model.p4>\n#include "' + str(outside) + '"\n#include "missing.p4"\n')
+    (workspace / 'real.p4').write_text('// shared\n')
+    (workspace / 'alias.p4').symlink_to(workspace / 'real.p4')
+    source.write_text(source.read_text() + '#include "alias.p4"\n')
+    assert source_target(source) == 'bmv2'
+
+
+@pytest.mark.parametrize('requested', ['auto', 'tofino'])
+def test_tofino2_programs_are_rejected_before_compilation(workspace, requested):
+    (workspace / 'arch.p4').write_text('#include <t2na.p4>\n')
+    source = workspace / 'main.p4'
+    source.write_text('#include "arch.p4"\n')
+    with pytest.raises(BuildError, match='Tofino 2'):
+        source_target(source, requested)
+    assert source_target(source, 'bmv2') == 'bmv2'
+
+
+def test_listing_skips_artifact_hashing_but_loading_verifies_it(workspace):
+    directory = workspace / '.unicorn-builds' / 'example'
+    metadata = make_bundle(directory)
+    metadata['sha256'] = {'tofino.bin': hashlib.sha256(b'native program').hexdigest()}
+    (directory / 'manifest.json').write_text(json.dumps(metadata))
+    (directory / 'tofino.bin').write_bytes(b'tampered program')
+    assert [program['id'] for program in discover_builds()] == [str(directory / 'manifest.json')]
+    with pytest.raises(BuildError, match='checksum'):
+        validate_bundle(directory / 'manifest.json')
+
+
+def test_successful_build_prunes_only_unreferenced_builds_of_the_same_source(workspace, monkeypatch):
+    source = workspace / 'workshop.p4'
+    source.write_text('#include <tna.p4>\n')
+    for name, origin in (('stale', source), ('saved', source), ('other', workspace / 'other.p4')):
+        directory = workspace / '.unicorn-builds' / name
+        metadata = make_bundle(directory)
+        metadata.update(source=str(origin), created_at='2026-11-03T10:00:00Z')
+        (directory / 'manifest.json').write_text(json.dumps(metadata))
+
+    def compile_request(request, timeout):
+        body = json.loads(request.data)
+        return io.BytesIO(json.dumps({'manifest': make_bundle(Path(body['output']))}).encode())
+
+    monkeypatch.setattr('api.program_builds.urlrequest.urlopen', compile_request)
+    jobs = BuildJobs()
+    jobs.referenced = lambda: {str(workspace / '.unicorn-builds/saved/manifest.json')}
+    jobs.jobs['fresh'] = {'status': 'pending'}
+    jobs._compile('fresh', source, 'http://compiler:8080')
+    assert jobs.get('fresh')['status'] == 'complete'
+    remaining = {path.name for path in (workspace / '.unicorn-builds').iterdir()}
+    assert remaining == {'fresh', 'saved', 'other'}
+
+
+def test_builds_are_kept_when_references_are_unknown(workspace, monkeypatch):
+    source = workspace / 'workshop.p4'
+    source.write_text('#include <tna.p4>\n')
+    old = workspace / '.unicorn-builds' / 'old'
+    metadata = make_bundle(old)
+    metadata.update(source=str(source))
+    (old / 'manifest.json').write_text(json.dumps(metadata))
+    monkeypatch.setattr('api.program_builds.urlrequest.urlopen', lambda request, timeout: io.BytesIO(
+        json.dumps({'manifest': make_bundle(Path(json.loads(request.data)['output']))}).encode()))
+    jobs = BuildJobs()
+    jobs.referenced = Mock(side_effect=RuntimeError('database unavailable'))
+    jobs.jobs['fresh'] = {'status': 'pending'}
+    jobs._compile('fresh', source, 'http://compiler:8080')
+    assert old.is_dir()
+
+
+def _build(workspace, name, source, created_at=None):
+    directory = workspace / '.unicorn-builds' / name
+    metadata = make_bundle(directory)
+    metadata.update(source=str(source), **({'created_at': created_at} if created_at else {}))
+    (directory / 'manifest.json').write_text(json.dumps(metadata))
+    return directory
+
+
+def test_cleanup_for_an_older_build_never_deletes_a_newer_or_undated_build(workspace):
+    from api.program_builds import prune_builds
+    source = workspace / 'workshop.p4'
+    older = _build(workspace, 'older', source, '2026-11-04T10:00:00+00:00')
+    newer = _build(workspace, 'newer', source, '2026-11-04T11:00:00+00:00')
+    undated = _build(workspace, 'undated', source)
+    prune_builds(older, set)
+    assert older.is_dir() and newer.is_dir() and undated.is_dir()
+    prune_builds(newer, set)
+    assert not older.exists() and newer.is_dir() and undated.is_dir()
+
+
+def test_build_is_reported_complete_only_after_cleanup(workspace, monkeypatch):
+    source = workspace / 'workshop.p4'
+    source.write_text('#include <tna.p4>\n')
+    monkeypatch.setattr('api.program_builds.urlrequest.urlopen', lambda request, timeout: io.BytesIO(
+        json.dumps({'manifest': make_bundle(Path(json.loads(request.data)['output']))}).encode()))
+    jobs = BuildJobs()
+    jobs.jobs['fresh'] = {'status': 'pending'}
+    statuses = []
+    jobs.referenced = lambda: statuses.append(jobs.jobs['fresh']['status']) or set()
+    jobs._compile('fresh', source, 'http://compiler:8080')
+    assert statuses == ['running']
+    assert jobs.get('fresh')['status'] == 'complete'
+
+
+def test_cleanup_failure_keeps_the_finished_build(workspace, monkeypatch):
+    source = workspace / 'workshop.p4'
+    source.write_text('#include <tna.p4>\n')
+    monkeypatch.setattr('api.program_builds.urlrequest.urlopen', lambda request, timeout: io.BytesIO(
+        json.dumps({'manifest': make_bundle(Path(json.loads(request.data)['output']))}).encode()))
+    monkeypatch.setattr('api.program_builds.prune_builds', Mock(side_effect=RuntimeError('cleanup broke')))
+    jobs = BuildJobs()
+    jobs.referenced = lambda: set()
+    jobs.jobs['fresh'] = {'status': 'pending'}
+    jobs._compile('fresh', source, 'http://compiler:8080')
+    assert jobs.get('fresh')['status'] == 'complete'
+    assert (workspace / '.unicorn-builds' / 'fresh' / 'manifest.json').is_file()
+
+
+def test_unreadable_includes_are_skipped_by_detection_but_fail_snapshots(workspace, monkeypatch):
+    locked = workspace / 'locked.p4'
+    locked.write_text('#include <tna.p4>\n')
+    source = workspace / 'main.p4'
+    source.write_text('#include <v1model.p4>\n#include "locked.p4"\n')
+    original = Path.read_bytes
+
+    def read_bytes(path):
+        if path.name == 'locked.p4':
+            raise PermissionError(13, 'Permission denied', str(path))
+        return original(path)
+
+    monkeypatch.setattr(Path, 'read_bytes', read_bytes)
+    assert source_target(source) == 'bmv2'
+    with pytest.raises(BuildError, match='unavailable'):
+        snapshot_sources(source, workspace / '.snapshot')
+
+
+def test_build_being_initialized_survives_cleanup_by_a_newer_compile(client, switch, workspace, monkeypatch):
+    from api import exampleController
+    from api.database.TableStates import TableStates
+    from api.database import db
+
+    source = workspace / 'workshop.p4'
+    source.write_text('#include <tna.p4>\n')
+    old = _build(workspace, 'old', source, '2026-11-04T10:00:00+00:00')
+    switch.target = 'tofino'
+    switch.program_manifest = None
+    monkeypatch.setattr(exampleController, 'getTableEntries', lambda **kwargs: {})
+    monkeypatch.setattr(exampleController, 'getInitialDecoding', lambda **kwargs: {})
+    monkeypatch.setattr(exampleController, 'getTableInfo', lambda **kwargs: {})
+    monkeypatch.setattr('api.program_builds.urlrequest.urlopen', lambda request, timeout: io.BytesIO(
+        json.dumps({'manifest': make_bundle(Path(json.loads(request.data)['output']))}).encode()))
+    with client.application.app_context():
+        db.create_all()
+    jobs = client.application.extensions['program_builds']
+
+    def compile_newer(name):
+        jobs.jobs[name] = {'status': 'pending'}
+        jobs._compile(name, source, 'http://compiler:8080')
+        assert jobs.get(name)['status'] == 'complete'
+
+    def initialize(bundle, keep_entries):
+        # A newer build of the same source finishes while the switch loads
+        # the old one, before any state or switch references it.
+        compile_newer('during')
+        assert old.is_dir()
+        switch.program_manifest = bundle['manifest_path']
+
+    switch.initialize_bundle = initialize
+    response = client.post('/init', json={'switch_id': 0, 'program_id': str(old / 'manifest.json')})
+    assert response.status_code == 200, response.data
+    with client.application.app_context():
+        assert db.session.get(TableStates, switch.state_id).program_manifest == str(old / 'manifest.json')
+    # Once the pin is released, the committed history state protects it.
+    switch.program_manifest = None
+    compile_newer('after')
+    assert (old / 'manifest.json').is_file()

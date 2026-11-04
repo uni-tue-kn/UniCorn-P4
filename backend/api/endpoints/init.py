@@ -1,3 +1,5 @@
+from contextlib import ExitStack
+
 from flask_restful import Resource, reqparse
 from flask import jsonify, make_response
 import grpc
@@ -5,7 +7,7 @@ import grpc
 from ..database.TableStates import *
 
 from .Endpoint import Endpoint
-from ..program_builds import BuildError, validate_bundle
+from ..program_builds import BuildError, use_build
 
 
 # Initializes (new) p4 program
@@ -42,6 +44,9 @@ class Initialize(Endpoint):
         state_id_arg = args['state_id']
         
         warning_msg = ""
+        # Keeps the selected build safe from automatic cleanup until the
+        # state that references it is committed (or initialization fails).
+        builds = ExitStack()
 
         try:
             current_switch_config = self.controller.switch_configs.get(switch_id_arg)
@@ -58,7 +63,7 @@ class Initialize(Endpoint):
                 if (reinitialized_state.target or 'bmv2') != target:
                     raise ValueError('Saved state target does not match switch target')
             program_id = args['program_id'] or (reinitialized_state.program_manifest if reinitialized_state else None)
-            bundle = validate_bundle(program_id) if program_id else None
+            bundle = builds.enter_context(use_build(program_id)) if program_id else None
             if bundle is not None and bundle['target'] != target:
                 raise ValueError('Program target does not match switch target')
             if reinitialized_state is not None:
@@ -148,7 +153,9 @@ class Initialize(Endpoint):
             return f"Failed to initialize Switch. GRPC Connection is not available: {e}", 500
         except Exception as e:
             return f"An error occured during switch initialization: {e}", 500
-        
+        finally:
+            builds.close()
+
         if warning_msg:
             return warning_msg, 200
         return "", 200

@@ -85,6 +85,14 @@ class BfRtClient:
         self.event_bytes = 0
         self.event_lock = Lock()
         self.closed = False
+        # Each stream reader belongs to one connection generation. A reader
+        # from a replaced stream may finish late and must not touch the
+        # state of the current connection.
+        self.generation = 0
+        # Guards closed, generation and stream_error together, so a reader's
+        # generation check and its error report cannot interleave with a
+        # reconnect.
+        self.state_lock = Lock()
 
     def connect(self):
         self.channel = grpc.insecure_channel(self.address, options=[("grpc.max_receive_message_length", 128 * 1024 * 1024)])
@@ -92,36 +100,54 @@ class BfRtClient:
         self.stub = bfruntime_pb2_grpc.BfRuntimeStub(self.channel)
         if self.read_only:
             return
-        self.stream = self.stub.StreamChannel(self._request_stream())
-        self.thread = Thread(target=self._receive, name="unicorn-bfrt-stream", daemon=True)
+        with self.state_lock:
+            self.generation += 1
+            generation, requests, subscribed = self.generation, self.requests, self.subscribed
+        self.stream = self.stub.StreamChannel(self._request_stream(requests))
+        self.thread = Thread(target=self._receive, args=(self.stream, subscribed, generation),
+                             name="unicorn-bfrt-stream", daemon=True)
         self.thread.start()
         request = pb.StreamMessageRequest(client_id=self.client_id)
         request.subscribe.device_id = self.device_id
         request.subscribe.notifications.enable_learn_notifications = True
-        self.requests.put(request)
-        if not self.subscribed.wait(self.timeout):
+        requests.put(request)
+        if not subscribed.wait(self.timeout):
             raise RuntimeError("BF Runtime subscription timed out")
         if self.stream_error:
             raise self.stream_error
 
-    def _request_stream(self):
+    def _request_stream(self, requests=None):
+        requests = self.requests if requests is None else requests
         while True:
-            request = self.requests.get()
+            request = requests.get()
             if request is None:
                 return
             yield request
 
-    def _receive(self):
+    def _receive(self, stream=None, subscribed=None, generation=None):
+        stream = self.stream if stream is None else stream
+        subscribed = self.subscribed if subscribed is None else subscribed
+        generation = self.generation if generation is None else generation
+
+        def report(error, replace=True):
+            with self.state_lock:
+                if self.closed or generation != self.generation:
+                    return
+                if replace or self.stream_error is None:
+                    self.stream_error = error
+
         try:
-            for response in self.stream:
+            for response in stream:
                 kind = response.WhichOneof("update")
                 if kind == "subscribe":
                     if response.subscribe.status.code:
-                        self.stream_error = BfRtError(grpc.StatusCode.PERMISSION_DENIED, response.subscribe.status.message)
-                    self.subscribed.set()
+                        report(BfRtError(grpc.StatusCode.PERMISSION_DENIED, response.subscribe.status.message))
+                    subscribed.set()
                 elif kind == "digest":
                     digest = response.digest
                     with self.event_lock:
+                        if generation != self.generation:
+                            continue
                         self.sequence += 1
                         size = digest.ByteSize()
                         if len(digest.data) > 256 or size > 256 * 1024:
@@ -137,15 +163,16 @@ class BfRtClient:
                     # callback. Stream DigestAck is explicitly unimplemented
                     # and would terminate this connection if sent.
         except grpc.RpcError as error:
-            if not self.closed:
-                self.stream_error = error
+            report(error)
         finally:
-            if not self.closed and self.stream_error is None:
-                self.stream_error = BfRtError(grpc.StatusCode.UNAVAILABLE, "BF Runtime stream ended")
-            self.subscribed.set()
+            report(BfRtError(grpc.StatusCode.UNAVAILABLE, "BF Runtime stream ended"), replace=False)
+            subscribed.set()
 
     def close(self):
-        self.closed = True
+        # Invalidate the running reader before any reconnect resets state.
+        with self.state_lock:
+            self.closed = True
+            self.generation += 1
         self.requests.put(None)
         if self.stream is not None:
             self.stream.cancel()
@@ -260,10 +287,11 @@ class BfRtClient:
         # in the official BF-RT server. Its RPC may return before that stream
         # reader observes cancellation. Recreate the subscription before BIND.
         self.close()
-        self.requests = Queue()
-        self.subscribed = Event()
-        self.stream_error = None
-        self.closed = False
+        with self.state_lock:
+            self.requests = Queue()
+            self.subscribed = Event()
+            self.stream_error = None
+            self.closed = False
         with self.event_lock:
             self.events.clear()
             self.event_bytes = 0
