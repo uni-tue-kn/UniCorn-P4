@@ -46,7 +46,7 @@ class Tables(Endpoint):
                         counters = {row["key"]: {"packets": row["packets"], "bytes": row["bytes"]} for row in counter_values}
                         for row in frontend_entries:
                             parsed = self.controller.createTableEntry(args['switch_id'], row['switch_entry'], False)
-                            value = counters.get(table_entry_key(parsed.get_entry_obj()))
+                            value = counters.get(current_switch_config.table_entry_key(parsed.get_entry_obj()))
                             if value is not None:
                                 row["counters"] = value
                 

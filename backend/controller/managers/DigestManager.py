@@ -69,3 +69,6 @@ class DigestManager:
                          data=[decode_p4data(value, definition.type_spec if definition is not None else None,
                                             info.type_info if info is not None else None) for value in raw.data])
         return result
+
+    def clear(self, digest_id=None):
+        self.switch.bmv2.ClearDigestEvents(digest_id)

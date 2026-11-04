@@ -168,7 +168,19 @@ export function EditorProvider({ children }) {
     for (const path of snapshot.order) if (!(await saveOne(path))) return false;
     setState(previous => ({ ...previous, compileStatus: 'busy', output: `Compiling ${source.absolute_path}\n…`, diagnostics: [] }));
     try {
-      const { data } = await axios.post('/compile', { file: source.absolute_path });
+      let { data } = await axios.post('/compile', { file: source.absolute_path });
+      if (data?.job_id) {
+        const jobID = data.job_id;
+        for (;;) {
+          const job = (await axios.get(`/compile/jobs/${encodeURIComponent(jobID)}`)).data;
+          if (!mounted.current) return false;
+          if (job.status === 'complete') { data = job.result; break; }
+          if (job.status === 'failed') throw { response: { data: job.result || { error: job.error || 'Compilation failed.' } } };
+          if (!['pending', 'running'].includes(job.status)) throw new Error('The compiler returned an invalid job status.');
+          setState(previous => ({ ...previous, output: `Compiling ${source.absolute_path}\n${job.message || 'Compilation is running…'}` }));
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
       const output = [`Compiling ${source.absolute_path}`, `Command: ${formatCompileCommand(data.command)}`, data.stdout, data.stderr, 'Success: Compilation completed.'].filter(Boolean).join('\n');
       setState(previous => ({ ...previous, output, compileStatus: 'success', diagnostics: compilerDiagnostics(data.stderr || '', previous.root, source.absolute_path, previous.files.map(file => file.path)) }));
       await refresh(); return true;
@@ -176,7 +188,7 @@ export function EditorProvider({ children }) {
       const data = failure.response?.data;
       const command = formatCompileCommand(data?.command);
       const message = compileErrorMessage(failure);
-      setState(previous => ({ ...previous, compileStatus: 'error', output: [`Compiling ${source.absolute_path}`, command && `Command: ${command}`, `Error: ${message}`].filter(Boolean).join('\n'),
+      setState(previous => ({ ...previous, compileStatus: 'error', output: [`Compiling ${source.absolute_path}`, command && `Command: ${command}`, data?.stdout, `Error: ${message}`].filter(Boolean).join('\n'),
         diagnostics: compilerDiagnostics(message, previous.root, source.absolute_path, previous.files.map(file => file.path)) }));
       return false;
     }

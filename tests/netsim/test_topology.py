@@ -150,7 +150,7 @@ def test_extract_numeric_node_ids():
 
 def test_switch_discovery_reports_actual_native_endpoint_port(runner):
     runner.net = SimpleNamespace(switches=[SimpleNamespace(name='s1', device_id=0, grpc_port=50051, thrift_port=9107)])
-    assert runner.populate_switch_mappings() == [{'name': 's1', 'dev_id': 0, 'grpc_port': 50051, 'thrift_port': 9107}]
+    assert runner.populate_switch_mappings() == [{'name': 's1', 'dev_id': 0, 'grpc_port': 50051, 'thrift_port': 9107, 'target': 'bmv2', 'address': '127.0.0.1:50051', 'status': 'ready'}]
 
 
 @pytest.mark.parametrize('links,count', [([], 0), ([['h1', 's1'], ['h1', 's2']], 2),
@@ -196,3 +196,80 @@ def test_generated_interface_name_limits_preflight_preserves_running_network(run
             runner.run()
         runner.destroy_topology.assert_not_called()
     assert runner.topology_state() == previous
+
+
+def test_mixed_targets_keep_link_properties_and_per_node_classes(runner, tmp_path, monkeypatch):
+    from netsim.api.netsim.utils.tofino_switch import TofinoSwitch
+    from netsim.api.netsim.utils.p4runtime_switch import P4RuntimeSwitch
+    runner.hosts = []
+    runner.switches = {'s1': {}, 's2': {'target': 'tofino', 'program': 'saved-build'}}
+    runner.links = runner.parse_links([['s1', 's2', '4ms', 25]])
+    monkeypatch.setattr('netsim.api.netsim.netsim.Mininet', Mock())
+    runner.create_network()
+    assert issubclass(runner.topo.nodeInfo('s1')['cls'], P4RuntimeSwitch)
+    assert issubclass(runner.topo.nodeInfo('s2')['cls'], TofinoSwitch)
+    assert runner.topo.linkInfo('s1', 's2')['delay'] == '4ms'
+    assert runner.topo.linkInfo('s1', 's2')['bw'] == 25
+    assert runner.switches['s2']['program'] == 'saved-build'
+
+
+@pytest.mark.parametrize('target', ['other', None, 1, []])
+def test_unknown_target_rejected_before_teardown(runner, tmp_path, target):
+    path = tmp_path / 'target.json'
+    path.write_text(json.dumps({'hosts': [], 'switches': {'s1': {'target': target}}, 'links': []}))
+    runner.topo_file = path
+    runner.destroy_topology = Mock()
+    with pytest.raises(ValueError, match='Switch target'):
+        runner.run()
+    runner.destroy_topology.assert_not_called()
+
+
+def test_model_port_limit_is_checked_before_teardown(runner, tmp_path):
+    path = tmp_path / 'too-many-ports.json'
+    path.write_text(json.dumps({'hosts': [], 'switches': {'s1': {'target': 'tofino'}, 's2': {}},
+                                'links': [['s1', 's2']] * 65}))
+    with pytest.raises(ValueError, match='at most 64 ports'):
+        runner.read_topology_file(path)
+
+
+def test_model_discovery_reports_logical_and_native_identity(runner):
+    runner.net = SimpleNamespace(switches=[SimpleNamespace(name='s2', target='tofino', device_id=7,
+        grpc_port=51052, thrift_port=None, target_options={'client_id': 0, 'pipe_id': 0})])
+    assert runner.populate_switch_mappings() == [{'name': 's2', 'target': 'tofino', 'dev_id': 7,
+        'runtime_device_id': 0, 'grpc_port': 51052, 'thrift_port': None, 'address': '127.0.0.1:51052',
+        'target_options': {'client_id': 0, 'pipe_id': 0}, 'status': 'ready'}]
+
+
+def test_physical_interface_returns_to_original_namespace_before_switch_teardown(runner):
+    node = Mock()
+    node.target = 'tofino'
+    node.popen.return_value.wait.return_value = 0
+    interface = SimpleNamespace(name='eth9', node=node)
+    runner.external_intf_objects = [interface]
+    runner.detach_external_interfaces()
+    command = node.popen.call_args.args[0]
+    assert command[:6] == ['ip', 'link', 'set', 'dev', 'eth9', 'netns']
+    node.delIntf.assert_called_once_with(interface)
+    assert interface.node is None
+
+
+def test_preflight_accepts_external_interface_owned_by_current_switch_namespace(runner, monkeypatch):
+    runner.external_intf_objects = [SimpleNamespace(name='eth9')]
+    monkeypatch.setattr('netsim.api.netsim.netsim.os.path.exists', lambda _: False)
+    assert runner.parse_ext_intfs([['s1', 'eth9']]) == [{'switch': 's1', 'interface': 'eth9'}]
+
+
+def test_disconnected_model_rejected_before_teardown_but_external_interface_counts(runner, tmp_path, monkeypatch):
+    monkeypatch.setattr('runtime.tofino.supervisor.check_available', Mock())
+    path = tmp_path / 'disconnected-model.json'
+    topology = {'hosts': [], 'switches': {'s1': {'target': 'tofino'}}, 'links': []}
+    path.write_text(json.dumps(topology))
+    runner.topo_file = path
+    runner.destroy_topology = Mock()
+    with pytest.raises(ValueError, match='requires at least one interface'):
+        runner.run()
+    runner.destroy_topology.assert_not_called()
+    monkeypatch.setattr('netsim.api.netsim.netsim.os.path.exists', lambda _: True)
+    topology['ext_intfs'] = [['s1', 'physical1']]
+    path.write_text(json.dumps(topology))
+    assert runner.read_topology_file(path)['ext_intfs'] == [{'switch': 's1', 'interface': 'physical1'}]

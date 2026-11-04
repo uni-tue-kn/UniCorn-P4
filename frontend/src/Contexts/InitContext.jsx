@@ -28,8 +28,14 @@ export function InitProvider({ children }) {
   useEffect(() => { updateInitializedFiles(); }, [updateInitializedFiles]);
 
   async function initialize(event, p4_info_file, bmv2_file, keep_entries = false, state_id = null) {
+    if (initializedFiles?.read_only === true || initializedFiles?.capabilities?.pipeline?.write === false) {
+      callSnackbar('info', 'This connection is read-only. The active program is discovered automatically.');
+      return false;
+    }
     try {
-      await axios.post('/init', { switch_id: currentSwitchID, p4_info_file, bmv2_file, keep_entries, state_id });
+      const program = p4_info_file && typeof p4_info_file === 'object' ? p4_info_file : null;
+      const request = program ? { switch_id: currentSwitchID, program_id: program.id, keep_entries, ...(state_id == null ? {} : { state_id }) } : { switch_id: currentSwitchID, p4_info_file, bmv2_file, keep_entries, state_id };
+      await axios.post('/init', request);
       callSnackbar('success', 'Initialization was successful!');
       if (currentID.current === currentSwitchID) await updateInitializedFiles();
       return true;

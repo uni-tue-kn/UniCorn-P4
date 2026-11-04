@@ -18,7 +18,17 @@ beforeEach(() => {
 });
 
 describe('program initialization', () => {
-  it('selects a sole compiled program and sends both matching artifacts together', async () => {
+  it.each([{ read_only: true }, { capabilities: { pipeline: { write: false } } }])('shows the discovered observer program without offering initialization (%j)', async readonly => {
+    context.initializedFiles = { target: 'tofino', program_name: 'external_router', table_info: {}, ...readonly };
+    render(<Initialization />);
+    expect(await screen.findByText('external_router')).toBeVisible();
+    expect(screen.getByText(/Read-only connection.*discovered automatically/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit initialization' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Initialize', exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText('Program files')).not.toBeInTheDocument();
+    expect(context.initialize).not.toHaveBeenCalled();
+  });
+  it('selects a sole legacy compiled program and sends both matching artifacts', async () => {
     const user = userEvent.setup();
     render(<Initialization />);
     await user.click(screen.getByRole('button', { name: 'Edit initialization' }));
@@ -27,6 +37,23 @@ describe('program initialization', () => {
     await user.click(screen.getByRole('button', { name: 'Initialize', exact: true }));
     expect(context.initialize).toHaveBeenCalledWith(expect.anything(), program.p4_info, program.bmv2, false);
     await expect(screen.findByRole('button', { name: 'Edit initialization' })).resolves.toBeVisible();
+  });
+
+  it('initializes a compatible manifest program by identity without exposing native artifact paths', async () => {
+    const user = userEvent.setup();
+    const native = { id: '/p4/.builds/router/manifest.json', name: 'router', target: 'tofino', build_manifest: '/p4/.builds/router/manifest.json', source: '/p4/router.p4' };
+    context.initializedFiles = { target: 'tofino', program_manifest: native.id, program_name: 'router', table_info: {}, capabilities: { pipeline: { keep_entries: false } } };
+    axios.get.mockResolvedValue({ data: { programs: [native] } });
+    render(<Initialization />);
+    expect(await screen.findByText('router')).toBeVisible();
+    expect(screen.queryByText(native.id)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit initialization' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Initialize', exact: true })).toBeEnabled());
+    expect(screen.queryByRole('button', { name: 'Advanced', exact: true })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Keep existing entries' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Initialize', exact: true }));
+    expect(context.initialize).toHaveBeenCalledWith(expect.anything(), native, null, false);
+    expect(axios.get).toHaveBeenCalledWith('/p4files', { params: { switch_id: 0 } });
   });
 
   it('refreshes programs when opening the editor after a compilation', async () => {

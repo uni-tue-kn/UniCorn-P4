@@ -14,6 +14,15 @@ beforeEach(() => { vi.clearAllMocks(); context.currentSwitchID = 0; context.init
 const register = { id: 3, size: 512, type: { kind: 'bit', bitwidth: 64 } };
 
 describe('indexed resources', () => {
+  it('keeps exact observer register values readable with editing disabled', async () => {
+    context.initializedFiles = { capabilities: { registers: { read: true, write: false } } };
+    axios.get.mockResolvedValue({ data: { entries: [{ index: 0, value: '18446744073709551615' }], total: 1 } });
+    render(<ResourceContent kind="registers" resource={register} resourceName="reg" />);
+    expect(await screen.findByTestId('value-0')).toHaveTextContent('18446744073709551615');
+    expect(screen.getByRole('button', { name: 'Edit', exact: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+    expect(axios.patch).not.toHaveBeenCalled();
+  });
   it('keeps a wide direct-meter key exact through legacy JSON parsing and reset', async () => {
     const wire = '{"entries":[{"table_entry":{"table_name":"forward","match_fields":{"key":9007199254740993},"priority":null},"config":{"cir":"1","cburst":"2","pir":"3","pburst":"4"}}]}';
     axios.get.mockImplementation(async (_url, options) => ({ data: options.transformResponse.reduce((data, transform) => transform(data), wire) }));
@@ -35,6 +44,53 @@ describe('indexed resources', () => {
     await user.type(input, '9007199254740993');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(axios.patch).toHaveBeenCalledWith('/registers', { switch_id: 0, register_id: 3, entries: [{ index: 0, value: '9007199254740993' }] }));
+  });
+
+  it('edits structured and repeated typed register fields while keeping exact decimal strings', async () => {
+    const user = userEvent.setup();
+    const fields = [
+      { name: 'state.count', type: { kind: 'bytes', bitwidth: 64, repeated: false } },
+      { name: 'state.delta', type: { kind: 'int64', bitwidth: 64, repeated: false } },
+      { name: 'state.samples', type: { kind: 'uint32', bitwidth: 32, repeated: true } },
+    ];
+    const value = { 'state.count': '18446744073709551615', 'state.delta': '-9007199254740993', 'state.samples': ['1', '2'] };
+    axios.get.mockResolvedValue({ data: { total: 1, fields, entries: [{ index: 0, value }] } });
+    render(<ResourceContent kind="registers" resource={{ id: 3, size: 1, fields }} resourceName="state" />);
+    expect(await screen.findByTestId('value-0-state.count')).toHaveTextContent('18446744073709551615');
+    expect(screen.getByRole('columnheader', { name: 'state.samples' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const counter = screen.getByLabelText('state.count for index 0');
+    await user.clear(counter); await user.type(counter, '9007199254740993');
+    await user.click(screen.getByRole('button', { name: 'Add state.samples value' }));
+    await user.clear(screen.getByLabelText('state.samples for index 0 [2]'));
+    await user.type(screen.getByLabelText('state.samples for index 0 [2]'), '4294967295');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(axios.patch).toHaveBeenCalledWith('/registers', { switch_id: 0, register_id: 3, entries: [{ index: 0, value: { ...value, 'state.count': '9007199254740993', 'state.samples': ['1', '2', '4294967295'] } }] }));
+  });
+
+  it('uses field types for text, boolean and floating-point register values', async () => {
+    const user = userEvent.setup();
+    const fields = [{ name: 'label', type: { kind: 'string' } }, { name: 'enabled', type: { kind: 'bool' } }, { name: 'ratio', type: { kind: 'float' } }];
+    axios.get.mockResolvedValue({ data: { total: 1, fields, entries: [{ index: 0, value: { label: '0001', enabled: true, ratio: 1.5 } }] } });
+    render(<ResourceContent kind="registers" resource={{ id: 3, size: 1, fields }} resourceName="state" />);
+    expect(await screen.findByTestId('value-0-label')).toHaveTextContent('0001');
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('combobox', { name: 'enabled for index 0' }));
+    await user.click(screen.getByRole('option', { name: 'false' }));
+    const ratio = screen.getByLabelText('ratio for index 0');
+    await user.clear(ratio); await user.type(ratio, '2.25');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(axios.patch).toHaveBeenCalledWith('/registers', { switch_id: 0, register_id: 3, entries: [{ index: 0, value: { label: '0001', enabled: false, ratio: 2.25 } }] }));
+  });
+
+  it('uses declared meter units and hides unsupported reset without hiding reads', async () => {
+    context.initializedFiles = { capabilities: { meters: { read: true, write: true, reset: false } } };
+    axios.get.mockResolvedValue({ data: { total: 1, entries: [{ index: 0, config: { cir: '1', cburst: '2', pir: '3', pburst: '4' } }] } });
+    render(<ResourceContent kind="meters" resource={{ id: 3, size: 1, rate_unit: 'kilobits_per_second', burst_unit: 'kilobits', reset: false }} resourceName="rate" />);
+    expect(await screen.findByRole('button', { name: 'Edit' })).toBeEnabled();
+    expect(screen.getByText('CIR (kilobits/s)')).toBeVisible();
+    expect(screen.getByText('CBS (kilobits)')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument();
   });
 
   it('rejects overflow before issuing a write', async () => {
@@ -62,13 +118,13 @@ describe('indexed resources', () => {
     axios.get.mockRejectedValue({ response: { status: 501, data: { error: 'Register access unsupported by target' } } });
     render(<ResourceContent kind="registers" resource={register} resourceName="state" />);
     expect(await screen.findByText('Register access unsupported by target')).toBeVisible();
-    expect(screen.getByText(/enable the BMv2 register adapter in its saved connection settings/)).toBeVisible();
+    expect(screen.getByText(/Check the switch connection settings/)).toBeVisible();
   });
 
   it('shows per-switch unsupported capability without repeatedly querying a stock target', async () => {
     context.initializedFiles = { register_access: { mode: 'unsupported', status: 'unsupported', max_bitwidth: null } };
     render(<ResourceContent kind="registers" resource={register} resourceName="state" />);
-    expect(await screen.findByText('This switch does not support P4Runtime register access.')).toBeVisible();
+    expect(await screen.findByText('This switch does not support register access.')).toBeVisible();
     expect(axios.get).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
   });

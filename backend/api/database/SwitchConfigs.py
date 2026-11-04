@@ -13,6 +13,8 @@ class SwitchConfigs(db.Model):
     name = db.Column(db.String, nullable = False)
     address = db.Column(db.String, nullable = False)
     device_id = db.Column(db.Integer, nullable = False)
+    target = db.Column(db.String, nullable=False, default="bmv2", server_default="bmv2")
+    target_options = db.Column(db.JSON, nullable=True)
     proto_dump_file = db.Column(db.String, nullable = True)
     register_adapter_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
     register_thrift_host = db.Column(db.String, nullable=True)
@@ -38,6 +40,8 @@ def extractSwitchData(query):
         switchDict['name'] = switch.name
         switchDict['address'] = switch.address
         switchDict['device_id'] = switch.device_id
+        switchDict['target'] = switch.target
+        switchDict['target_options'] = switch.target_options or {}
         switchDict['proto_dump_file'] = switch.proto_dump_file
         switchDict['register_adapter_enabled'] = switch.register_adapter_enabled
         switchDict['register_thrift_host'] = switch.register_thrift_host

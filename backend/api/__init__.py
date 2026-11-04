@@ -8,6 +8,7 @@ from flask_cors import CORS
 import os
 from unicorn_version import register_version_routes
 from .language_service import register_language_routes
+from .program_builds import register_build_routes
 
 from controller.controller import Controller
 exampleController = Controller()
@@ -16,6 +17,7 @@ def create_app():
     app = Flask(__name__)
     register_version_routes(app, "backend")
     register_language_routes(app)
+    register_build_routes(app)
     CORS(app, methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
     app.config['CORS_HEADERS'] = 'application/json'
     

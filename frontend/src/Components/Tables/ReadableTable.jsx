@@ -32,6 +32,7 @@ function ReadableTable({ tableName, tableEntries, rawTableEntries = tableEntries
     const { currentSwitchID } = useSwitch();
     const { tableInfo, decoding } = useTable();
     const { initializedFiles } = useInit() || {};
+    const writeAvailable = initializedFiles?.capabilities?.tables?.write !== false;
     const tableID = tableInfo?.[tableName]?.table_id;
     const directMeter = tableID == null ? null : Object.values(initializedFiles?.direct_meters || {}).find(meter => String(meter.table_id) === String(tableID));
     const directCounter = tableID == null ? null : Object.values(initializedFiles?.direct_counters || {}).find(counter => String(counter.table_id) === String(tableID));
@@ -45,6 +46,7 @@ function ReadableTable({ tableName, tableEntries, rawTableEntries = tableEntries
 
     const [editEntryData, setEditEntryData] = useState(initialEditEntryData);
     const handleEditClick = (event, id) => {
+        if (!writeAvailable) return;
         const switch_entry = findEntry(id, tableEntries).switch_entry;
         const newEditEntryData = {
             id: id,
@@ -74,6 +76,7 @@ function ReadableTable({ tableName, tableEntries, rawTableEntries = tableEntries
 
     const submitEdit = (event) => {
         event.preventDefault();
+        if (!writeAvailable) return;
         const oldEntry = JSON.stringify(encodeNumerics(editEntryData.oldEntry, decoding, tableInfo, tableName));
         const newEntry = JSON.stringify(encodeNumerics(editEntryData.newEntry, decoding, tableInfo, tableName));
         if (oldEntry !== newEntry) {
@@ -96,6 +99,7 @@ function ReadableTable({ tableName, tableEntries, rawTableEntries = tableEntries
     }
 
     const submitDelete = (event, id) => {
+        if (!writeAvailable) return;
         const switch_entry = encodeNumerics(findEntry(id, tableEntries).switch_entry, decoding, tableInfo, tableName);
         axios.delete("/tables", {
             data: {
@@ -113,7 +117,7 @@ function ReadableTable({ tableName, tableEntries, rawTableEntries = tableEntries
     }
 
     const readableRow = (entry) => (
-        editEntryData.id === entry.id ? editableRow(entry) : readOnlyRow(entry)
+        writeAvailable && editEntryData.id === entry.id ? editableRow(entry) : readOnlyRow(entry)
     )
 
     const editableRow = (entry) => (
@@ -151,12 +155,14 @@ function ReadableTable({ tableName, tableEntries, rawTableEntries = tableEntries
                     >
                         <Button
                             variant='outlined' name='edit_entry'
+                            disabled={!writeAvailable}
                             endIcon={< EditIcon />} size='small' sx={{ width: 100, backgroundColor: 'action.hover'}}
                             onClick={(event) => handleEditClick(event, entry.id)}
                         >
                             Edit
                         </Button>
                         <Button variant='outlined' name='delete_entry'
+                            disabled={!writeAvailable}
                             endIcon={< DeleteIcon />} size='small' sx={{ width: 100, backgroundColor: 'action.hover'}}
                             onClick={(event) => submitDelete(event, entry.id)}
                         >

@@ -10,7 +10,7 @@ import { useInit } from '../../Contexts/InitContext';
 import { useTable } from '../../Contexts/TableContext'
 import { useSnackbar } from '../../Contexts/SnackbarContext';
 
-import { Box, Grid, Paper, Stack, Typography, Button, Collapse } from '@mui/material'
+import { Alert, Box, Grid, Paper, Stack, Typography, Button, Collapse } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import LibraryAddIcon from '@mui/icons-material/LibraryAdd';
@@ -32,6 +32,7 @@ export default function TableContent({ tableName, tableID }) {
   const { tableInfo, decoding, setDecoding } = useTable();
   const { callSnackbar } = useSnackbar();
   const { initializedFiles } = useInit();
+  const writeAvailable = initializedFiles?.capabilities?.tables?.write !== false;
   const { currentSwitchID } = useSwitch();
   const currentRequest = useRef(0);
 
@@ -163,14 +164,15 @@ export default function TableContent({ tableName, tableID }) {
     return (
       <Box sx={{ flexGrow: 1 }}>
         <Typography variant='h5' gutterBottom>{tableName}</Typography>
+        {!writeAvailable && <Alert severity="info" sx={{ mb: 2 }}>Table entries are available for reading. Changes are disabled for this connection.</Alert>}
         <Grid container >
           <Grid size={{ xs: 12, xl: 10 }}>
             <Paper sx={{ padding: '32px', overflow: 'hidden' }} elevation={3}>
               <Stack direction='column' spacing={2} >
                 <Stack direction='row' spacing={2} sx={{ justifyContent: 'space-between', flexWrap: 'wrap' }} useFlexGap>
                   <Stack direction='row' spacing={2} sx={{ flexWrap: 'wrap' }} useFlexGap>
-                    <Button variant='contained' startIcon={< AddIcon />} size='large' sx={{ width: 250 }} disabled={editing || inlineEditing} onClick={toggleAdding}>Add new Entry</Button>
-                    <Button variant='contained' endIcon={< EditIcon />} size='large' sx={{ width: 250 }} disabled={tableEntries.length === 0 || editing || inlineEditing} onClick={toggleEditing}>Edit Table Entries</Button>
+                    <Button variant='contained' startIcon={< AddIcon />} size='large' sx={{ width: 250 }} disabled={!writeAvailable || editing || inlineEditing} onClick={toggleAdding}>Add new Entry</Button>
+                    <Button variant='contained' endIcon={< EditIcon />} size='large' sx={{ width: 250 }} disabled={!writeAvailable || tableEntries.length === 0 || editing || inlineEditing} onClick={toggleEditing}>Edit Table Entries</Button>
                     <Button variant='outlined' startIcon={<SortIcon />} sx={{ backgroundColor: 'action.hover' }} endIcon={<SearchIcon />} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "sort&filter")} >Sort & Filter</Button>
                     <Button variant='outlined' endIcon={<SettingsIcon />} sx={{ backgroundColor: 'action.hover' }} disabled={editing || inlineEditing} onClick={(event) => handleChange(event, "decoding")} >Decoding Options</Button>
                   </Stack>
@@ -185,7 +187,7 @@ export default function TableContent({ tableName, tableID }) {
                 <Collapse in={optionsOpen === "decoding" && !(editing || inlineEditing)} unmountOnExit>
                   <DecodingOptions tableName={tableName} tableInfo={tableInfo} decoding={decoding} setDecoding={setDecoding} />
                 </Collapse>
-                {editing ?
+                {editing && writeAvailable ?
                   < EditableTable {...commonProps} toggleEditing={toggleEditing} />
                   :
                   <ReadableTable {...commonProps} toggleInlineEditing={toggleInlineEditing} />}
@@ -193,7 +195,7 @@ export default function TableContent({ tableName, tableID }) {
             </Paper>
           </Grid>
         </Grid>
-        {adding && <PostTableEntry tableName={tableName} updateTableEntries={updateTableEntries} toggleAdding={toggleAdding} needsPriority={needsPriority} />}
+        {adding && writeAvailable && <PostTableEntry tableName={tableName} updateTableEntries={updateTableEntries} toggleAdding={toggleAdding} needsPriority={needsPriority} />}
         <SaveStateDialog open={saveOpen} setOpen={setSaveOpen}></SaveStateDialog>
       </Box>
     )

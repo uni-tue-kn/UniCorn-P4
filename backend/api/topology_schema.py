@@ -31,6 +31,9 @@ def validate_topology(topology):
             raise ValueError('Numeric IDs must be unique within hosts and within switches')
     if any(not isinstance(properties, dict) for properties in switches.values()):
         raise ValueError('Switch properties must be objects')
+    for properties in switches.values():
+        if properties.get('target', 'bmv2') not in ('bmv2', 'tofino'):
+            raise ValueError('Switch target must be bmv2 or tofino')
     for index, link in enumerate(links):
         if not isinstance(link, list) or not 2 <= len(link) <= 4:
             raise ValueError(f'Link {index + 1} must contain two nodes and optional latency/bandwidth')
@@ -82,6 +85,11 @@ def validate_deployable_topology(topology):
             raise ValueError(f'Host {host} must have exactly one switch link before deployment (found {count}).')
     for switch in topology['switches']:
         degree = sum(switch in link[:2] for link in topology['links'])
+        port_count = degree + sum(item[0] == switch for item in topology.get('ext_intfs', []))
+        if topology['switches'][switch].get('target', 'bmv2') == 'tofino' and port_count == 0:
+            raise ValueError(f'Tofino switch {switch} requires at least one interface before deployment.')
+        if topology['switches'][switch].get('target', 'bmv2') == 'tofino' and port_count > 64:
+            raise ValueError(f'Tofino switch {switch} supports at most 64 ports on pipe 0')
         interface = f'{switch}-eth{degree}'
         if len(interface) > 15:
             raise ValueError(f"Switch {switch} requires interface {interface}, exceeding Linux's 15-character limit.")

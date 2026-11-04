@@ -1,4 +1,5 @@
 from .endpoints.load_topology import LoadTopology
+from .endpoints.deploy_topology import DeployTopology, DeploymentStatus
 from .endpoints.get_topology import GetTopology
 from .endpoints.switchesonline import SwitchesOnline
 from .endpoints.logs import LogFile
@@ -169,6 +170,8 @@ class MininetManager:
 
     def create_api(self):
         self.api = Api(self.app)
+        self.api.add_resource(DeployTopology, '/topology/deploy', resource_class_kwargs={'netsim': self.mn_runner, 'ws': self.socketio})
+        self.api.add_resource(DeploymentStatus, '/topology/deploy/<string:deployment_id>', resource_class_kwargs={'netsim': self.mn_runner, 'ws': self.socketio})
         self.api.add_resource(LoadTopology, '/topology/load', resource_class_kwargs={
                               "netsim": self.mn_runner, "ws": self.socketio})
         self.api.add_resource(GetTopology, '/topology/get', resource_class_kwargs={

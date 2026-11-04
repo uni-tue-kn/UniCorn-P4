@@ -2,11 +2,16 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Alert, Box, Button, Tooltip } from '@mui/material';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import { useInit } from '../../Contexts/InitContext';
 import { useSwitch } from '../../Contexts/SwitchContext';
 import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 
 export default function DirectCounterReset({ tableID, tableEntry = null, onReset, disabled = false, label = 'Reset counters' }) {
   const { currentSwitchID } = useSwitch();
+  const capability = useInit()?.initializedFiles?.capabilities?.direct_counters;
+  const unsupported = capability?.write === false || (tableEntry?.is_default_action && capability?.default_reset === false);
+  const nonDefaultOnly = !tableEntry && capability?.reset_scope === 'non_default_entries';
+  const buttonLabel = nonDefaultOnly ? 'Reset non-default counters' : label;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const controller = useRef(null);
@@ -17,6 +22,7 @@ export default function DirectCounterReset({ tableID, tableEntry = null, onReset
     return () => controller.current?.abort();
   }, [currentSwitchID, tableID, entryKey]);
   async function reset() {
+    if (unsupported) return;
     controller.current?.abort();
     const requested = new AbortController();
     controller.current = requested;
@@ -33,5 +39,5 @@ export default function DirectCounterReset({ tableID, tableEntry = null, onReset
       if (!requested.signal.aborted) setBusy(false);
     }
   }
-  return <Box><Tooltip title={tableEntry ? 'Set this entry’s direct counter to zero. Its match and action remain unchanged.' : 'Set this table’s direct counters to zero. Table entries and meter settings remain unchanged.'}><span><Button size="small" variant="outlined" color="inherit" startIcon={<RestartAltIcon />} disabled={disabled || busy || currentSwitchID == null} onClick={reset}>{busy ? 'Resetting…' : label}</Button></span></Tooltip><AsyncFeedback feedback={feedback} />{error && <Alert severity="error">{error}</Alert>}</Box>;
+  return <Box><Tooltip title={unsupported ? 'Counter reset is unavailable for this entry on this switch.' : nonDefaultOnly ? 'Reset counters for non-default entries. The default entry is excluded.' : tableEntry ? 'Set this entry’s direct counter to zero. Its match and action remain unchanged.' : 'Set this table’s direct counters to zero. Table entries and meter settings remain unchanged.'}><span><Button size="small" variant="outlined" color="inherit" startIcon={<RestartAltIcon />} disabled={disabled || busy || currentSwitchID == null || unsupported} onClick={reset}>{busy ? 'Resetting…' : buttonLabel}</Button></span></Tooltip><AsyncFeedback feedback={feedback} />{error && <Alert severity="error">{error}</Alert>}</Box>;
 }

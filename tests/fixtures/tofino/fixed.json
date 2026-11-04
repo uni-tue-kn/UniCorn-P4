@@ -1,0 +1,787 @@
+{
+  "tables": [
+    {
+      "name": "$mirror.cfg",
+      "id": 4278452225,
+      "table_type": "MirrorCfg",
+      "size": 1024,
+      "key": [
+        {
+          "id": 1,
+          "name": "$sid",
+          "repeated": false,
+          "annotations": [],
+          "mandatory": true,
+          "match_type": "Exact",
+          "type": {
+            "type": "uint16"
+          }
+        }
+      ],
+      "action_specs": [
+        {
+          "id": 1,
+          "name": "$coalescing",
+          "data": [
+            {
+              "mandatory": false,
+              "read_only": false,
+              "singleton": {
+                "id": 1,
+                "name": "$internal_header",
+                "repeated": false,
+                "annotations": [],
+                "type": {
+                  "type": "bytes",
+                  "width": 128
+                }
+              }
+            },
+            {
+              "mandatory": false,
+              "read_only": false,
+              "singleton": {
+                "id": 2,
+                "name": "$internal_header_length",
+                "repeated": false,
+                "annotations": [],
+                "type": {
+                  "type": "uint32"
+                }
+              }
+            },
+            {
+              "mandatory": false,
+              "read_only": false,
+              "singleton": {
+                "id": 3,
+                "name": "$timeout_usec",
+                "repeated": false,
+                "annotations": [],
+                "type": {
+                  "type": "uint32"
+                }
+              }
+            },
+            {
+              "mandatory": false,
+              "read_only": false,
+              "singleton": {
+                "id": 4,
+                "name": "$extract_len",
+                "repeated": false,
+                "annotations": [],
+                "type": {
+                  "type": "uint32"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "name": "$normal",
+          "data": []
+        }
+      ],
+      "data": [
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 5,
+            "name": "$session_enable",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "bool"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 6,
+            "name": "$direction",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "string",
+              "choices": [
+                "INGRESS",
+                "EGRESS",
+                "BOTH"
+              ]
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 7,
+            "name": "$ucast_egress_port",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 8,
+            "name": "$ucast_egress_port_valid",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "bool"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 9,
+            "name": "$egress_port_queue",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 10,
+            "name": "$ingress_cos",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 11,
+            "name": "$packet_color",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "string",
+              "choices": [
+                "GREEN",
+                "YELLOW",
+                "RED"
+              ]
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 12,
+            "name": "$level1_mcast_hash",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 13,
+            "name": "$level2_mcast_hash",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 14,
+            "name": "$mcast_grp_a",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 15,
+            "name": "$mcast_grp_a_valid",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "bool"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 16,
+            "name": "$mcast_grp_b",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 17,
+            "name": "$mcast_grp_b_valid",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "bool"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 18,
+            "name": "$mcast_l1_xid",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 19,
+            "name": "$mcast_l2_xid",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 20,
+            "name": "$mcast_rid",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 21,
+            "name": "$icos_for_copy_to_cpu",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 22,
+            "name": "$copy_to_cpu",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "bool"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 23,
+            "name": "$max_pkt_len",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        }
+      ],
+      "supported_operations": [],
+      "attributes": []
+    },
+    {
+      "name": "$pre.mgid",
+      "id": 4278321153,
+      "table_type": "PreMgid",
+      "size": 65536,
+      "key": [
+        {
+          "id": 1,
+          "name": "$MGID",
+          "annotations": [],
+          "mandatory": true,
+          "match_type": "Exact",
+          "type": {
+            "type": "uint16"
+          }
+        }
+      ],
+      "data": [
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 1,
+            "name": "$MULTICAST_NODE_ID",
+            "repeated": true,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 2,
+            "name": "$MULTICAST_NODE_L1_XID_VALID",
+            "repeated": true,
+            "annotations": [],
+            "type": {
+              "type": "bool"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 3,
+            "name": "$MULTICAST_NODE_L1_XID",
+            "repeated": true,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 4,
+            "name": "$MULTICAST_ECMP_ID",
+            "repeated": true,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 5,
+            "name": "$MULTICAST_ECMP_L1_XID_VALID",
+            "repeated": true,
+            "annotations": [],
+            "type": {
+              "type": "bool"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 6,
+            "name": "$MULTICAST_ECMP_L1_XID",
+            "repeated": true,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        }
+      ],
+      "supported_operations": [],
+      "attributes": [
+        "pre_device_config"
+      ]
+    },
+    {
+      "name": "$pre.node",
+      "id": 4278321154,
+      "table_type": "PreNode",
+      "size": 16777216,
+      "key": [
+        {
+          "id": 1,
+          "name": "$MULTICAST_NODE_ID",
+          "annotations": [],
+          "mandatory": true,
+          "match_type": "Exact",
+          "type": {
+            "type": "uint32"
+          }
+        }
+      ],
+      "data": [
+        {
+          "mandatory": true,
+          "read_only": false,
+          "singleton": {
+            "id": 1,
+            "name": "$MULTICAST_RID",
+            "repeated": false,
+            "annotations": [],
+            "type": {
+              "type": "uint16"
+            }
+          }
+        },
+        {
+          "mandatory": true,
+          "read_only": false,
+          "singleton": {
+            "id": 2,
+            "name": "$MULTICAST_LAG_ID",
+            "repeated": true,
+            "annotations": [],
+            "type": {
+              "type": "uint8"
+            }
+          }
+        },
+        {
+          "mandatory": true,
+          "read_only": false,
+          "singleton": {
+            "id": 3,
+            "name": "$DEV_PORT",
+            "repeated": true,
+            "annotations": [
+              {
+                "name": "$bfrt_port_type_class",
+                "value": "dev_port"
+              }
+            ],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        }
+      ],
+      "supported_operations": [],
+      "attributes": []
+    },
+    {
+      "name": "$pre.ecmp",
+      "id": 4278321155,
+      "table_type": "PreEcmp",
+      "size": 16777216,
+      "key": [
+        {
+          "id": 1,
+          "name": "$MULTICAST_ECMP_ID",
+          "annotations": [],
+          "mandatory": true,
+          "match_type": "Exact",
+          "type": {
+            "type": "uint32"
+          }
+        }
+      ],
+      "data": [
+        {
+          "mandatory": true,
+          "read_only": false,
+          "singleton": {
+            "id": 1,
+            "name": "$MULTICAST_NODE_ID",
+            "repeated": true,
+            "annotations": [],
+            "type": {
+              "type": "uint32"
+            }
+          }
+        }
+      ],
+      "supported_operations": [],
+      "attributes": []
+    },
+    {
+      "name": "tf1.tm.port.sched_cfg",
+      "description": "TM Port Scheduler parameters.",
+      "id": 4278517782,
+      "table_type": "TmPortSchedCfg",
+      "size": 288,
+      "key": [
+        {
+          "id": 1,
+          "name": "dev_port",
+          "description": "The device port ID (a 9-bit value) to refer to a port on a Tofino based system; it is used for the Tofino fixed-function API calls and in P4 programming.",
+          "repeated": false,
+          "annotations": [
+            {
+              "name": "$bfrt_port_type_class",
+              "value": "dev_port"
+            }
+          ],
+          "mandatory": true,
+          "match_type": "Exact",
+          "type": {
+            "type": "uint32"
+          }
+        }
+      ],
+      "data": [
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 1,
+            "name": "max_rate_enable",
+            "description": "Enable token bucket that assures max shaping rate for the Port with tm.port.sched_shaping parameters.",
+            "repeated": false,
+            "type": {
+              "type": "bool"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 2,
+            "name": "scheduling_speed",
+            "description": "Port scheduling speed. Set 'BF_SPEED_NONE' to disable Port's scheduling.",
+            "repeated": false,
+            "type": {
+              "type": "string",
+              "choices": [
+                "BF_SPEED_NONE",
+                "BF_SPEED_1G",
+                "BF_SPEED_10G",
+                "BF_SPEED_25G",
+                "BF_SPEED_40G",
+                "BF_SPEED_40G_NB",
+                "BF_SPEED_40G_NON_BREAKABLE",
+                "BF_SPEED_50G",
+                "BF_SPEED_100G"
+              ]
+            }
+          }
+        }
+      ],
+      "supported_operations": [],
+      "attributes": [],
+      "supported_apis": {
+        "tableEntryGet": {
+          "description": "Retrieves an existing entry identified by the key field.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableEntryGetFirst": {
+          "description": "Fetches the very first enty",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableEntryGetNext_n": {
+          "description": "Fetches next n entries after the entry, identified by the key.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableEntryMod": {
+          "description": "Updates an existing entry identified by the key field.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableClear": {
+          "description": "Resets to HW default settings all the entries in the table.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableUsageGet": {
+          "description": "Returns the table size constant value.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        }
+      }
+    },
+    {
+      "name": "tf1.tm.port.sched_shaping",
+      "description": "TM Port Scheduler shaping settings.",
+      "id": 4278517783,
+      "table_type": "TmPortSchedShaping",
+      "size": 288,
+      "key": [
+        {
+          "id": 1,
+          "name": "dev_port",
+          "description": "The device port ID (a 9-bit value) to refer to a port on a Tofino based system; it is used for the Tofino fixed-function API calls and in P4 programming.",
+          "repeated": false,
+          "annotations": [
+            {
+              "name": "$bfrt_port_type_class",
+              "value": "dev_port"
+            }
+          ],
+          "mandatory": true,
+          "match_type": "Exact",
+          "type": {
+            "type": "uint32"
+          }
+        }
+      ],
+      "data": [
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 1,
+            "name": "unit",
+            "description": "Unit of shaping rate and burst size: PPS - in Packets/s for rate, Packets for burst; BPS - Kbit/s for rate, Bytes for burst.",
+            "repeated": false,
+            "type": {
+              "type": "string",
+              "choices": [
+                "PPS",
+                "BPS"
+              ]
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 2,
+            "name": "provisioning",
+            "description": "Shaper provisioning mode: how values are translated to mantissa/exponent HW representation.",
+            "repeated": false,
+            "type": {
+              "type": "string",
+              "choices": [
+                "UPPER",
+                "LOWER",
+                "MIN_ERROR"
+              ]
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 3,
+            "name": "max_rate",
+            "description": "Port Shaping rate in units: Packets/s for 'PPS', or Kbit/s for 'BPS'. Read value is approximate 'provisioning mode' calculation to HW representation.",
+            "repeated": false,
+            "type": {
+              "type": "uint32"
+            }
+          }
+        },
+        {
+          "mandatory": false,
+          "read_only": false,
+          "singleton": {
+            "id": 4,
+            "name": "max_burst_size",
+            "description": "Port Shaping burst size in units: Packets for 'PPS', or Bytes for 'BPS'.",
+            "repeated": false,
+            "type": {
+              "type": "uint32"
+            }
+          }
+        }
+      ],
+      "supported_operations": [],
+      "attributes": [],
+      "supported_apis": {
+        "tableEntryGet": {
+          "description": "Retrieves an existing entry identified by the key field.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableEntryGetFirst": {
+          "description": "Fetches the very first enty",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableEntryGetNext_n": {
+          "description": "Fetches next n entries after the entry, identified by the key.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableEntryMod": {
+          "description": "Updates an existing entry identified by the key field.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableClear": {
+          "description": "Resets to HW default settings all the entries in the table.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        },
+        "tableUsageGet": {
+          "description": "Returns the table size constant value.",
+          "target_attributes": [
+            "dev_id"
+          ]
+        }
+      }
+    }
+  ]
+}

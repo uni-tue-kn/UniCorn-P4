@@ -66,3 +66,13 @@ bundle. No command or include search path can be supplied through the browser AP
 
 The frontend uses the existing same-origin `/api/` proxy. There is no additional
 public port, WebSocket endpoint, or sidecar service.
+
+The optional Tofino backend image adds the official SDK architecture headers
+(`tna.p4`, `t2na.p4`, their architecture dependencies, and `tofino/`) to that same
+bundled `p4include/` directory. Standard includes resolve through the existing
+lookup and access restrictions; the editor needs no additional configuration or
+language service. Compiler builds remain authoritative for target semantics.
+The preprocessor supplies the compiler's `__TARGET_TOFINO__` default when loading
+these bundled architecture headers (1 for `tna.p4`, 2 for `t2na.p4`), preserving an
+explicit source definition. Explicit `#error` directives are reported only in
+active conditional branches.

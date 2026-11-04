@@ -201,3 +201,20 @@ def test_port_discovery_failure_retains_acknowledged_configuration(client, switc
     assert response.json['configuration']['ports'][0]['port'] == 7
     assert response.json['configuration']['ports'][0]['depth_packets'] == 77
     assert response.json['configuration']['ports'][0]['discovered'] is False
+
+
+def test_configured_bmv2_queue_capabilities_expose_cached_reads_without_claiming_readback(client, switch, native):
+    capability = switch.get_loaded_config()['capabilities']['queues']
+    assert capability == {'read': True, 'write': True, 'readback': False, 'source': 'thrift', 'state': 'last_applied'}
+    assert client.patch('/queues', json={'switch_id': 0, 'port': 1, 'depth_packets': 32}).status_code == 200
+    response = client.get('/queues?switch_id=0')
+    assert response.status_code == 200
+    assert response.json['configuration']['ports'][0]['depth_packets'] == 32
+    assert response.json['readback_available'] is False
+    assert switch.as_json()['capabilities']['queues'] == capability
+
+
+def test_unconfigured_bmv2_queue_capabilities_are_unavailable(switch):
+    capability = switch.capabilities()['queues']
+    assert capability['read'] is False and capability['write'] is False
+    assert capability['readback'] is False

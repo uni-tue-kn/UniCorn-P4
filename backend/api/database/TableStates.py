@@ -10,6 +10,9 @@ class TableStates(db.Model):
     #__bind_key__ = 'table_states'
 
     id = db.Column(db.Integer, primary_key = True)
+    target = db.Column(db.String, nullable=False, default="bmv2", server_default="bmv2")
+    program_manifest = db.Column(db.String, nullable=True)
+    program_name = db.Column(db.String, nullable=True)
     p4_info_file = db.Column(db.String, nullable = False)
     bmv2_file = db.Column(db.String, nullable = False)
     table_entries = db.Column(db.JSON, default = {})
@@ -32,6 +35,9 @@ def extractStateData(query):
     for state in query:
         stateDict = {}
         stateDict['id'] = state.id
+        stateDict['target'] = state.target
+        stateDict['program_manifest'] = state.program_manifest
+        stateDict['program_name'] = state.program_name
         stateDict['p4_info_file'] = state.p4_info_file
         stateDict['bmv2_file'] = state.bmv2_file
         stateDict['table_entries'] = state.table_entries
@@ -50,6 +56,9 @@ def copy_state(state_to_copy):
     new_state = TableStates()
     
     # Copy the values from the existing row to the new row
+    new_state.target = state_to_copy.target
+    new_state.program_manifest = state_to_copy.program_manifest
+    new_state.program_name = state_to_copy.program_name
     new_state.p4_info_file = state_to_copy.p4_info_file
     new_state.bmv2_file = state_to_copy.bmv2_file
     new_state.table_entries = state_to_copy.table_entries
@@ -59,6 +68,9 @@ def copy_state(state_to_copy):
     return new_state
 
 def update_state(state_to_update, updated_state):
+    state_to_update.target = updated_state.target
+    state_to_update.program_manifest = updated_state.program_manifest
+    state_to_update.program_name = updated_state.program_name
     state_to_update.p4_info_file = updated_state.p4_info_file
     state_to_update.bmv2_file = updated_state.bmv2_file
     state_to_update.table_entries = updated_state.table_entries

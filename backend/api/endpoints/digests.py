@@ -17,7 +17,7 @@ class Digests(Endpoint):
             switch = self.controller.switch_configs.get(integer(data.get('switch_id'), 'switch_id'))
             if switch is None or not switch.connected:
                 return {'error': 'Switch is not connected'}, 404
-            manager = DigestManager(switch)
+            manager = switch.manager("digests")
             if update_type is None:
                 return manager.read(data.get('digest_id', data.get('resource_id'))), 200
             manager.write(data, update_type)
@@ -51,10 +51,10 @@ class DigestEvents(Endpoint):
             switch = self.controller.switch_configs.get(integer(data.get('switch_id'), 'switch_id'))
             if switch is None or not switch.connected:
                 return {'error': 'Switch is not connected'}, 404
-            manager = DigestManager(switch)
+            manager = switch.manager("digests")
             if clear:
                 identifier = manager.identifier(data['digest_id']) if data.get('digest_id') is not None else None
-                switch.bmv2.ClearDigestEvents(identifier)
+                manager.clear(identifier)
                 return {'success': True}, 200
             return manager.events(data.get('digest_id'), data.get('after', 0), data.get('limit', 50)), 200
         except (ValueError, TypeError, KeyError, AttributeError) as error:

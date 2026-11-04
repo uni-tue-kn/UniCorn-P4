@@ -11,6 +11,8 @@ from google.protobuf.struct_pb2 import Struct
 import grpc
 
 class SwitchManager:
+    target = "bmv2"
+
     # TODO: refactor to pass dataclass here
     def __init__(self, id, config):
         self.id = id
@@ -65,6 +67,8 @@ class SwitchManager:
         try:
             # Create connection to switch by unpacking config dict
             connection = dict(self.config)
+            connection.pop("target", None)
+            connection.pop("target_options", None)
             adapter_enabled = connection.pop("register_adapter_enabled", False)
             thrift_host = connection.pop("register_thrift_host", None)
             thrift_port = connection.pop("register_thrift_port", None)
@@ -173,6 +177,47 @@ class SwitchManager:
         self._register_probe_done = False
         
 
+    def initialize_bundle(self, bundle, keep_entries=False):
+        if bundle.get("target", "bmv2") != self.target:
+            raise ValueError("Program bundle target does not match switch target")
+        return self.initialize(bundle["p4info"], bundle["bmv2_json"], keep_entries)
+
+    def capabilities(self):
+        result = {name: {"read": True, "write": True, "source": "p4runtime"}
+                  for name in ("tables", "counters", "direct_counters", "meters", "direct_meters", "mirrors", "multicast", "digests")}
+        result["registers"] = dict(self.register_access)
+        queues_configured = bool(self.config.get("register_thrift_host") and self.config.get("register_thrift_port"))
+        result["queues"] = {"read": queues_configured, "write": queues_configured, "readback": False,
+                            "source": "thrift", "state": "last_applied"}
+        return result
+
+    def manager(self, kind):
+        if kind == "mirrors":
+            from .MirrorManager import MirrorManager
+            return MirrorManager(self.bmv2)
+        if kind == "multicast":
+            from .MulticastManager import MulticastManager
+            return MulticastManager(self.bmv2)
+        if kind == "digests":
+            from .DigestManager import DigestManager
+            return DigestManager(self)
+        if kind == "queues":
+            from .QueueManager import QueueManager
+            return QueueManager.for_switch(self)
+        raise ValueError("Unknown resource manager: " + kind)
+
+    def reset_counter(self, counter_id, index=None):
+        from .CounterManager import CounterManager
+        return CounterManager(self).reset(counter_id, index)
+
+    def reset_direct_counter(self, table_id, table_entry=None):
+        from .CounterManager import CounterManager
+        return CounterManager(self).reset_direct(table_id, table_entry)
+
+    @staticmethod
+    def table_entry_key(entry):
+        return table_entry_key(entry)
+
     def shutdown(self):
         """Dismantles connection to BMv2 switch.
         """
@@ -232,6 +277,9 @@ class SwitchManager:
             loaded_config["direct_counters"] = self.p4_helper.get_direct_counters()
         for key in ("registers", "meters", "direct_meters", "digests"):
             loaded_config[key] = getattr(self.p4_helper, "get_" + key)() if self.p4_helper is not None else None
+        loaded_config["target"] = self.target
+        loaded_config["target_options"] = self.config.get("target_options", {})
+        loaded_config["capabilities"] = self.capabilities()
         loaded_config["p4runtime_api_version"] = self.p4runtime_api_version
         self._probe_register_access()
         loaded_config["register_access"] = dict(self.register_access)
@@ -277,6 +325,9 @@ class SwitchManager:
         """
         # TODO: where does db_id come from?
         data = {
+                "capabilities": self.capabilities(),
+                "target": self.target,
+                "target_options": self.config.get("target_options", {}),
                 "name": self.bmv2.name,
                 "address": self.config.get("address", self.bmv2.address),
                 "device_id": self.bmv2.device_id,

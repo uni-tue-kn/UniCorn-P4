@@ -30,6 +30,8 @@ class SwitchesKnown(Endpoint):
             "address": db_config.address,
             "device_id": db_config.device_id,
             "proto_dump_file": db_config.proto_dump_file,
+            "target": db_config.target,
+            "target_options": db_config.target_options or {},
             "register_adapter_enabled": db_config.register_adapter_enabled,
             "register_thrift_host": db_config.register_thrift_host,
             "register_thrift_port": db_config.register_thrift_port
@@ -66,6 +68,8 @@ class SwitchesKnown(Endpoint):
         switch_to_edit.name = new_switch_config["name"]
         switch_to_edit.address = new_switch_config["address"]
         switch_to_edit.device_id = new_switch_config["device_id"]
+        switch_to_edit.target = new_switch_config["target"]
+        switch_to_edit.target_options = new_switch_config["target_options"]
         switch_to_edit.proto_dump_file = new_switch_config["proto_dump_file"]
         switch_to_edit.register_adapter_enabled = new_switch_config.get("register_adapter_enabled", False)
         switch_to_edit.register_thrift_host = new_switch_config.get("register_thrift_host")

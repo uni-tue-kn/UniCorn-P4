@@ -1,5 +1,6 @@
 """Portable, bounded network snapshots. Import validation never contacts targets."""
 from collections import defaultdict
+from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -28,6 +29,7 @@ from controller.p4.v1 import p4runtime_pb2 as pb
 from controller.utils.helper import P4InfoHelper
 from unicorn_version import local_version
 from .topology_schema import validate_topology, validate_deployable_topology
+from .program_builds import TOFINO_SYSTEM_HEADERS
 from .endpoints.switch_config import normalize_adapter_config
 
 
@@ -111,6 +113,8 @@ def portable_topology(runtime):
 def safe_config(config):
     result = {key: config.get(key) for key in ('name', 'address', 'device_id',
         'register_thrift_host', 'register_thrift_port')}
+    result['target'] = config.get('target', 'bmv2')
+    result['target_options'] = config.get('target_options') or {}
     result.update(register_adapter_enabled=config.get('register_adapter_enabled', False), proto_dump_file=None)
     return normalize_adapter_config(result)
 
@@ -144,6 +148,8 @@ def source_closure(source, root, prefix, warnings):
         text = raw.decode('utf-8')
         def include(match):
             target = (path.parent / match.group(2)).resolve()
+            if match.group(2) in TOFINO_SYSTEM_HEADERS and not target.exists():
+                return match.group(0)
             if not target.is_relative_to(root) or not target.is_file():
                 warnings.append(f'Quoted include {match.group(2)!r} is not portable; source closure is incomplete')
                 return match.group(0)
@@ -301,6 +307,274 @@ def sanitize_dependencies(entities, categories, info):
               'parent table entry could not be captured')
 
 
+def capture_native(switch, files, prefix, deadline):
+    """Add a portable native manifest using the existing archive categories."""
+    from controller.targets.bfrt_proto import bfruntime_pb2 as native
+    from controller.targets.bfrt_metadata import fields
+    from .program_builds import validate_bundle
+    path = switch.program_manifest
+    if not path:
+        raise ValueError('Native pipeline build is unknown; initialize a workspace program bundle before export')
+    bundle = validate_bundle(path)
+    portable = {'target': 'tofino', 'program_name': bundle['program_name'], 'bfrt_json': 'bf-rt.json', 'profiles': []}
+    files[prefix + '/bf-rt.json'] = Path(bundle['bfrt_json']).read_bytes()
+    # Fixed-function descriptors are native metadata, never fabricated P4Info.
+    program_ids = {table['id'] for table in switch.p4_helper.raw.get('tables', [])}
+    files[prefix + '/fixed.json'] = json_bytes({'tables': [table for table in switch.p4_helper.tables if table['id'] not in program_ids]})
+    portable['fixed_json'] = 'fixed.json'
+    for index, profile in enumerate(bundle['profiles']):
+        context, binary = f'profile-{index}/context.json', f'profile-{index}/tofino.bin'
+        files[prefix + '/' + context] = Path(profile['context']).read_bytes()
+        files[prefix + '/' + binary] = Path(profile['binary']).read_bytes()
+        portable['profiles'].append({'profile_name': profile['profile_name'], 'context': context, 'binary': binary,
+                                     'pipe_scope': profile['pipe_scope']})
+    source = None
+    frozen = Path(path).parent / 'source'
+    if frozen.is_dir():
+        sources = list(frozen.rglob('*.p4'))
+        original = Path(bundle.get('source', '')).name
+        candidate = next((item for item in sources if item.name == original), sources[0] if len(sources) == 1 else None)
+        if candidate:
+            closure = source_closure(candidate, frozen.resolve(), prefix + '/source', [])
+            files.update(closure)
+            if closure:
+                source = prefix + '/source/' + candidate.relative_to(frozen).as_posix()
+                portable['source'] = 'source/' + candidate.relative_to(frozen).as_posix()
+    portable['sha256'] = {name.removeprefix(prefix + '/'): hashlib.sha256(raw).hexdigest()
+                          for name, raw in files.items() if name.startswith(prefix + '/')}
+    manifest_path = prefix + '/manifest.json'
+    files[manifest_path] = json_bytes(portable)
+    entities = {category: [] for category in CATEGORIES}
+    categories = {category: {'status': 'ok', 'count': 0, 'errors': []} for category in CATEGORIES}
+    total = 0
+
+    def capture(category, operation):
+        nonlocal total
+        try:
+            if time.monotonic() > deadline:
+                raise TimeoutError('Live snapshot time budget exceeded')
+            rows = operation()
+            if total + len(rows) > MAX_ENTITIES:
+                raise ValueError('Snapshot entity limit exceeded')
+            entities[category].extend(rows)
+            total += len(rows)
+        except Exception as error:
+            categories[category]['errors'].append(str(error)[:1024])
+
+    def native_rows(category):
+        rows = []
+        if category == 'tables' or category.startswith('direct_'):
+            tables = switch.p4_helper.match_tables()
+        else:
+            table_type = {'registers': 'Register', 'counters': 'Counter', 'meters': 'Meter'}[category]
+            tables = [table for table in switch.p4_helper.tables if table.get('table_type') == table_type]
+        for table in tables:
+            definitions = fields(table.get('data', []))
+            if category.startswith('direct_'):
+                prefix_field = '$COUNTER_SPEC_' if category == 'direct_counters' else '$METER_SPEC_'
+                selected = {field['id'] for field in definitions if field['name'].startswith(prefix_field)}
+                if not selected:
+                    continue
+            else:
+                selected = None
+            if category in ('registers', 'counters', 'meters'):
+                size = table.get('size', 0)
+                if size > MAX_ENTITIES:
+                    raise ValueError('Native array exceeds snapshot cell limit')
+                batches = ([switch.resources.indexed_entry(table, index) for index in range(offset, min(size, offset + 128))]
+                           for offset in range(0, size, 128))
+            else:
+                selector = native.TableEntry(table_id=table['id'])
+                selector.table_flags.from_hw = True
+                batches = [[selector]]
+            for batch in batches:
+                if time.monotonic() > deadline:
+                    raise TimeoutError('Live snapshot time budget exceeded')
+                entries = switch.client.read(batch)
+                if category == 'tables' or category.startswith('direct_'):
+                    # Native wildcard reads omit the default action and its
+                    # direct resources. Capture them explicitly, as in the
+                    # ordinary table/resource read paths.
+                    if not any(entry.is_default_entry for entry in entries):
+                        default = native.TableEntry(table_id=table['id'], is_default_entry=True)
+                        default.table_flags.from_hw = True
+                        try:
+                            entries.extend(switch.client.read([default]))
+                        except grpc.RpcError as error:
+                            if error.code() != grpc.StatusCode.NOT_FOUND:
+                                raise
+                for entry in entries:
+                    copy = native.TableEntry.FromString(entry.SerializeToString())
+                    copy.ClearField('entry_tgt')
+                    copy.ClearField('table_flags')
+                    if category == 'direct_counters' and copy.is_default_entry:
+                        categories[category]['errors'].append('Default-entry direct counters cannot safely be replayed by this native model driver')
+                        continue
+                    selected_ids = selected
+                    if selected is not None and copy.is_default_entry:
+                        action = next((action for action in table.get('action_specs', []) if action['id'] == copy.data.action_id), None)
+                        selected_ids = selected | {field['id'] for field in fields(action.get('data', []) if action else [])}
+                    keep = [field for field in copy.data.fields if field.field_id in selected_ids] if selected_ids is not None else list(copy.data.fields)
+                    if category == 'tables':
+                        resource_ids = {field['id'] for field in definitions if field['name'].startswith(('$COUNTER_SPEC_', '$METER_SPEC_'))}
+                        keep = [field for field in keep if field.field_id not in resource_ids]
+                    action = next((action for action in table.get('action_specs', []) if action['id'] == copy.data.action_id), None)
+                    read_only = {field['id'] for field in definitions + fields(action.get('data', []) if action else [])
+                                 if field.get('read_only')}
+                    if any(field.field_id in read_only for field in keep):
+                        message = table['name'] + ': read only fields were omitted from replay'
+                        if message not in categories[category]['errors']:
+                            categories[category]['errors'].append(message)
+                        keep = [field for field in keep if field.field_id not in read_only]
+                        if not keep and not copy.data.action_id:
+                            continue
+                    if selected is not None and not copy.is_default_entry:
+                        copy.data.action_id = 0
+                    del copy.data.fields[:]
+                    copy.data.fields.extend(keep)
+                    rows.append(json_format.MessageToDict(copy, preserving_proto_field_name=True))
+                    if len(rows) + total > MAX_ENTITIES:
+                        raise ValueError('Snapshot entity limit exceeded')
+        return rows
+
+    for category in ('tables', 'registers', 'counters', 'meters', 'direct_meters', 'direct_counters'):
+        capture(category, lambda category=category: native_rows(category))
+    for category, kind, keys in (('mirrors', 'mirrors', ('session_id', 'replicas', 'class_of_service', 'packet_length_bytes', 'enabled', 'direction')),
+                                  ('multicast_groups', 'multicast', ('multicast_group_id', 'replicas'))):
+        def fixed_rows(kind=kind, keys=keys):
+            rows = switch.manager(kind).read()['entries']
+            if any(row.get('editable') is False for row in rows):
+                raise ValueError('Native fixed-function state has unsupported fields; it was not flattened into generic replicas')
+            return [{key: row[key] for key in keys if key in row} for row in rows]
+        capture(category, fixed_rows)
+    categories['digests'].update(status='unavailable', errors=['BF Runtime learn subscriptions are connection state; P4Runtime digest timeout configuration is not available'])
+    try:
+        queues = switch.manager('queues').snapshot()
+        plan, unknown = queue_plan(queues['configuration'])
+        categories['queues'] = {'status': 'ok', 'count': len(plan), 'errors': [], 'readback_available': True, 'source': 'bfrt'}
+    except Exception as error:
+        queues = {'configuration': {'source': 'bfrt', 'defaults': {}, 'ports': []}, 'readback_available': False}
+        categories['queues'] = {'status': 'unavailable', 'count': 0, 'errors': [str(error)[:1024]]}
+    for category in CATEGORIES:
+        status = categories[category]
+        status['count'] = len(entities[category])
+        if status['errors']:
+            status['status'] = 'partial' if entities[category] else 'unavailable'
+    return {'target': 'tofino', 'manifest': manifest_path, 'source': source}, {'target': 'tofino', 'scope': switch.scope,
+            'entities': entities, 'queues': queues}, categories
+
+
+def validate_native(record, pipeline, files):
+    from types import SimpleNamespace
+    from controller.targets.bfrt_proto import bfruntime_pb2 as native
+    from controller.targets.bfrt_metadata import BfRtMetadata, fields, encode_fields, decode_fields
+    from controller.targets.bfrt_tables import encode_key, decode_key, table_key as native_key
+    from controller.targets.bfrt_fixed import BfRtMirrors, BfRtMulticast
+    from .program_builds import validate_bundle
+    if set(pipeline) != {'target', 'manifest', 'source'} or pipeline.get('target') != 'tofino':
+        raise ValueError('Invalid native pipeline schema')
+    prefix = 'programs/' + record['key'] + '/'
+    manifest_path = pipeline.get('manifest')
+    if not isinstance(manifest_path, str) or manifest_path not in files or not manifest_path.startswith(prefix):
+        raise ValueError('Native pipeline manifest is missing from its switch program')
+    with tempfile.TemporaryDirectory(prefix='unicorn-native-validate-') as directory:
+        root = Path(directory)
+        for name, raw in files.items():
+            if name.startswith(prefix):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw)
+        resolved = validate_bundle(str(root / manifest_path), root=root)
+    portable = json_load(files[manifest_path])
+    fixed = safe_path(str(PurePosixPath(manifest_path).parent / portable['fixed_json']))
+    if fixed not in files or not fixed.startswith(prefix):
+        raise ValueError('Native fixed-function metadata is missing')
+    source = pipeline.get('source')
+    if source is not None and (not isinstance(source, str) or source not in files or not source.endswith('.p4') or not source.startswith(prefix)):
+        raise ValueError('Invalid native active source reference')
+    bfrt = str(PurePosixPath(manifest_path).parent / portable['bfrt_json'])
+    helper = BfRtMetadata(json_load(files[bfrt]), json_load(files[fixed]))
+    runtime = record.get('runtime')
+    if not isinstance(runtime, dict) or runtime.get('path') != 'state/' + record['key'] + '.json' or runtime['path'] not in files:
+        raise ValueError('Native pipeline snapshot is missing its runtime state')
+    state = json_load(files[runtime['path']])
+    if not isinstance(state, dict) or state.get('target') != 'tofino' or set(state.get('entities', {})) != set(CATEGORIES):
+        raise ValueError('Native runtime snapshot has invalid categories')
+    if not isinstance(state.get('scope'), dict):
+        raise ValueError('Native snapshot scope must be an object')
+    if state.get('scope', {}).get('program_pipe_ids') != [0] or state['scope'].get('pipe_id') != 0 or state['scope'].get('aggregation') != 'none':
+        raise ValueError('Native snapshot requires an explicit single-pipe scope')
+    entities, total = {}, 0
+    validator = SimpleNamespace(p4_helper=helper, ensure_writable=lambda: None, client=SimpleNamespace(read=lambda _entries: [], write=lambda *_args: None))
+    for category, rows in state['entities'].items():
+        if not isinstance(rows, list):
+            raise ValueError('Native entity categories must be arrays')
+        total += len(rows)
+        if total > MAX_ENTITIES:
+            raise ValueError('Native snapshot exceeds entity limit')
+        entities[category], seen = [], set()
+        if category in ('digests', 'action_profile_members', 'action_profile_groups') and rows:
+            raise ValueError('Native snapshot cannot restore unsupported category ' + category)
+        for row in rows:
+            if category in ('mirrors', 'multicast_groups'):
+                manager = BfRtMirrors(validator) if category == 'mirrors' else BfRtMulticast(validator)
+                manager.write(row, 1)  # Typed validation; no socket or target exists.
+                identifier = row.get('session_id' if category == 'mirrors' else 'multicast_group_id')
+                value = row
+            else:
+                value = json_format.ParseDict(row, native.TableEntry(), ignore_unknown_fields=False)
+                table = helper.table(value.table_id)
+                kind = table.get('table_type', '')
+                if category in ('tables', 'direct_counters', 'direct_meters'):
+                    if not kind.startswith('MatchAction'):
+                        raise ValueError('Native table entry is in the wrong resource category')
+                elif kind != {'registers': 'Register', 'counters': 'Counter', 'meters': 'Meter'}[category]:
+                    raise ValueError('Native indexed entry is in the wrong category')
+                if value.HasField('entry_tgt') or value.handle_id or value.HasField('table_flags'):
+                    raise ValueError('Native archive entry cannot override connection scope or handles')
+                if len({field.field_id for field in value.key.fields}) != len(value.key.fields) or len({field.field_id for field in value.data.fields}) != len(value.data.fields):
+                    raise ValueError('Native snapshot has duplicate key/data field identifiers')
+                keys, priority = decode_key(table, value.key)
+                encode_key(table, keys, priority, value.is_default_entry)
+                if category in ('registers', 'counters', 'meters'):
+                    if len(value.key.fields) != 1 or int.from_bytes(value.key.fields[0].exact.value, 'big') >= table.get('size', 0):
+                        raise ValueError('Native resource index is outside its metadata size')
+                action = next((action for action in table.get('action_specs', []) if action['id'] == value.data.action_id), None)
+                if category == 'tables' and action is None:
+                    raise ValueError('Native table has no declared action')
+                if category == 'direct_counters' and value.is_default_entry:
+                    raise ValueError('Native default-entry counters cannot safely be restored')
+                definitions = fields(table.get('data', [])) + fields(action.get('data', []) if action else [])
+                decoded = decode_fields(definitions, value.data.fields)
+                encode_fields(definitions, decoded)
+                if category.startswith('direct_'):
+                    field_prefix = '$COUNTER_SPEC_' if category == 'direct_counters' else '$METER_SPEC_'
+                    action_names = {field['name'] for field in fields(action.get('data', []) if action else [])} if value.is_default_entry else set()
+                    if not decoded or any(not name.startswith(field_prefix) and name not in action_names for name in decoded):
+                        raise ValueError('Native direct resource contains unrelated data fields')
+                    if action_names - set(decoded):
+                        raise ValueError('Native default resource is missing its action parameters')
+                elif category == 'tables':
+                    if any(field.get('mandatory') and field['name'] not in decoded for field in fields(action.get('data', []))):
+                        raise ValueError('Native table is missing required action parameters')
+                identifier = native_key(value)
+            if identifier in seen:
+                raise ValueError('Native snapshot contains duplicate resource keys')
+            seen.add(identifier)
+            entities[category].append(value)
+    statuses = runtime.get('categories')
+    plan, _ = queue_plan(state['queues']['configuration'])
+    if not isinstance(statuses, dict) or set(statuses) != set(CATEGORIES) | {'queues'}:
+        raise ValueError('Native runtime category status schema is invalid')
+    for category, status in statuses.items():
+        count = len(plan) if category == 'queues' else len(entities[category])
+        if not isinstance(status, dict) or status.get('status') not in ('ok', 'partial', 'unavailable') or status.get('count') != count or not isinstance(status.get('errors'), list) or any(not isinstance(error, str) for error in status.get('errors', [])):
+            raise ValueError('Native runtime category status does not match its entities')
+    compiled = {manifest_path, fixed, bfrt}
+    for profile in portable['profiles']:
+        compiled.update(str(PurePosixPath(manifest_path).parent / profile[field]) for field in ('context', 'binary'))
+    return {'record': record, 'info': helper, 'entities': entities, 'state': state, 'compiled_files': compiled}
+
 def build_archive(controller, topology_file=None):
     files, warnings, switches = {}, ['Live state is a best-effort, non-atomic snapshot; traffic may change it during capture.'], []
     runtime, mappings = {}, []
@@ -331,12 +605,22 @@ def build_archive(controller, topology_file=None):
         key = 'switch-' + str(switch.id)
         mapping = next((entry for entry in mappings if entry.get('name') == config['name']
                         and entry.get('dev_id') == switch.id
-                        and config.get('address') in (f"127.0.0.1:{entry.get('grpc_port')}", f"localhost:{entry.get('grpc_port')}")), None)
+                        and entry.get('target', 'bmv2') == config['target']
+                        and config.get('address') in (entry.get('address'), f"127.0.0.1:{entry.get('bfrt_port') if config['target'] == 'tofino' else entry.get('grpc_port')}", f"localhost:{entry.get('bfrt_port') if config['target'] == 'tofino' else entry.get('grpc_port')}")), None)
         record = {'key': key, 'name': config['name'], 'kind': 'emulated' if mapping is not None else 'external',
                   'config': config, 'pipeline': None, 'runtime': None, 'warnings': []}
         try:
             if time.monotonic() > deadline:
                 raise TimeoutError('Live snapshot time budget exceeded')
+            if config['target'] == 'tofino':
+                pipeline, state, categories = capture_native(switch, files, 'programs/' + key, deadline)
+                record['pipeline'] = pipeline
+                state_path = 'state/' + key + '.json'
+                files[state_path] = json_bytes(state)
+                record['runtime'] = {'path': state_path, 'categories': categories}
+                record['warnings'].extend(category + ': ' + entry['status'] for category, entry in categories.items() if entry['status'] != 'ok')
+                switches.append(record)
+                continue
             pipeline = active_pipeline(switch)
             if pipeline is None:
                 record['warnings'].append('No active pipeline; runtime resources cannot be restored')
@@ -628,6 +912,27 @@ def validate_entities(info, state):
 
 def queue_plan(configuration):
     from controller.managers.ResourceManager import integer
+    if isinstance(configuration, dict) and configuration.get('source') == 'bfrt':
+        ports = configuration.get('ports')
+        if configuration.get('defaults') != {} or not isinstance(ports, list) or len(ports) > 1024:
+            raise ValueError('Invalid native port shaping configuration')
+        plan, seen = [], set()
+        for row in ports:
+            if not isinstance(row, dict):
+                raise ValueError('Native port shaping entries must be objects')
+            port = integer(row.get('port'), 'port', maximum=(1 << 32) - 1)
+            if port in seen or row.get('depth_packets') is not None:
+                raise ValueError('Native port shaping has duplicate ports or unsupported packet depth')
+            seen.add(port)
+            rate = row.get('rate_pps')
+            if rate is None:
+                continue
+            rate = integer(rate, 'rate_pps', maximum=(1 << 32) - 1)
+            item = {'port': port, 'rate_pps': str(rate)}
+            if rate:
+                item['burst_packets'] = str(integer(row.get('burst_packets'), 'burst_packets', minimum=1, maximum=(1 << 32) - 1))
+            plan.append(item)
+        return plan, 0
     if not isinstance(configuration, dict) or configuration.get('source') != 'connection_cache':
         raise ValueError('Queue configuration must be explicitly marked as connection cache, not readback')
     defaults, ports = configuration.get('defaults'), configuration.get('ports')
@@ -728,7 +1033,7 @@ def validate_archive(raw):
         if not isinstance(record.get('warnings'), list) or any(not isinstance(value, str) for value in record['warnings']):
             raise ValueError('Switch warnings must be strings')
         config = record.get('config')
-        if not isinstance(config, dict) or set(config) - {'name', 'address', 'device_id', 'proto_dump_file', 'register_adapter_enabled', 'register_thrift_host', 'register_thrift_port'}:
+        if not isinstance(config, dict) or set(config) - {'name', 'address', 'device_id', 'proto_dump_file', 'register_adapter_enabled', 'register_thrift_host', 'register_thrift_port', 'target', 'target_options'}:
             raise ValueError('Invalid switch connection configuration')
         config = normalize_adapter_config(config)
         if config.get('proto_dump_file') is not None or record.get('name') != config['name'] or record.get('kind') not in ('emulated', 'external'):
@@ -736,9 +1041,14 @@ def validate_archive(raw):
         if record['kind'] == 'emulated':
             if topology is None or record['name'] not in topology['switches'] or record['name'] in emulated_names:
                 raise ValueError('Emulated switch does not match a unique topology node')
+            if topology['switches'][record['name']].get('target', 'bmv2') != config['target']:
+                raise ValueError('Archived switch target does not match its topology node')
             emulated_names.add(record['name'])
         pipeline, entities, info, state = record.get('pipeline'), {}, None, None
         if pipeline is not None:
+            if config['target'] == 'tofino':
+                validated.append(validate_native(record, pipeline, files))
+                continue
             if not isinstance(pipeline, dict) or set(pipeline) != {'p4info', 'bmv2', 'source'}:
                 raise ValueError('Invalid pipeline schema')
             for field in ('p4info', 'bmv2'):
@@ -776,7 +1086,9 @@ def validate_archive(raw):
     compiled_files = set()
     for item in validated:
         pipeline = item['record'].get('pipeline')
-        if pipeline:
+        if item.get('compiled_files'):
+            compiled_files.update(item['compiled_files'])
+        elif pipeline:
             compiled_files.update(pipeline[field] for field in ('p4info', 'bmv2'))
     for name, raw_file in files.items():
         if name.startswith('programs/') and name not in compiled_files:
@@ -786,6 +1098,8 @@ def validate_archive(raw):
                 raise ValueError('P4 source/include is not UTF-8') from error
             for match in _INCLUDE.finditer(text):
                 reference = posixpath.normpath(posixpath.join(posixpath.dirname(name), match.group(2)))
+                if match.group(2) in TOFINO_SYSTEM_HEADERS and reference not in files:
+                    continue
                 if not reference.startswith('programs/') or reference not in files:
                     raise ValueError('Quoted P4 include is outside or missing from the archived source closure')
     return {'manifest': manifest, 'files': files, 'topology': topology, 'switches': validated}
@@ -821,7 +1135,10 @@ def stage_import(raw):
         'version': manifest.get('version'), 'captured_at': manifest.get('captured_at'),
         'topology': validated['topology'], 'warnings': manifest.get('warnings', []),
         'switches': [{'key': item['record']['key'], 'name': item['record']['name'], 'kind': item['record']['kind'],
-            'device_id': item['record']['config']['device_id'], 'pipeline': item['info'] is not None,
+            'device_id': item['record']['config']['device_id'],
+            'target': item['record']['config'].get('target', 'bmv2'),
+            'target_options': item['record']['config'].get('target_options') or {},
+            'pipeline': item['info'] is not None,
             'source': (item['record'].get('pipeline') or {}).get('source'),
             'runtime': (item['record'].get('runtime') or {}).get('categories', {}),
             'warnings': item['record'].get('warnings', [])} for item in validated['switches']]}}
@@ -841,12 +1158,14 @@ def deployment_options(stage, body):
             raise ValueError('External target mapping references an unknown external switch')
         if not isinstance(config, dict) or not {'address', 'device_id'} <= set(config):
             raise ValueError('Each external target requires an explicit address and device_id')
-        allowed = {'name', 'address', 'device_id', 'proto_dump_file', 'register_adapter_enabled', 'register_thrift_host', 'register_thrift_port'}
+        allowed = {'name', 'address', 'device_id', 'proto_dump_file', 'register_adapter_enabled', 'register_thrift_host', 'register_thrift_port', 'target', 'target_options'}
         if set(config) - allowed:
             raise ValueError('External target mapping contains unsupported connection settings')
         if config.get('proto_dump_file') is not None:
             raise ValueError('Imported external targets cannot choose a protocol-log destination')
         config = normalize_adapter_config(dict(config, name=config.get('name', external[key]['record']['name']), proto_dump_file=None))
+        if config['target'] != external[key]['record']['config'].get('target', 'bmv2'):
+            raise ValueError('External target mapping must match the archived switch target')
         if config['device_id'] in ids:
             raise ValueError('Explicit external targets must have distinct device IDs')
         ids.add(config['device_id'])
@@ -865,7 +1184,7 @@ def _persist_connection(manager, config, db):
         record = SwitchConfigs(**config)
         db.session.add(record)
     else:
-        for field in ('register_adapter_enabled', 'register_thrift_host', 'register_thrift_port'):
+        for field in ('register_adapter_enabled', 'register_thrift_host', 'register_thrift_port', 'target', 'target_options'):
             setattr(record, field, config[field])
     db.session.commit()
     manager.db_id = record.id
@@ -876,6 +1195,21 @@ def _persist_pipeline(manager, controller, db, table_entities):
         return
     from .database.TableStates import TableStates
     from controller.managers.TableEntry import TableEntry
+    if manager.config.get('target', 'bmv2') == 'tofino':
+        from controller.targets.bfrt_tables import BfRtTableEntry
+        entries = manager.p4_helper.table_entry_blueprint()
+        for native in table_entities:
+            parsed = BfRtTableEntry.from_native(manager.p4_helper, native)
+            name = parsed.table['name']
+            entries[name].append({'id': len(entries[name]) + 1, 'switch_entry': parsed.as_json()})
+        state = TableStates(target='tofino', program_manifest=manager.program_manifest, program_name=manager.client.program_name,
+            p4_info_file='', bmv2_file='',
+            table_entries=entries, decoding=manager.p4_helper.get_table_decoding(), table_info=manager.p4_helper.get_table_info(),
+            switch_config_id=manager.db_id, name='Imported network')
+        db.session.add(state)
+        db.session.commit()
+        manager.state_id = state.id
+        return
     # Build fresh local history from the captured entities without an extra
     # unbounded sequence of target reads. Generic indirect actions are retained
     # in the archive even when the older MAT history renderer cannot show them.
@@ -896,6 +1230,17 @@ def _persist_pipeline(manager, controller, db, table_entities):
 
 
 def _restore_entity(manager, entity, category, info):
+    if manager.config.get('target', 'bmv2') == 'tofino':
+        from controller.targets.bfrt_proto import bfruntime_pb2 as native
+        if category in ('mirrors', 'multicast_groups'):
+            manager.manager('mirrors' if category == 'mirrors' else 'multicast').write(entity, 1)
+        else:
+            table = info.table(entity.table_id)
+            if category == 'tables' and entity.is_default_entry and table.get('has_const_default_action'):
+                return False
+            kind = native.Update.MODIFY if category != 'tables' or entity.is_default_entry else native.Update.INSERT
+            manager.client.write([entity], kind)
+        return True
     entity = pb.Entity.FromString(entity.SerializeToString())
     kind = pb.Update.MODIFY
     if category == 'tables':
@@ -929,27 +1274,55 @@ def restore_switch(controller, config, item, project, db, restore_queues=False, 
             result['errors'].append('Archived switch has no restorable pipeline')
             return result
         pipeline = record['pipeline']
-        manager.initialize(str(project / pipeline['p4info']), str(project / pipeline['bmv2']), keep_entries=False)
+        if config['target'] != record['config'].get('target', 'bmv2'):
+            raise ValueError('Destination target does not match archived pipeline')
+        if config['target'] == 'tofino':
+            from .program_builds import validate_bundle
+            manager.initialize_bundle(validate_bundle(str(project / pipeline['manifest'])), keep_entries=False)
+        else:
+            manager.initialize(str(project / pipeline['p4info']), str(project / pipeline['bmv2']), keep_entries=False)
         for category in RESTORE_ORDER:
             original = record['runtime']['categories'][category]
             status = {'status': 'complete' if original['status'] == 'ok' else 'partial', 'restored': 0,
                       'captured': len(item['entities'][category]), 'failed': 0, 'errors': []}
-            for entity in item['entities'][category]:
-                try:
-                    if deadline is not None and time.monotonic() > deadline:
-                        raise TimeoutError('Network restore time budget exceeded; remaining entries were not applied')
-                    if _restore_entity(manager, entity, category, item['info']):
-                        status['restored'] += 1
-                except Exception as error:
-                    message = error.details() if isinstance(error, grpc.RpcError) else str(error)
-                    status['failed'] += 1
-                    if len(status['errors']) < MAX_REPORT_ERRORS:
-                        status['errors'].append((message or str(error))[:1024])
-                    status['status'] = 'partial'
-                    if isinstance(error, TimeoutError) or (isinstance(error, grpc.RpcError) and error.code() in (
-                            grpc.StatusCode.UNIMPLEMENTED, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED,
-                            grpc.StatusCode.CANCELLED)):
-                        break
+            entries = item['entities'][category]
+            indexed = config['target'] == 'tofino' and category in ('registers', 'counters', 'meters')
+            size = 128 if indexed else 1
+            stop = False
+            for offset in range(0, len(entries), size):
+                batch = entries[offset:offset + size]
+                if indexed and len(batch) > 1:
+                    try:
+                        if deadline is not None and time.monotonic() > deadline:
+                            raise TimeoutError('Network restore time budget exceeded; remaining entries were not applied')
+                        from controller.targets.bfrt_proto import bfruntime_pb2 as native
+                        manager.client.write(batch, native.Update.MODIFY)
+                        status['restored'] += len(batch)
+                        continue
+                    except Exception:
+                        # These writes assign cell values. A failed batch may
+                        # have applied some cells, so retry each assignment to
+                        # obtain an honest per-entry result without duplicates.
+                        pass
+                for entity in batch:
+                    try:
+                        if deadline is not None and time.monotonic() > deadline:
+                            raise TimeoutError('Network restore time budget exceeded; remaining entries were not applied')
+                        if _restore_entity(manager, entity, category, item['info']):
+                            status['restored'] += 1
+                    except Exception as error:
+                        message = error.details() if isinstance(error, grpc.RpcError) else str(error)
+                        status['failed'] += 1
+                        if len(status['errors']) < MAX_REPORT_ERRORS:
+                            status['errors'].append((message or str(error))[:1024])
+                        status['status'] = 'partial'
+                        if isinstance(error, TimeoutError) or (isinstance(error, grpc.RpcError) and error.code() in (
+                                grpc.StatusCode.UNIMPLEMENTED, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED,
+                                grpc.StatusCode.CANCELLED)):
+                            stop = True
+                            break
+                if stop:
+                    break
             result['categories'][category] = status
             if status['status'] != 'complete':
                 result['status'] = 'partial'
@@ -961,8 +1334,9 @@ def restore_switch(controller, config, item, project, db, restore_queues=False, 
                     try:
                         if deadline is not None and time.monotonic() > deadline:
                             raise TimeoutError('Network restore time budget exceeded; remaining queue settings were not applied')
-                        QueueManager.for_switch(manager).write({key: value for key, value in change.items()
-                            if key in ('port', 'depth_packets', 'rate_pps')})
+                        queues = manager.manager('queues') if manager.config.get('target') == 'tofino' else QueueManager.for_switch(manager)
+                        queues.write({key: value for key, value in change.items()
+                            if key in ('port', 'depth_packets', 'rate_pps', 'burst_packets')})
                         restored += 1
                     except Exception as error:
                         errors.append(str(error)[:1024])
@@ -984,14 +1358,17 @@ def restore_switch(controller, config, item, project, db, restore_queues=False, 
     return result
 
 
-def deploy_import(controller, db, body):
+def deploy_import(controller, db, body, app=None):
     if not isinstance(body, dict) or not isinstance(body.get('import_token'), str):
         raise ValueError('import_token is required')
+    if 'async' in body and not isinstance(body['async'], bool):
+        raise ValueError('async must be true or false')
+    asynchronous = body.get('async', False)
     with _STAGE_LOCK:
         _cleanup_stages()
         cached = _RESULTS.get(body['import_token'])
         if cached is not None:
-            return cached['result']  # No staged files or target contact on retry.
+            return json_load(json_bytes(cached['deployment'] if asynchronous else cached['result']))
         stage = _STAGES.get(body['import_token'])
         if stage is None:
             raise KeyError('Import token is unknown or expired; import the archive again')
@@ -999,16 +1376,80 @@ def deploy_import(controller, db, body):
         if stage['topology'] is not None:
             validate_deployable_topology(stage['topology'])
         if stage['in_use']:
+            if asynchronous and stage.get('deployment'):
+                return json_load(json_bytes(stage['deployment']))
             raise RuntimeError('This network import is already deploying')
         stage['in_use'] = True
+        stage['deployment'] = {'import_token': body['import_token'], 'status': 'pending',
+                               'progress': {'phase': 'Preparing import'}}
     if not _DEPLOY_LOCK.acquire(blocking=False):
         with _STAGE_LOCK:
             stage['in_use'] = False
+            stage.pop('deployment', None)
         raise RuntimeError('Another network import is already deploying')
+    if not asynchronous:
+        return _deploy_reserved(controller, db, body, stage, external)
+
+    def restore():
+        with app.app_context() if app is not None else nullcontext():
+            _deploy_reserved(controller, db, body, stage, external)
+
+    try:
+        threading.Thread(target=restore, daemon=True, name='network-import-' + body['import_token'][:8]).start()
+    except Exception:
+        _DEPLOY_LOCK.release()
+        with _STAGE_LOCK:
+            stage['in_use'] = False
+            stage.pop('deployment', None)
+        raise
+    return deployment_status(body['import_token'])
+
+
+def deployment_status(token):
+    if not isinstance(token, str) or not token:
+        raise ValueError('import_token is required')
+    with _STAGE_LOCK:
+        _cleanup_stages()
+        cached = _RESULTS.get(token)
+        stage = _STAGES.get(token)
+        if cached is not None:
+            return json_load(json_bytes(cached['deployment']))
+        if stage is None:
+            raise KeyError('Import token is unknown or expired; import the archive again')
+        return json_load(json_bytes(stage.get('deployment') or {
+            'import_token': token, 'status': 'pending', 'progress': {'phase': 'Ready to deploy'}}))
+
+
+def _deployment_progress(stage, phase, **details):
+    with _STAGE_LOCK:
+        stage['deployment'].update(status='running', progress={'phase': phase, **details})
+
+
+def _load_import_topology(path, topology, stage):
+    native_count = sum(value.get('target', 'bmv2') == 'tofino' for value in topology['switches'].values())
+    if not native_count:
+        return netsim_request('/topology/load', {'topology_file': path}, timeout=60)
+    deadline = time.monotonic() + 60 + 240 * native_count
+    deployment = netsim_request('/topology/deploy', {'topology_file': path}, timeout=10)
+    identifier = deployment.get('deployment_id') if isinstance(deployment, dict) else None
+    if not isinstance(identifier, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', identifier):
+        raise ValueError('Emulator did not return a topology deployment ID')
+    while time.monotonic() < deadline:
+        status = netsim_request('/topology/deploy/' + identifier, timeout=10)
+        _deployment_progress(stage, 'Starting network', topology_deployment=status)
+        if status.get('status') == 'ready':
+            return status.get('topology')
+        if status.get('status') == 'failed':
+            raise RuntimeError('Could not start imported network: ' + str(status.get('error') or 'Native switch startup failed'))
+        time.sleep(.5)
+    raise TimeoutError('Imported network startup exceeded the per-switch time budget')
+
+
+def _deploy_reserved(controller, db, body, stage, external):
     result = {'status': 'complete', 'topology': None, 'switches': [], 'warnings': [],
               'imported_project': None, 'topology_file': None}
-    deadline = time.monotonic() + 240
     try:
+        _deployment_progress(stage, 'Preparing import')
         # Revalidate staged file bytes, not just the initial in-memory result.
         # A token only authorizes this validated bundle, never arbitrary paths.
         root = Path(stage['directory'].name)
@@ -1045,17 +1486,23 @@ def deploy_import(controller, db, body):
             controller.deleteAllSwitchConnections()
         mappings = []
         if topology is not None:
-            loaded = netsim_request('/topology/load', {'topology_file': result['topology_file']}, timeout=60)
+            _deployment_progress(stage, 'Starting network')
+            loaded = _load_import_topology(result['topology_file'], topology, stage)
             if not isinstance(loaded, dict) or not loaded.get('file_name'):
                 raise ValueError('Emulator did not return a loaded topology')
             result['topology'] = loaded
             mappings = loaded.get('switches_online')
             if not isinstance(mappings, list):
                 mappings = netsim_request('/switches/online').get('switches_online', [])
+        # Native startup has its own bounded budget. Resource replay receives
+        # the full existing budget after the network is ready.
+        deadline = time.monotonic() + 240
         by_name = {entry['name']: entry for entry in mappings}
         used = set()
         for item in stage['switches']:
             record, config = item['record'], None
+            _deployment_progress(stage, 'Restoring ' + record['name'],
+                                 completed_switches=len(result['switches']), total_switches=len(stage['switches']))
             if time.monotonic() > deadline:
                 result['switches'].append({'key': record['key'], 'name': record['name'], 'status': 'partial',
                     'categories': {}, 'errors': ['Network restore time budget exceeded; switch was not contacted']})
@@ -1064,9 +1511,18 @@ def deploy_import(controller, db, body):
             if record['kind'] == 'emulated':
                 mapping = by_name.get(record['name'])
                 if mapping is not None:
-                    config = normalize_adapter_config({'name': record['name'], 'address': '127.0.0.1:' + str(mapping['grpc_port']),
-                        'device_id': mapping['dev_id'], 'proto_dump_file': None, 'register_adapter_enabled': False,
-                        'register_thrift_host': '127.0.0.1', 'register_thrift_port': mapping.get('thrift_port')})
+                    target = mapping.get('target', 'bmv2')
+                    if target != record['config'].get('target', 'bmv2'):
+                        raise ValueError('Discovered emulator target does not match archived pipeline')
+                    config = {'name': record['name'], 'device_id': mapping['dev_id'], 'target': target,
+                              'proto_dump_file': None, 'register_adapter_enabled': False}
+                    if target == 'tofino':
+                        config.update(address=mapping.get('address') or '127.0.0.1:' + str(mapping['bfrt_port']),
+                                      target_options=mapping.get('target_options') or {'runtime_device_id': 0, 'pipe_id': 0})
+                    else:
+                        config.update(address='127.0.0.1:' + str(mapping['grpc_port']),
+                                      register_thrift_host='127.0.0.1', register_thrift_port=mapping.get('thrift_port'))
+                    config = normalize_adapter_config(config)
                 else:
                     result['switches'].append({'key': record['key'], 'name': record['name'], 'status': 'partial',
                         'categories': {}, 'errors': ['Emulated switch was not discovered after deployment']})
@@ -1104,8 +1560,12 @@ def deploy_import(controller, db, body):
             # cache after deployment so sequential imports do not fill it up.
             _STAGES.pop(body['import_token'], None)
             stage['directory'].cleanup()
+            status = 'failed' if result.get('error') else 'complete'
+            deployment = {'import_token': body['import_token'], 'status': status,
+                          'progress': {'phase': 'Import failed' if status == 'failed' else 'Import finished',
+                                       'completed_switches': len(result['switches'])}, 'result': result}
             stage.clear()
-            _RESULTS[body['import_token']] = {'result': result, 'expires': time.monotonic() + IMPORT_TTL}
+            _RESULTS[body['import_token']] = {'result': result, 'deployment': deployment, 'expires': time.monotonic() + IMPORT_TTL}
             while len(_RESULTS) > MAX_COMPLETED:
                 del _RESULTS[next(iter(_RESULTS))]
     return result

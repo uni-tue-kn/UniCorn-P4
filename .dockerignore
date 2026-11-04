@@ -1,4 +1,6 @@
 .git
+.cache
+.worktrees
 .aws
 .codex
 .agents

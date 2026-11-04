@@ -5,10 +5,10 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import ReadableTable from './ReadableTable';
 
-const contexts = vi.hoisted(() => ({ direct_meters: {}, direct_counters: {}, tableInfo: { 'Ingress.forward': { table_id: 0x02000001 } } }));
+const contexts = vi.hoisted(() => ({ capabilities: {}, direct_meters: {}, direct_counters: {}, tableInfo: { 'Ingress.forward': { table_id: 0x02000001 } } }));
 vi.mock('../../Contexts/SwitchContext', () => ({ useSwitch: () => ({ currentSwitchID: 0 }) }));
 vi.mock('../../Contexts/TableContext', () => ({ useTable: () => ({ tableInfo: contexts.tableInfo, decoding: null }) }));
-vi.mock('../../Contexts/InitContext', () => ({ useInit: () => ({ initializedFiles: { direct_meters: contexts.direct_meters, direct_counters: contexts.direct_counters } }) }));
+vi.mock('../../Contexts/InitContext', () => ({ useInit: () => ({ initializedFiles: { capabilities: contexts.capabilities, direct_meters: contexts.direct_meters, direct_counters: contexts.direct_counters } }) }));
 vi.mock('../../Contexts/SnackbarContext', () => ({ useSnackbar: () => ({ callSnackbar: vi.fn() }) }));
 vi.mock('../Helpers/DisplayHelper', () => ({
   StyledTableRow: ({ children }) => <tr>{children}</tr>, StyledTableCell: ({ children }) => <td>{children}</td>,
@@ -22,7 +22,7 @@ const meter = { id: 0x15000001, table_id: 0x02000001, name: 'Ingress.direct', un
 const entry = (id, key) => ({ id, switch_entry: { table_name: 'Ingress.forward', match_fields: { key }, action_name: 'Ingress.send', action_params: { port: '2' }, priority: null, is_default_action: false } });
 const props = () => ({ tableName: 'Ingress.forward', tableEntries: [entry(0, 'ff'), entry(1, 'ee')], rawTableEntries: [entry(0, '255'), entry(1, '238')], filteredEntries: [entry(0, 'ff'), entry(1, 'ee')], updateTableEntries: vi.fn(), toggleInlineEditing: vi.fn(), needsPriority: false });
 beforeEach(() => {
-  vi.clearAllMocks(); contexts.direct_meters = { direct: meter }; contexts.direct_counters = {};
+  vi.clearAllMocks(); contexts.capabilities = {}; contexts.direct_meters = { direct: meter }; contexts.direct_counters = {};
 });
 
 describe('direct-counter plots attached to table rows', () => {
@@ -89,4 +89,24 @@ describe('direct meters attached to table rows', () => {
     expect(screen.getByRole('button', { name: 'Edit meter' })).toBeDisabled();
     expect(axios.get).not.toHaveBeenCalled();
   });
+});
+
+
+it('keeps MAT rows and direct meter values readable while disabling every switch mutation', async () => {
+  contexts.capabilities = { tables: { write: false }, direct_counters: { write: false }, direct_meters: { read: true, write: false } };
+  const supplied = props();
+  supplied.tableEntries[0].counters = { packets: '7', bytes: '70' };
+  supplied.filteredEntries[0].counters = supplied.tableEntries[0].counters;
+  axios.get.mockResolvedValue({ data: { entries: [{ table_entry: supplied.rawTableEntries[0].switch_entry, config: { cir: '100', cburst: '10', pir: '200', pburst: '20' } }] } });
+  const user = userEvent.setup();
+  render(<ReadableTable {...supplied} />);
+  for (const button of screen.getAllByRole('button', { name: /^(Edit|Delete)$/ })) expect(button).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Reset counter for entry 0' })).toBeDisabled();
+  await user.click(screen.getAllByRole('button', { name: 'View meter', exact: true })[0]);
+  expect(await screen.findByRole('textbox', { name: 'CIR', exact: true })).toHaveValue('100');
+  expect(screen.getByRole('textbox', { name: 'CIR', exact: true })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save meter' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Reset meter' })).toBeDisabled();
+  expect(axios.patch).not.toHaveBeenCalled();
+  expect(axios.delete).not.toHaveBeenCalled();
 });

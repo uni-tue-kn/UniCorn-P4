@@ -123,7 +123,7 @@ function SavedList() {
                 {savedStates.length > 0 ?
                     <List>
                         {savedStates.map((state) => (
-                            <React.Fragment>
+                            <React.Fragment key={state.id}>
                                 <ListItem secondaryAction={
                                     <IconButton onClick={(event) => unsaveState(event, state.id)}>
                                         <DeleteIcon />
@@ -149,8 +149,8 @@ function SavedList() {
                                             <TableHead>
                                                 <TableRow>
                                                     <TableCell>Name</TableCell>
-                                                    <TableCell>p4 info file</TableCell>
-                                                    <TableCell>bmv2 file</TableCell>
+                                                    <TableCell>{state.target === 'tofino' ? 'Program' : 'p4 info file'}</TableCell>
+                                                    <TableCell>{state.target === 'tofino' ? 'Target' : 'bmv2 file'}</TableCell>
                                                     <TableCell>Last initialization</TableCell>
                                                     <TableCell>Actions</TableCell>
                                                 </TableRow>
@@ -187,8 +187,8 @@ function SavedList() {
                                                             </React.Fragment>
                                                         }
                                                     </TableCell>
-                                                    <TableCell>{displayFile(state.p4_info_file)}</TableCell>
-                                                    <TableCell>{displayFile(state.bmv2_file)}</TableCell>
+                                                    <TableCell>{state.target === 'tofino' ? state.program_name || 'Compiled program' : displayFile(state.p4_info_file)}</TableCell>
+                                                    <TableCell>{state.target === 'tofino' ? 'Tofino' : displayFile(state.bmv2_file)}</TableCell>
                                                     <TableCell>{returnFullDate(state.last_init)}</TableCell>
                                                     <TableCell>
                                                         <Tooltip title="table preview">
@@ -197,9 +197,9 @@ function SavedList() {
                                                             </IconButton>
                                                         </Tooltip>
                                                         <Button
-                                                            disabled={initializedFiles != null && initializedFiles.state_id == state.id}
+                                                            disabled={initializedFiles?.read_only === true || initializedFiles?.capabilities?.pipeline?.write === false || (initializedFiles != null && initializedFiles.state_id == state.id) || (state.target || 'bmv2') !== (initializedFiles?.target || 'bmv2') || (state.target === 'tofino' && !state.program_manifest)}
                                                             size='small' variant='contained'
-                                                            onClick={(event) => initialize(event, state.p4_info_file, state.bmv2_file, false, state.id)}
+                                                            onClick={(event) => initialize(event, state.target === 'tofino' ? { id: state.program_manifest } : state.p4_info_file, state.bmv2_file, false, state.id)}
                                                         >
                                                             Re-Initialize state
                                                         </Button>

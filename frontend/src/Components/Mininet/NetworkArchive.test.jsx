@@ -79,6 +79,49 @@ it('requires explicit external destinations and never uses archive addresses imp
   expect(() => externalMappings(preview, { remote: { selected: true, address: '192.0.2.10:50051', device_id: '7', thrift_host: '192.0.2.10', thrift_port: '' } }, true)).toThrow('valid Thrift port');
 });
 
+it('preserves native destination scope without carrying a stale program binding or Thrift settings', () => {
+  const native = { switches: [{ key: 'native', name: 'remote', kind: 'external', target: 'tofino',
+    target_options: { runtime_device_id: 2, pipe_id: 1, client_id: 7, program_name: 'old_program' } }] };
+  const destination = externalMappings(native, { native: { selected: true, address: '192.0.2.10:50052', device_id: '8' } }, true).native;
+  expect(destination).toMatchObject({ target: 'tofino', device_id: 8,
+    target_options: { runtime_device_id: 2, pipe_id: 1, client_id: 7 },
+    register_adapter_enabled: false, register_thrift_host: null, register_thrift_port: null });
+  expect(destination.target_options).not.toHaveProperty('program_name');
+  expect(() => externalMappings(native, { native: { selected: true, address: 'a:1', device_id: '8', target_options: { pipe_id: 65535 } } }, true)).toThrow('pipeline instance');
+});
+
+it('restores a native external archive through an asynchronous job with explicit destination options', async () => {
+  const native = { ...preview, topology: null, switches: [{ key: 'native', name: 'remote', kind: 'external',
+    target: 'tofino', target_options: { runtime_device_id: 2, pipe_id: 1, client_id: 7 },
+    device_id: 8, pipeline: true, runtime: {} }] };
+  axios.post.mockResolvedValueOnce({ data: { preview: native, import_token: 'native-token' } });
+  axios.post.mockResolvedValueOnce({ status: 202, data: { import_token: 'native-token', status: 'pending', progress: { phase: 'Starting network' } } });
+  axios.get.mockResolvedValueOnce({ data: { import_token: 'native-token', status: 'running', progress: { phase: 'Restoring remote' } } });
+  axios.get.mockResolvedValueOnce({ data: { import_token: 'native-token', status: 'complete', result: {
+    status: 'complete', topology: null, switches: [{ name: 'remote', status: 'complete', categories: {} }], warnings: [] } } });
+  const user = userEvent.setup();
+  renderArchive();
+  await user.upload(screen.getByLabelText('Import network archive'), new File(['zip'], 'native.zip', { type: 'application/zip' }));
+  await screen.findByRole('table', { name: 'Switches in network bundle' });
+  await user.click(screen.getByRole('checkbox', { name: /Restore external switches/ }));
+  await user.click(screen.getByRole('checkbox', { name: 'Restore remote', exact: true }));
+  await user.type(screen.getByRole('textbox', { name: 'Control address for remote' }), '192.0.2.10:50052');
+  expect(screen.queryByRole('textbox', { name: 'Thrift host for remote' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: 'Use register adapter for remote' })).not.toBeInTheDocument();
+  await user.click(screen.getByText('Advanced connection options'));
+  const clientNumber = screen.getByRole('textbox', { name: 'Client number for remote' });
+  await user.clear(clientNumber);
+  await user.type(clientNumber, '9');
+  await user.click(screen.getByRole('button', { name: 'Import and deploy' }));
+  await screen.findByText('Restoring remote', {}, { timeout: 3000 });
+  expect(screen.getByRole('button', { name: 'Importing network…' })).toBeDisabled();
+  await screen.findByText('Network imported successfully.', {}, { timeout: 5000 });
+  expect(axios.post.mock.calls[1][1]).toMatchObject({ async: true, import_token: 'native-token',
+    external_targets: { native: { target: 'tofino', target_options: { runtime_device_id: 2, pipe_id: 1, client_id: 9 } } } });
+  expect(axios.get).toHaveBeenCalledWith('/network/import/deploy', expect.objectContaining({ params: { import_token: 'native-token' } }));
+  await waitFor(() => expect(screen.getByTestId('route')).toHaveTextContent('/switches'));
+});
+
 it.each([false, true])('uses the displayed Thrift default without edits and rejects an explicitly blank port (blank=%s)', async blank => {
   const user = userEvent.setup();
   renderArchive();

@@ -5,9 +5,11 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import MirrorContent, { validateSession } from './MirrorContent';
 
+const context = vi.hoisted(() => ({ initializedFiles: null }));
+vi.mock('../../Contexts/InitContext', () => ({ useInit: () => context }));
 vi.mock('../../Contexts/SwitchContext', () => ({ useSwitch: () => ({ currentSwitchID: 0 }) }));
 vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn(), isCancel: () => false } }));
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); context.initializedFiles = null; });
 const base = { session_id: '7', replicas: [{ egress_port: '4294967295', instance: '0' }], class_of_service: '0', packet_length_bytes: '0' };
 
 describe('mirror sessions', () => {
@@ -76,4 +78,20 @@ describe('mirror sessions', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Refreshed');
     expect(screen.getByText(/Last updated:/)).toBeVisible();
   });
+});
+
+
+it('reads existing observer entries and disables add, edit and delete', async () => {
+  context.initializedFiles = { capabilities: { mirrors: { read: true, write: false } } };
+  axios.get.mockResolvedValue({ data: { entries: [{ session_id: 7, replicas: [{ egress_port: '2', instance: 0 }], class_of_service: 0, packet_length_bytes: 0 }] } });
+  render(<MirrorContent />);
+  const row = await screen.findByTestId('mirror-session-7');
+  expect(row).toHaveTextContent('2 / 0');
+  expect(screen.getByRole('button', { name: 'Add mirror session' })).toBeDisabled();
+  expect(within(row).getByRole('button', { name: 'Edit' })).toBeDisabled();
+  expect(within(row).getByRole('button', { name: 'Delete' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  expect(axios.post).not.toHaveBeenCalled();
+  expect(axios.patch).not.toHaveBeenCalled();
+  expect(axios.delete).not.toHaveBeenCalled();
 });

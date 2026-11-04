@@ -17,7 +17,7 @@ class MulticastGroups(Endpoint):
             switch = self.controller.switch_configs.get(integer(data.get('switch_id'), 'switch_id'))
             if switch is None or not switch.connected:
                 return {'error': 'Switch is not connected'}, 404
-            manager = MulticastManager(switch.bmv2)
+            manager = switch.manager("multicast")
             if update_type is None:
                 return manager.read(data.get('multicast_group_id')), 200
             manager.write(data, update_type)

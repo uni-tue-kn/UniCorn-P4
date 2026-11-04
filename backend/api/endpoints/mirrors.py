@@ -18,7 +18,7 @@ class Mirrors(Endpoint):
             switch = self.controller.switch_configs.get(switch_id)
             if switch is None or not switch.connected:
                 return {"error": "Switch is not connected"}, 404
-            manager = MirrorManager(switch.bmv2)
+            manager = switch.manager("mirrors")
             if update_type is None:
                 return manager.read(data.get("session_id")), 200
             manager.write(data, update_type)

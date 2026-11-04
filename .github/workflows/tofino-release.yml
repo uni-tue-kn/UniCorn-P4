@@ -1,0 +1,88 @@
+name: Publish optional Tofino release images
+
+# Run after the normal release. Reuse a prepared SDK; never make BMv2 release
+# wait for SDK source compilation. Dispatch this trusted workflow from main.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Completed standard release tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+      sdk_image:
+        description: SDK image override matching the release Dockerfile pins
+        required: false
+        default: ghcr.io/n1tr0-5urf3r/open-p4studio@sha256:1431aaa7183f30191c16fda9880dc916b3e73fc2db14e93dc45177a48291412c
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unicorn-tofino-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, tofino]
+    timeout-minutes: 120
+    env:
+      TAG: ${{ inputs.tag }}
+      TOFINO_SDK_IMAGE: ${{ inputs.sdk_image }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify trusted stable release and immutable SDK reference
+        id: release
+        run: bash scripts/prepare-tofino-release.sh
+      - name: Require completed standard release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" --json isDraft,isPrerelease,assets > "$RUNNER_TEMP/tofino-release.json"
+          python3 - "$RUNNER_TEMP/tofino-release.json" <<'PY'
+          import json, sys
+          release = json.load(open(sys.argv[1]))
+          assert not release['isDraft'] and not release['isPrerelease'], 'A published stable release is required'
+          assert any(a['name'] == 'UniCorn-P4.tar.gz' for a in release['assets']), 'Standard release archive is missing'
+          PY
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch pinned public native validation sources
+        run: |
+          git init "$RUNNER_TEMP/tofino-release-workshop"
+          git -C "$RUNNER_TEMP/tofino-release-workshop" fetch --depth 1 https://github.com/n1tr0-5urf3r/tofino-rbfrt-workshop.git 336f13b0291c913c58babf74bd7b1399d4391d13
+          git -C "$RUNNER_TEMP/tofino-release-workshop" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/tofino-release-workshop" rev-parse HEAD)" = 336f13b0291c913c58babf74bd7b1399d4391d13
+      - name: Build all finished optional images on matching versioned bases
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: bash scripts/build-tofino-release.sh
+      - name: Validate native packets, compiler HTTP service, and final runtime/backend
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          WORKSHOP_DIR: ${{ runner.temp }}/tofino-release-workshop
+        run: bash scripts/validate-tofino-release.sh
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: tofino-release-validation
+          path: test-results/tofino-*
+          retention-days: 14
+      # Registry credentials are made available only after real native tests.
+      - uses: docker/login-action@v4.7.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Publish optional version tags and promote only a current release
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          IMAGE_FAMILY: tofino
+        run: bash scripts/publish-images.sh

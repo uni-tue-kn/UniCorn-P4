@@ -5,6 +5,7 @@ import grpc
 from ..database.TableStates import *
 
 from .Endpoint import Endpoint
+from ..program_builds import BuildError, validate_bundle
 
 
 # Initializes (new) p4 program
@@ -28,8 +29,9 @@ class Initialize(Endpoint):
     def post(self):
         parser = reqparse.RequestParser()
         parser.add_argument('switch_id', required = True, type=int)
-        parser.add_argument('p4_info_file', required = True, type = str)
-        parser.add_argument('bmv2_file', required = True, type = str)
+        parser.add_argument('p4_info_file', required = False, type = str)
+        parser.add_argument('bmv2_file', required = False, type = str)
+        parser.add_argument('program_id', required = False, type = str)
         parser.add_argument('keep_entries', required = False, type = bool)
         parser.add_argument('state_id', required = False, type = str)
         args = parser.parse_args()
@@ -42,14 +44,46 @@ class Initialize(Endpoint):
         warning_msg = ""
 
         try:
-            self.controller.initialize(switch_id = switch_id_arg, p4_info_file = p4_info_file_arg, bmv2_file = bmv2_file_arg, keep_entries = args['keep_entries'])
+            current_switch_config = self.controller.switch_configs.get(switch_id_arg)
+            if current_switch_config is None:
+                return {'error': 'Switch connection does not exist'}, 404
+            if getattr(current_switch_config, 'read_only', False):
+                return {'error': 'This switch connection is read only. The running program is discovered automatically.'}, 403
+            target = getattr(current_switch_config, 'target', 'bmv2')
+            reinitialized_state = None
+            if state_id_arg:
+                reinitialized_state = TableStates.query.filter_by(id=state_id_arg).first()
+                if reinitialized_state is None:
+                    return {'error': 'Saved state does not exist'}, 404
+                if (reinitialized_state.target or 'bmv2') != target:
+                    raise ValueError('Saved state target does not match switch target')
+            program_id = args['program_id'] or (reinitialized_state.program_manifest if reinitialized_state else None)
+            bundle = validate_bundle(program_id) if program_id else None
+            if bundle is not None and bundle['target'] != target:
+                raise ValueError('Program target does not match switch target')
+            if reinitialized_state is not None:
+                # A state must refer to the program that produced its entries.
+                if args['program_id'] and args['program_id'] != reinitialized_state.program_manifest:
+                    raise ValueError('Selected program does not match saved state')
+                self.controller.initializeStoredState(switch_id_arg, reinitialized_state,
+                    keep_entries=bool(args['keep_entries']), bundle=bundle)
+                p4_info_file_arg, bmv2_file_arg = reinitialized_state.p4_info_file, reinitialized_state.bmv2_file
+            elif bundle is not None:
+                current_switch_config.initialize_bundle(bundle, bool(args['keep_entries']))
+                p4_info_file_arg = bundle.get('p4info', '')
+                bmv2_file_arg = bundle.get('bmv2_json', '')
+            elif target == 'tofino':
+                raise ValueError('Select a compiled program for this switch')
+            else:
+                if not p4_info_file_arg or not bmv2_file_arg:
+                    raise ValueError('Select a compiled program or both compilation files')
+                self.controller.initialize(switch_id = switch_id_arg, p4_info_file = p4_info_file_arg, bmv2_file = bmv2_file_arg, keep_entries = args['keep_entries'])
 
             current_switch_config = self.controller.switch_configs[switch_id_arg]
             current_switch_config_db_id = current_switch_config.db_id
 
             # state already exist and has been re-initialized
             if state_id_arg:
-                reinitialized_state = TableStates.query.filter_by(id = state_id_arg).first()
                 reinitialized_state.last_init = datetime.utcnow()
                 flag_modified(reinitialized_state, "last_init")
                 self.db.session.add(reinitialized_state)
@@ -86,14 +120,17 @@ class Initialize(Endpoint):
                 initial_table_entries = self.controller.getTableEntries(switch_id = switch_id_arg, requested_table_name = None)
                 
                 # get the initial decoding for the frontend-representation (default: 'numeric')
-                initial_decoding = self.controller.getInitialDecoding(switch_id = switch_id_arg, p4_info_file = p4_info_file_arg)
+                initial_decoding = self.controller.getInitialDecoding(switch_id = switch_id_arg,
+                    p4_info_file = p4_info_file_arg if target == 'bmv2' else None)
 
                 # get the table info
                 table_info = self.controller.getTableInfo(switch_id = switch_id_arg)
 
                 # create database entry
                 new_state = TableStates(p4_info_file = p4_info_file_arg, bmv2_file = bmv2_file_arg, table_entries = initial_table_entries,
-                                        decoding = initial_decoding, table_info = table_info, switch_config_id = current_switch_config_db_id)
+                                        decoding = initial_decoding, table_info = table_info, switch_config_id = current_switch_config_db_id,
+                                        target=target, program_manifest=bundle['manifest_path'] if bundle else None,
+                                        program_name=bundle['program_name'] if bundle else None)
 
                 
                 # push entry to database
@@ -102,6 +139,8 @@ class Initialize(Endpoint):
                 self.db.session.refresh(new_state)
                 current_switch_config.state_id = new_state.id
                 
+        except BuildError as e:
+            return {'error': str(e)}, e.status
         except ValueError as e:
             return {"error": str(e)}, 400
         except grpc.RpcError as e:

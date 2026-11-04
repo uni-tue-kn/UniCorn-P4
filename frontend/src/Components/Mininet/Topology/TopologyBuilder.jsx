@@ -11,7 +11,7 @@ import { TOPOLOGY_DRAFT_STORAGE_KEY, useTopology } from '../../../Contexts/Topol
 import { useSwitch } from '../../../Contexts/SwitchContext';
 import { useSnackbar } from '../../../Contexts/SnackbarContext';
 import { autoLayout } from './topologyLayout';
-import { deploymentFilename, emptyDraft, liveLinkLabels, nodeNames, normalizeTopology, numericId, removeNode, renameNode, safeFilename, validateDraft, validateDeployableTopology, validateHostLinkChange } from './topologyModel';
+import { deploymentFilename, emptyDraft, liveLinkLabels, nodeNames, normalizeTopology, numericId, removeNode, renameNode, safeFilename, switchTarget, validateDraft, validateDeployableTopology, validateHostLinkChange } from './topologyModel';
 import { clearTopology, deployTopology } from './topologyService';
 
 export { removeNode, renameNode, validateDraft } from './topologyModel';
@@ -42,6 +42,8 @@ export default function TopologyBuilder() {
   const dirtyRef = useRef(initial.dirty);
   const [canvasSize, setCanvasSize] = useState(() => boundsFor(initial.topology));
   const [importName, setImportName] = useState('');
+  const [newSwitchTarget, setNewSwitchTarget] = useState('bmv2');
+  const [deploymentProgress, setDeploymentProgress] = useState('');
   const [selected, setSelected] = useState('');
   const [nameInput, setNameInput] = useState('');
   const [selectedLink, setSelectedLink] = useState(null);
@@ -68,6 +70,7 @@ export default function TopologyBuilder() {
   const seenImportRevision = useRef(context.importRevision ?? 0);
   const names = nodeNames(draft);
   const live = !dirty && Boolean(loadedTopology?.file_name);
+  const deploymentWarnings = loadedTopology?.deployment_warnings || [];
   const ports = useMemo(() => live ? liveLinkLabels(loadedTopology) : [], [live, loadedTopology]);
   const parallelLinks = useMemo(() => {
     const counts = new Map(), seen = new Map();
@@ -112,7 +115,7 @@ export default function TopologyBuilder() {
     while (group.some(name => numericId(name) === id) || names.includes(prefix + id)) id++;
     if (id > (kind === 'host' ? 254 : 255)) { setError('No automatic ID is available; rename an existing node first.'); return; }
     const name = prefix + id, point = { x: 100 + (names.length % 5) * 150, y: 100 + Math.floor(names.length / 5) * 110 };
-    change({ ...draft, hosts: kind === 'host' ? [...draft.hosts, name] : draft.hosts, switches: kind === 'switch' ? { ...draft.switches, [name]: {} } : draft.switches, layout: { ...draft.layout, [name]: point } });
+    change({ ...draft, hosts: kind === 'host' ? [...draft.hosts, name] : draft.hosts, switches: kind === 'switch' ? { ...draft.switches, [name]: newSwitchTarget === 'bmv2' ? {} : { target: newSwitchTarget } } : draft.switches, layout: { ...draft.layout, [name]: point } });
     setCanvasSize(size => ({ width: Math.max(size.width, point.x + 70), height: Math.max(size.height, point.y + 70) }));
     setSelectedLink(null); select(name);
   }
@@ -216,13 +219,15 @@ export default function TopologyBuilder() {
     if (problem) { setError(problem); return; }
     const release = context.acquireNetworkOperation?.('topology');
     if (context.acquireNetworkOperation && !release) { setError('Another network operation is running.'); return; }
-    setBusy(true); setError(''); setMessage(''); markDirty(true); switches.setCurrentSwitchID?.(null);
+    setBusy(true); setError(''); setMessage(''); setDeploymentProgress('Preparing topology…'); markDirty(true); switches.setCurrentSwitchID?.(null);
     try {
-      const loaded = await deployTopology(draft, deploymentFilename(filename), connect);
+      const loaded = await deployTopology(draft, deploymentFilename(filename), connect, progress => { if (alive.current) setDeploymentProgress(progress); });
+      const warnings = loaded.deployment_warnings || [];
+      const summary = warnings.length ? 'Topology deployed. Switch connections have been refreshed.' : 'Topology deployed. Switch terminals and connections have been refreshed.';
       const topology = normalizeTopology(loaded);
       applyLoadedTopology?.(loaded);
-      if (alive.current) { adopt(topology, loaded.file_name, false); setMessage('Topology deployed. Switch terminals and connections have been refreshed.'); }
-      else callSnackbar?.('success', 'Topology deployed. Switch terminals and connections have been refreshed.');
+      if (alive.current) { adopt(topology, loaded.file_name, false); setMessage(warnings.length ? '' : summary); }
+      else callSnackbar?.(warnings.length ? 'warning' : 'success', [summary, ...warnings].join(' '));
       await refreshConnections();
     } catch (failure) {
       const message = failure.response?.data?.error || failure.message || 'Deployment failed. Your draft is preserved.';
@@ -287,6 +292,7 @@ export default function TopologyBuilder() {
     </Stack>
     <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
       <Button disabled={busy} variant="outlined" onClick={() => addNode('host')}>Add host</Button>
+      <TextField select label="New switch target" value={newSwitchTarget} disabled={busy} onChange={event => setNewSwitchTarget(event.target.value)} size="small" sx={{ minWidth: 160 }}><MenuItem value="bmv2">BMv2</MenuItem><MenuItem value="tofino">Tofino model</MenuItem></TextField>
       <Button disabled={busy} variant="outlined" onClick={() => addNode('switch')}>Add switch</Button>
       <Button disabled={busy || names.length < 2} variant={drawingLink ? 'contained' : 'outlined'} startIcon={<AddLinkIcon />} aria-pressed={drawingLink} onClick={startLink}>Add link</Button>
       {drawingLink && <Button onClick={cancelLink}>Cancel link</Button>}
@@ -294,6 +300,8 @@ export default function TopologyBuilder() {
       <Button variant="contained" disabled={busy || drawingLink || !Object.keys(draft.switches).length} onClick={deploy}>{busy ? 'Working…' : 'Deploy topology'}</Button>
     </Stack>
     <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Drag nodes to arrange them. Use Add link, then choose two nodes to connect. Edits stay in the draft until Deploy.{loadedTopology?.file_name ? ` Active: ${loadedTopology.file_name.split('/').at(-1)}.` : ' No network is running.'}</Typography>
+    {operationBusy && deploymentProgress && <Alert severity="info" role="status">{deploymentProgress}</Alert>}
+    {deploymentWarnings.length > 0 && <Alert severity="warning">Topology deployed. {deploymentWarnings.join(' ')}</Alert>}
     {error && !fileDialog && <Alert severity="error">{error}</Alert>}{message && <Alert severity="success">{message}</Alert>}
     {drawingLink && <Box id="topology-link-instructions" role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.5, borderRadius: 1, bgcolor: 'action.hover', flexWrap: 'wrap' }}>
       {linkSource && <Chip size="small" color="primary" label={`Source: ${linkSource}`} />}
@@ -341,12 +349,12 @@ export default function TopologyBuilder() {
               }}>
               {host ? <circle r="27" fill="#e3f2fd" stroke={stroke} strokeWidth={active || hover ? 4 : 2} /> : <rect x="-34" y="-24" width="68" height="48" rx="6" fill="#e8f5e9" stroke={stroke} strokeWidth={active || hover ? 4 : 2} />}
               {linkSource === name && <circle r="36" fill="none" stroke="#1565c0" strokeWidth="2" strokeDasharray="4 3" />}
-              <text textAnchor="middle" y="5" fill="#172b38" fontSize="15" fontWeight="600" pointerEvents="none">{name}</text><text textAnchor="middle" y="44" fill="currentColor" fontSize="12" pointerEvents="none">{host ? 'Host' : 'BMv2 switch'}</text>
+              <text textAnchor="middle" y="5" fill="#172b38" fontSize="15" fontWeight="600" pointerEvents="none">{name}</text><text textAnchor="middle" y="44" fill="currentColor" fontSize="12" pointerEvents="none">{host ? 'Host' : 'Switch'}</text>
             </g>;
           })}
           {live && Object.values(loadedTopology.interface_mapping || {}).flat().filter(entry => entry.type === 'external' && draft.switches[entry.node]).map(entry => {
             const point = position(entry.node);
-            return <g key={`${entry.node}:${entry.interface}`}><title>{entry.node}:{entry.port} {entry.interface} ↔ external</title><line x1={point.x + 34} y1={point.y} x2={point.x + 90} y2={point.y + 36} stroke="#b7791f" strokeWidth="2" strokeDasharray="4 3" /><text x={point.x + 90} y={point.y + 48} textAnchor="middle" fill="currentColor" fontSize="11">{entry.interface} · {entry.node}:{entry.port}</text></g>;
+            return <g key={`${entry.node}:${entry.interface}`}><title>{entry.node}:{entry.device_port ?? entry.port} {entry.interface} ↔ external</title><line x1={point.x + 34} y1={point.y} x2={point.x + 90} y2={point.y + 36} stroke="#b7791f" strokeWidth="2" strokeDasharray="4 3" /><text x={point.x + 90} y={point.y + 48} textAnchor="middle" fill="currentColor" fontSize="11">{entry.interface} · {entry.node}:{entry.device_port ?? entry.port}</text></g>;
           })}
           {!names.length && <text x={canvasSize.width / 2} y={canvasSize.height / 2} textAnchor="middle" fill="currentColor" fontSize="15">Add a host and a switch, or import a topology.</text>}
         </svg>
@@ -367,6 +375,7 @@ export default function TopologyBuilder() {
       </Paper>}
       {!drawingLink && selected && <Paper component="section" aria-label="Node properties" variant="outlined" sx={{ p: 2, minWidth: 0 }}><Stack spacing={2}>
         <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}><Typography variant="subtitle1">{selected}</Typography><IconButton aria-label="Close node properties" size="small" onClick={() => select('')}><CloseIcon fontSize="small" /></IconButton></Stack>
+        {Object.hasOwn(draft.switches, selected) && <TextField select label="Switch target" value={switchTarget(draft.switches[selected])} disabled={busy} onChange={event => change({ ...draft, switches: { ...draft.switches, [selected]: { ...draft.switches[selected], target: event.target.value } } })} size="small" fullWidth><MenuItem value="bmv2">BMv2</MenuItem><MenuItem value="tofino">Tofino model</MenuItem></TextField>}
         <TextField label="Node name" value={nameInput} disabled={busy} onChange={event => setNameInput(event.target.value)} size="small" helperText="Up to 10 characters; end with a unique numeric ID" fullWidth /><Button disabled={busy} variant="outlined" onClick={applyName}>Apply name</Button><Button disabled={busy} color="error" onClick={deleteSelected}>Delete node</Button><Typography variant="caption" color="text.secondary">Drag the node or use arrow keys to move it.</Typography>
       </Stack></Paper>}
     </Box>

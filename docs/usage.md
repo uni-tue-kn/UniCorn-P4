@@ -1,270 +1,122 @@
 # Using UniCorn-P4
 
-UniCorn-P4 combines a P4Runtime controller, a browser UI, and a Mininet network
-emulator for developing and teaching P4 on BMv2. The [project overview](../README.md)
-shows the main screens; this guide covers operation, compatibility, and development.
-
-## Start the platform
-
-Use Linux and Docker with Compose v2. From the repository root, run:
-
-```sh
-cd docker
-docker compose pull
-docker compose up -d
-```
-
-Open http://localhost:3000. This uses the published `latest` images. Put programs
-in `p4-files/` and topology JSON files in `topologies/` inside the current `docker/`
-directory. These directories and `database/` are persistent bind mounts.
-To update the images, run `docker compose pull` and `docker compose up -d` again
-from that directory. To run local source changes, follow the development section below.
-
-For a published deployment archive, extract `UniCorn-P4.tar.gz`, enter its
-`UniCorn-P4/` directory, and run `docker compose pull` followed by
-`docker compose up -d`. The archive root corresponds to a checkout's `docker/`
-directory and uses published `latest` images, with compiled samples and a fresh database.
-
-The frontend serves a Vite production build through nginx. Same-origin `/api/`
-and `/netsim/` proxies include terminal WebSocket traffic, so a browser on another
-machine can use the UI. `BACKEND_URL` and `NETSIM_URL` configure proxy destinations.
-Use the development services and privileged emulator terminal on a trusted network.
+Follow the [quick start](../README.md#quick-start), then open http://localhost:3000.
+Programs, topologies and the database persist in the mounted `p4-files/`,
+`topologies/` and `database/` directories.
 
 ## Compile and initialize a switch
 
-1. Select **Editor**, choose a P4 source file, and choose **Compile** for BMv2/v1model.
-2. On **Topology**, use **Import saved** or **Import JSON** above the canvas,
-   then choose **Deploy topology**.
-   Automatic switch connection is enabled by default. Alternatively, use **New Switch Connection**
-   and enter the switch name, P4Runtime address/port, device ID, and optional log path.
-3. Select a switch tab and choose **Edit initialization** on its dashboard.
-4. Select a **Compiled program** and initialize. Matching P4Info and BMv2 JSON
-   files are selected together. **Advanced** retains manual file selection for
-   custom builds. Available resources are discovered from P4Info.
+1. Open your main P4 file in **Editor** and choose **Compile**.
+2. Build or import a network in **Topology**, then **Deploy topology**.
+3. Select a switch tab, open **Edit initialization**, and select a **Compiled program**.
+4. Initialize the switch. Repeat after recompiling to apply your changes.
 
-To compile manually with an installed p4c:
-
-```sh
-p4c /path/example.p4 --target bmv2 --arch v1model \
-  --p4runtime-files /path/example.p4info.txt -o /path/
-```
-
-Keep generated files alongside the corresponding program. “Keep existing entries”
-preserves an identical active pipeline; loading a different program requires an
-explicit reset because PI reconciliation cannot safely preserve every resource.
+P4Info and BMv2 JSON are paired automatically. Use **Advanced** for custom files.
+For Tofino, follow the [Tofino guide](tofino.md).
 
 ## Edit P4 programs
 
-The **Editor** tab combines a workspace file tree, Monaco source editor, and
-compiler output. Open P4 programs and includes from **Files**, or create a nested
-path with **New file**. Open files have separate tabs. **Save** (Ctrl/Cmd+S) writes
-the active file, and **Save all files** writes every modified tab. Generated BMv2
-JSON and P4Info are read only. **Save file copy** creates an editable copy.
+Use the file tree to open or create sources and includes. **Ctrl/Cmd+S** saves,
+**Ctrl/Cmd+Enter** compiles, and **Focus mode** expands the editor.
+Compilation saves modified files and links errors to their source locations.
 
-All tabs share a compact navigation header, and Editor fills the available window. **Focus mode**
-hides navigation until you exit with its button or Escape. Compiler output opens
-when you compile, or when you select **Compiler output** or **Problems** in the
-status bar. Folder expansion, file search, and file-tree scroll position are kept
-for the current browser session when you navigate away or reload.
-
-Choose the main program in **P4 source file**. **Compile** (Ctrl/Cmd+Enter) saves
-all modified buffers, including includes, before invoking p4c. The compiler panel
-shows the full command/output and clickable file locations in **Problems**.
-Successful compilation updates the artifacts available for switch initialization.
-Load the updated program onto your switches to apply the changes to a running network.
-
-Unsaved buffers stay open while navigating to topology, terminals, or switches.
-The browser keeps a recovery copy of modified files for the current session and
-asks before leaving the application with unsaved changes. Saves detect external
-edits and preserve your draft rather than overwriting a newer file. Use **Save file
-copy** or explicitly reload from disk to resolve a conflict.
-
-The backend bundles a pinned P4 language server from the
-[P4 VS Code extension](https://github.com/fattaholmanan/p4-vscode-extension).
-It provides syntax diagnostics and scoped completion for unsaved P4 buffers.
-Compile with p4c for authoritative type, architecture, and target checks. The
-status indicator reports availability, and ordinary editing/compilation remain
-available if language analysis cannot start. Editor assets and the server are
-local, so this workflow does not need a CDN or an external IDE service. Existing
-`/compile` bookmarks redirect to `/editor`.
+Drafts survive navigation. If a file changes externally, reload it or use
+**Save file copy**. Language-server suggestions help while editing, while the
+compiler checks the complete program.
 
 ## Create and inspect topologies
 
-One topology canvas shows the running network and edits a draft. Use **Add host**
-and **Add switch** to create nodes. Choose **Add link**, select the first node,
-then select the other endpoint directly on the canvas. The source is highlighted
-and a dashed line previews the connection. Escape or **Cancel link** cancels
-without adding an edge. To use the keyboard, focus nodes and press Enter or Space
-to choose endpoints. Arrow keys move focus while drawing; otherwise they move the
-focused node. Parallel switch-to-switch links appear as separate curves. Each host
-supports one switch link; remove or rewire that link before connecting it elsewhere.
+Add hosts and switches, then choose **Add link** and click its endpoints.
+Drag nodes to arrange them. Select a link to edit latency and bandwidth.
+Each host needs one switch link before deployment.
 
-Select a node or link to open its compact properties panel beside the canvas.
-Link properties provide latency and bandwidth, with **Change endpoints** available
-for manual rewiring. **Update link** applies the settings to the draft. Node
-properties support renaming and deletion. Nodes can also be dragged directly.
+Edits stay in the draft until **Deploy topology**, which recreates the network
+and resets switch state. **Terminals** provides host and switch shells.
 
-The **Import saved** and **Import JSON** buttons above the canvas load saved
-server files or local JSON directly into the draft. Their tooltips explain each source.
-The **More** menu groups new/reload, saved-file import, JSON import/export,
-save, auto-arrange, and clearing the running network. Import and save open focused
-dialogs. JSON export includes node positions. Editing and saving leave the running
-network unchanged. **Deploy topology** creates a fresh saved snapshot, recreates
-the network, and connects discovered switches. The menu also controls automatic
-switch connection. **Reload active topology** explicitly discards the draft and
-shows the running network. Ordinary background refreshes preserve unsaved changes.
-Unfinished drafts can be imported, edited and saved. Deployment requires exactly
-one switch link for every host, and checks this before saving a deployment snapshot
-or changing the running network.
-
-Latency and bandwidth are enforced by Linux traffic control after loading.
-Latency applies in each direction: one `10ms` link adds roughly `20ms` to a
-ping round trip. Bandwidth is measured in Mbps.
-
-A minimal file in `docker/topologies/` looks like this:
+Topology JSON lives in `topologies/`. For example:
 
 ```json
 {
   "hosts": ["h1", "h2"],
   "switches": {"s1": {}},
-  "links": [["h1", "s1"], ["h2", "s1"]]
+  "links": [["h1", "s1", "2ms", 100], ["h2", "s1"]]
 }
 ```
 
-Node names have at most 10 characters and must end in a numeric ID. Generated
-interface names must fit Linux's 15-character limit, so switches with more ports
-may need shorter names. Link entries can add latency and bandwidth:
-`["h1", "s1", "2ms", 100]`. Saved `layout` positions map node names to `{x, y}`.
-The active topology's interface map shows actual switch ports and peers.
-**Terminals** is a dedicated page with host/switch shell tabs and Ctrl+C
-interruption. Output and the selected terminal are retained when moving between
-pages in the same running network; deploying a new network clears them.
-Continuous output follows the latest line automatically. Scroll up to pause it,
-then scroll to the bottom or select **Jump to latest output** to resume.
-Hosts permit explicit
-IPv6 and SIT tunnel configuration while automatic router discovery/addressing
-remain disabled.
+Latency applies in each direction and bandwidth is in Mbps. Node names end in
+a number and have at most 10 characters. The canvas shows actual switch ports.
+Use **Import saved**, **Import JSON**, or the topology menu to save/export drafts.
 
-Physical interfaces can be attached using `"ext_intfs": [["s1", "INTERFACE_NAME"]]`.
-Choose an existing interface intentionally: it becomes part of the emulated network.
-Unknown switches, duplicate/reserved interfaces, and malformed links are rejected.
+## Use external network interfaces
+
+Connect an emulated switch to a real network by adding `ext_intfs` to its topology
+JSON, then import and deploy it in **Topology**:
+
+```json
+{
+  "hosts": ["h1"],
+  "switches": {"s1": {}},
+  "links": [["h1", "s1"]],
+  "ext_intfs": [["s1", "enp3s0"]]
+}
+```
+
+Replace `enp3s0` with an existing Linux host interface (`ip -br link`). Each pair
+is `[switch, interface]`. Use a dedicated interface, since attaching it can
+disrupt host traffic. The supplied Compose setup provides the required host
+network access and privileges. The topology view shows the assigned switch port.
+
+The builder preserves these attachments when editing a topology. When importing
+a network archive, select **Attach the bundle's physical network interfaces**
+to restore them. Missing interfaces, duplicate attachments and `lo` are rejected.
 
 ## Work with switch resources
 
-The header can collapse or expand the resource sidebar. Drag its right divider
-to resize it, or focus **Resize sidebar** and use the arrow keys, Home, or End.
-The selected width and collapsed state are remembered.
+Select a switch and choose a resource in the sidebar. Available controls depend
+on the target. Field tooltips explain units and supported settings.
 
-| Screen | Operations |
+| Screen | Use |
 | --- | --- |
-| Tables | Read, add, edit, bulk-edit, and delete MAT entries; sort/filter and choose numeric, address, hexadecimal, or binary display. |
-| Counters | Refresh or reset indexed counters, sample packet/bit rates, and use **Plot counter** beside a MAT entry to open its direct-counter throughput dialog. |
-| Registers | Read indexed cells, change display base, edit values, save, and refresh without losing integer precision. |
-| Meters | Read/write CIR, CBS, PIR, and PBS using the P4 program's packet/byte unit. Direct meters open through **Edit meter** on their owning MAT row. |
-| Mirrors | Create, modify, read, and delete clone sessions with destination port/instance replicas. |
-| Multicast | Manage port/instance replication groups selected by the P4 program. |
-| Digests | Configure digest delivery and inspect bounded, acknowledged event lists from the switch. |
-| Queues | Apply native BMv2 queue depth and packet-rate limits to all ports or one port. |
+| Tables | Read, add, edit, bulk-edit and delete entries. Direct meters and counter plots open from their table row. |
+| Counters | Read/reset values and plot packet or bit rates. |
+| Registers | Read and edit cells with exact integer values. |
+| Meters | Configure rates and bursts. The P4 program decides how to handle meter colors. |
+| Mirrors | Configure clone destinations used by the P4 program. |
+| Multicast | Configure replication groups selected by the P4 program. |
+| Digests | View emitted events and configure delivery where supported. |
+| Queues | Configure port rates and supported burst/depth settings. |
 
-Register values travel through HTTP as decimal strings. The bundled emulator's
-P4Runtime extension supports `bit<W>` and `int<W>` for **1–64 bits**. Stock PI
-does not implement register RPCs. For an external BMv2 switch, explicitly enable
-the connection's register adapter and supply its Thrift host and port. That
-conservative adapter supports **1–63 bits**; no remote native endpoint is guessed.
-Unsupported register access does not prevent other supported resources from working.
-See the [runtime notes](../runtime/README.md) for transport and synchronization details.
+The sidebar can be collapsed and resized. BMv2 queue values show settings last
+applied through UniCorn because its API has no configuration getters.
 
-Meter fields have tooltips with their meanings and P4Info-derived units. An
-unconfigured meter returns green for every packet without imposing a rate
-constraint. It differs from an explicit configuration of zero rates. Reset
-removes the explicit configuration. The P4 program decides how to handle each
-meter color.
+## External switches
 
-A mirror session produces traffic only when the P4 program calls `clone`/`clone3`
-with the matching session ID. Use IDs 1–32767 and unique port/instance pairs.
-Nonzero class of service and packet truncation depend on target support; tested
-upstream BMv2 rejects those optional settings. Defaults of zero work normally.
-
-Multicast groups use IDs 1–65535. The P4 program must select a configured group
-through `standard_metadata.mcast_grp`. Configuring a group alone does not
-replicate unrelated traffic.
-
-Digest instances are discovered from P4Info. Enable delivery and set buffering
-and acknowledgement options, then view events emitted by the program's
-`digest` calls. The controller keeps one background P4Runtime stream per
-connection, records complete lists within bounded memory, and acknowledges
-accepted lists. Events are held in memory, with explicit drop/stream status.
-Clearing the viewer removes captured events and does not disable the digest.
-
-Counter resets write zero through P4Runtime. A reset is scoped to an index or
-one counter array. Direct-counter resets preserve the associated MAT entries.
-Live graphs calculate packet and bit rates from consecutive counter samples.
-Their window is bounded, polling stops when the view closes, and a reset starts
-a new measurement baseline. These are counter-derived rates, not physical wire
-rates including Ethernet overhead.
-
-Queue controls require a reachable BMv2 Thrift host and port in the connection
-settings. The bundled emulator supplies its actual endpoint automatically.
-External endpoints are always explicit, even when the register adapter is off.
-Queue depth is measured in packets. Queue rate is measured in packets per
-second, with zero meaning unlimited. This differs from topology link bandwidth
-in Mbps. Settings apply to every priority queue on the selected port or all
-ports. The native interface has setters without getters, so the page shows
-per-port **Last configured here** values, not switch readback. Unknown values
-stay unknown. All-port writes and later per-port overrides are merged by field.
-The change history is available separately. Depth and rate are separate
-operations and failures can leave an earlier change applied.
+Use **Connect switch** and select the target and control endpoint.
+For BMv2, use the device ID configured on the switch. Registers and queues on
+stock BMv2 may need an explicit Thrift endpoint in the connection settings.
+For Tofino with an existing controller, use a [read-only connection](tofino.md#external-switches).
+See [compatibility](compatibility.md) for target limits.
 
 ## Network bundles and samples
 
-The **Network archive** menu in the global header is available from every page.
-**Export network** downloads a ZIP with topology/layout, active source files
-and quoted includes, compiled P4Info/BMv2 files, and readable runtime entities.
-It includes tables, registers, counters, meters, replication groups, digest
-configuration, and recorded queue settings. This is a live, best-effort capture.
-The manifest records unsupported state and missing sources rather than
-inventing values. Queue values come from acknowledged changes, not native
-readback. Database history, terminal history, logs, and packet captures are
-not included.
+The global **Network archive** menu exports topology, sources, compiled programs
+and captured switch state. **Import network** restores a bundle onto a fresh
+network. Check the report for unavailable state or failed restores.
 
-From the same header menu, **Import network** validates paths, checksums, limits, programs, and resource
-dependencies before offering **Import and deploy**. Imported projects get new
-directories. Restore recreates the emulated network and writes captured state
-in dependency order. Partial failures are reported. Retrying the same import
-token does not deploy twice. External targets need explicit destination
-mappings, and physical interface attachment is disabled unless selected.
-An import can succeed with warnings when the archive lacks state such as queue
-settings that were never recorded. The report distinguishes these capture limits
-and intentional skips from failed restore operations.
-
-The [public sample bundles](../examples/networks/README.md) demonstrate
-forwarding, multicast, mirroring, and metering/queues. They use a separate demo
-program and contain no lecture solutions. Importing one replaces the emulated
-network, just like any other network bundle.
-
-Saved/history snapshots include **MAT entries and decoding options**. Registers,
-counters, meters, mirror/multicast groups, digest configuration, and queue settings remain live switch state and are not part of
-those snapshots. Failed MAT edits compensate individual changes without resetting
-the pipeline or unrelated state; concurrent data-plane changes are not an atomic snapshot.
+Try the [sample bundles](../examples/networks/README.md) for forwarding,
+multicast, mirroring and metering. Import replaces the running emulated network.
+The dashboard's Saved/History snapshots cover MAT entries and display settings,
+while network bundles capture the broader switch state.
 
 ## Versions and compatibility
 
-The root [VERSION](../VERSION) is baked into frontend, backend, and emulator images.
-The version dialog distinguishes component versions, client P4Runtime schemas, and
-the server's advertised API. Current pins are BMv2 **1.15.7**, p4c **v1.2.5.18**,
-official PI/Mininet commits, and P4Runtime client schemas **1.6.0**. Current upstream
-PI advertises server API **1.3.0**; newer schemas alone do not implement missing RPCs.
-Documented source compatibility/precision/bounds fixes are described in the runtime notes.
-
-At backend startup, one bounded background check reads the official repository's
-`main/VERSION`. It only reports updates; it never changes an installation. Set
-`UPDATE_CHECK_ENABLED=false` to disable it. Offline or malformed responses do not
-prevent startup. See [CHANGELOG](../CHANGELOG.md) for the development changes.
+Component versions are shown in the UI. Startup checks report available updates
+without installing them. Set `UPDATE_CHECK_ENABLED=false` to disable the check.
+See [CHANGELOG](../CHANGELOG.md) and [compatibility](compatibility.md).
 
 ## Development and tests
 
-Use Python 3.12 and Node 24, matching CI and the containers. Run these checks from
-the repository root:
+Use Python 3.12 and Node 24. From the repository root:
 
 ```sh
 python -m venv .venv
@@ -276,59 +128,17 @@ npm --prefix frontend test
 npm --prefix frontend run build
 ```
 
-To run local source changes in the full platform, rebuild its images from the
-repository root:
+Run local source changes with `docker compose -f docker/docker-compose.yaml up --build -d`.
+For frontend hot reload, stop the frontend container and run `npm --prefix frontend run dev`.
 
-```sh
-docker compose -f docker/docker-compose.yaml up --build -d
-```
-
-The first source build compiles the pinned upstream runtimes and can take much
-longer than later application rebuilds. Docker caches the compiled runtime layers.
-
-For frontend hot reload, keep the backend and emulator running, stop the container
-frontend to free port 3000, and start Vite from the repository root:
-
-```sh
-docker compose -f docker/docker-compose.yaml stop unicornp4-frontend
-npm --prefix frontend run dev
-```
-
-Vite proxies requests to the backend on port 5000 and emulator on port 5001.
-Stop Vite before starting the container frontend again.
-
-For real BMv2/browser integration, run from the repository root:
-
-```sh
-npm --prefix tests/e2e ci
-npm --prefix tests/e2e exec -- playwright install --with-deps chromium
-bash scripts/test-e2e.sh
-```
-
-The test stack uses isolated network namespaces and volumes/databases. Its UI is
-on port 3001 by default (`E2E_UI_PORT` overrides it), so the normal platform can
-keep running. It records browser/container artifacts
-under `test-results/`, and tears down on exit. Coverage includes compilation,
-multiple switches, MAT edits, register/meter round-trips, mirrors, multicast,
-digests, counter resets/graphs, queue controls, topology drafting,
-traffic-driven state, terminals, snapshots, versions, and device-zero disconnection.
-Regenerate protocol bindings offline with `python backend/controller/p4/generate.py`.
+For browser integration, install Chromium with Playwright and run
+`bash scripts/test-e2e.sh`. It uses disposable state on port 3001 and cleans up
+afterward. [Native tests](../tests/tofino/README.md) cover the optional Tofino setup.
 
 ## Release automation
 
-After a PR merges into `main` and CI passes, the release workflow promotes the
-development version to a stable release, then increments patch versions on later
-merges. It reserves the version commit/tag, builds all component images, and publishes
-both version and `latest` image tags plus a GitHub release with `UniCorn-P4.tar.gz`. Direct pushes
-do not create releases. Failed publication can reuse its reservation on retry.
-
-The version commit renames the changelog's **Unreleased** heading to the stable
-version and UTC release date. That section becomes the GitHub release text,
-excluding earlier releases. Add a new Unreleased section when recording the next
-changes. Merges without changelog entries use GitHub-generated release notes.
-
-Configure `DOCKER_USERNAME`/`DOCKER_PASSWORD` secrets for the `unituekn/unicornp4-*`
-images, and allow the workflow token to push version commits/tags under the repository's
-branch rules. Archives include tracked documentation, compiled examples, and topologies;
-they exclude live databases, logs, packet captures, and untracked files. Local development
-on the feature branch does not publish a release.
+PR merges to `main` trigger a release after CI passes: version increment,
+version/`latest` images, changelog notes and a deployment archive. Direct pushes
+do not release. Configure `DOCKER_USERNAME`/`DOCKER_PASSWORD` and allow the workflow
+to push version commits/tags. Optional Tofino images have a separate
+[publication workflow](../docker/tofino/README.md).

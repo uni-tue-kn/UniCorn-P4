@@ -2,7 +2,7 @@
 
 # NOTICE: THIS FILE IS BASED ON https://github.com/p4lang/tutorials/tree/master/exercises/p4runtime
 
-from .managers.SwitchManager import SwitchManager
+from .targets import create_target
 
 from .utils.helper import P4InfoHelper
 import grpc
@@ -44,7 +44,7 @@ class Controller:
         # Check that no connection with same id exists already
         if self.switch_configs.get(id) is None:
 
-            new_switch = SwitchManager(id,switch_config)
+            new_switch = create_target(id, switch_config)
             # If this fails, then error will be logged and switch.connected will be set to false
             try:
                 new_switch.connect()
@@ -94,6 +94,19 @@ class Controller:
         # Initialize switch
         # TODO: Paths are determined in frontend? Find out where and remove this patch
         target_switch.initialize(p4_info_file,bmv2_file,keep_entries)
+
+
+    def initializeStoredState(self, switch_id, state, keep_entries=False, bundle=None):
+        """Restore a state after the API has validated its native build reference."""
+        target = self.switch_configs[switch_id]
+        if (getattr(state, "target", None) or "bmv2") != target.target:
+            raise ValueError("Saved state target does not match switch target")
+        if target.target == "tofino":
+            if bundle is None:
+                raise ValueError("A validated native program bundle is required to restore this state")
+            target.initialize_bundle(bundle, keep_entries)
+        else:
+            target.initialize(state.p4_info_file, state.bmv2_file, keep_entries)
 
 
     def getInitializedFiles(self, switch_id):

@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased — 1.2.3
+
+### Added
+
+* Optional official Open P4Studio Tofino models and matching compiler, with per-switch target selection and mixed BMv2/Tofino topologies.
+* Shared native table, register, counter, meter, digest, mirror, multicast, and port-shaping controls, including structured registers with exact integer values.
+* Portable native program bundles, target-aware network archives, asynchronous model deployment and import progress, and official TNA headers in the editor.
+* Native model and browser validation using the public Tofino workshop P4 program, plus an optional cached CI workflow for the full SDK build.
+* Read-only connections to external Tofino switches alongside their existing controller, with automatic program discovery and writes blocked in the UI and backend.
+* New switch connections automatically suggest the next available local ID, with a manual override.
+* Optional Tofino release images with version and `latest` tags, a native validation gate before publishing, and a pull-only Compose override in the deployment archive.
+* Tofino builds use the pinned public `n1tr0-5urf3r/open-p4studio` SDK image by default. Source compilation remains an explicit maintainer option.
+
+### Changed
+
+* Deployment archives include only Compose/runtime files, public examples and user documentation. Build/test instructions and preview images stay in the repository.
+* Legacy preview images are stored in `docs/screenshots/`.
+* GitHub release notes start with concise launch instructions for BMv2 and optional Tofino models.
+
+### Fixed
+
+* Restored physical network interface setup instructions in the usage guide and deployment archive.
+* Native network archives retain default table actions, their parameters, and attached direct meters.
+* Native archives omit fields that cannot be written back and report partial state instead of rejecting their own exports.
+* Closed native control streams report a disconnected state instead of appearing healthy.
+* Quoted standard SDK includes compile and survive network export/import while local header overrides remain frozen with the program.
+* Terminal failures no longer misreport successful network deployment or clear the prior topology before replacement begins.
+
 ## 1.2.2 — 2026-11-03
 
 ### Added

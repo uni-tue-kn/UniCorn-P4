@@ -273,6 +273,39 @@ describe('Save & Compile', () => {
     expect(editor.dirty).toEqual([]);
   });
 
+  it('polls a compilation job and retains diagnostics and output from its completed result', async () => {
+    await start();
+    await call('openFile', 'main.p4');
+    const originalGet = axios.get.getMockImplementation();
+    let pending = true;
+    axios.get.mockImplementation((url, options) => url === '/compile/jobs/job1' ? Promise.resolve({ data: pending ? { status: 'running', message: 'Compiling program…' } : { status: 'complete', result: { command: ['compiler', '/p4/main.p4'], stdout: 'Program built', stderr: '/p4/main.p4:2: warning: unused', program: { target: 'tofino' } } } }) : originalGet(url, options));
+    axios.post.mockResolvedValueOnce({ status: 202, data: { job_id: 'job1', status: 'pending' } });
+    vi.useFakeTimers();
+    try {
+      let compilation;
+      await act(async () => { compilation = editor.compile(); });
+      expect(editor.busy).toBe(true);
+      expect(editor.output).toContain('Compiling program…');
+      pending = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); await compilation; });
+      expect(editor.compileStatus).toBe('success');
+      expect(editor.output).toContain('Program built');
+      expect(editor.diagnostics[0]).toMatchObject({ path: 'main.p4', line: 2, severity: 'warning' });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('reports a failed compilation job without losing saved buffers', async () => {
+    await start();
+    await call('openFile', 'main.p4');
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, options) => url.startsWith('/compile/jobs/') ? Promise.resolve({ data: { status: 'failed', result: { command: ['compiler'], stderr: '/p4/main.p4:3: error: invalid field' } } }) : originalGet(url, options));
+    axios.post.mockResolvedValueOnce({ status: 202, data: { job_id: 'failed', status: 'pending' } });
+    expect(await call('compile')).toBe(false);
+    expect(editor.compileStatus).toBe('error');
+    expect(editor.output).toContain('invalid field');
+    expect(editor.documents['main.p4'].content).toBe('// saved\n');
+  });
+
   it('does not compile when an included buffer cannot be saved', async () => {
     await start();
     await call('openFile', 'main.p4');

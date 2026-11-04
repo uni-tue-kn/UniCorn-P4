@@ -17,6 +17,8 @@ def rpc_error(error, write=False):
              grpc.StatusCode.UNAUTHENTICATED: 401}
     response = {"error": error.details() or str(error.code()),
                 "code": error.code().name, "partial_write_possible": write}
+    if getattr(error, "errors", None):
+        response["errors"] = error.errors
     status = codes.get(error.code(), 503)
     for key, value in getattr(error, "trailing_metadata", lambda: ())() or ():
         if key != "grpc-status-details-bin":

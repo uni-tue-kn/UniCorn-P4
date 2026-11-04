@@ -1,6 +1,8 @@
 import React from 'react';
-import { Stack, Button, Typography, TextField, InputLabel, MenuItem, Box, FormControl, Divider, Checkbox, FormControlLabel, Alert } from '@mui/material'
+import { Stack, Button, Typography, TextField, InputLabel, MenuItem, Box, FormControl, Divider, Checkbox, FormControlLabel, Alert, Accordion, AccordionDetails, AccordionSummary } from '@mui/material'
 import { Table, TableHead, TableBody, TableRow, TableCell } from '@mui/material'
+
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { InlineTableRow, InlineTableCell, displayMatchType } from './DisplayHelper';
 
@@ -181,8 +183,27 @@ export function priorityInput(entryData, handler, id = null, deleted = false, si
   )
 }
 
+const targetOptionFields = [
+  ['runtime_device_id', 'Runtime device ID', 4294967295],
+  ['pipe_id', 'Pipeline ID', 65534],
+  ['client_id', 'Client ID', 4294967295],
+];
+
+export function validatedSwitchConfig(config) {
+  if (config.target !== 'tofino') return config;
+  const options = { ...config.target_options };
+  if (options.read_only !== undefined && typeof options.read_only !== 'boolean') throw new Error('Read-only connection must be enabled or disabled.');
+  for (const [field, label, maximum] of targetOptionFields) {
+    const value = options[field] ?? 0;
+    if (!Number.isInteger(value) || value < 0 || value > maximum) throw new Error(`${label} must be a whole number between 0 and ${maximum}.`);
+    options[field] = value;
+  }
+  return { ...config, target_options: options };
+}
+
 export function switchInput(switchConfig, switchesOnline, handler, handlerDropdownChange) {
-  const builtInRegisters = (switchesOnline?.switches_online || []).some(item => item.name === switchConfig.name
+  const target = switchConfig.target || 'bmv2';
+  const builtInRegisters = target === 'bmv2' && (switchesOnline?.switches_online || []).some(item => item.name === switchConfig.name
     && item.dev_id === switchConfig.device_id && switchConfig.address === `127.0.0.1:${item.grpc_port}`);
   return (
     <Stack spacing={2}>
@@ -199,15 +220,17 @@ export function switchInput(switchConfig, switchesOnline, handler, handlerDropdo
               helperText='Switches running in mininet'
               size='small'
           >
-               {switchesOnline.switches_online.length > 0 ?
-                  switchesOnline.switches_online.map((s) => (
-                      <MenuItem key={s} value={s}>{s.name}</MenuItem>
+               {(switchesOnline?.switches_online || []).length > 0 ?
+                  (switchesOnline?.switches_online || []).map((s) => (
+                      <MenuItem key={s.name} value={s}>{s.name}</MenuItem>
                   ))
                   :
                   <MenuItem key="disabled" disabled>No Switch Online!</MenuItem>
               }
           </TextField>
       </div>
+      <TextField select label="Switch target" name="target" value={target} onChange={handler} size="small"><MenuItem value="bmv2">BMv2</MenuItem><MenuItem value="tofino">Tofino</MenuItem></TextField>
+      {target === 'tofino' && <Box><FormControlLabel control={<Checkbox name="target_options.read_only" checked={Boolean(switchConfig.target_options?.read_only)} onChange={handler} />} label="Read-only connection" /><Typography variant="body2" color="text.secondary">View the active program and resources without changing the switch or taking control from another controller.</Typography></Box>}
       <div>
         <InputLabel shrink={switchConfig.name !== null} htmlFor="switch_name">
           Switch Name
@@ -243,6 +266,7 @@ export function switchInput(switchConfig, switchesOnline, handler, handlerDropdo
           value={switchConfig.device_id != null ? switchConfig.device_id : ""}
           name="device_id"
           onChange={(event) => handler(event)}
+          helperText={target === 'tofino' ? 'UniCorn connection ID. The remote device is selected under Advanced connection.' : undefined}
           fullWidth
           required
         />
@@ -259,6 +283,14 @@ export function switchInput(switchConfig, switchesOnline, handler, handlerDropdo
           fullWidth
         />
       </div>
+      {target === 'tofino' && <Accordion disableGutters>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>Advanced connection</AccordionSummary>
+        <AccordionDetails><Stack spacing={2}>
+          <Typography variant="body2" color="text.secondary">The model uses zero for these settings. Set an explicit scope when connecting to another switch.</Typography>
+          {targetOptionFields.map(([field, label, maximum]) => <TextField key={field} type="number" label={label} name={`target_options.${field}`} value={switchConfig.target_options?.[field] ?? 0} required onChange={handler} size="small" helperText={field === 'client_id' ? `Choose an unused client ID (0–${maximum}).` : `0–${maximum}`} slotProps={{ htmlInput: { min: 0, max: maximum, step: 1, inputMode: 'numeric' } }} />)}
+        </Stack></AccordionDetails>
+      </Accordion>}
+      {target === 'bmv2' && <>
       <Divider />
       <Typography variant="subtitle2">BMv2 management (optional)</Typography>
       <Typography variant="body2" color="text.secondary">Queue controls use the switch's Thrift endpoint. Leave the host empty for a P4Runtime-only connection.</Typography>
@@ -269,6 +301,7 @@ export function switchInput(switchConfig, switchesOnline, handler, handlerDropdo
       }
       <TextField label="BMv2 Thrift host" name="register_thrift_host" value={switchConfig.register_thrift_host || ''} required={Boolean(switchConfig.register_adapter_enabled)} onChange={handler} helperText="Hostname or IP reachable from the backend" />
       <TextField label="BMv2 Thrift port" name="register_thrift_port" value={switchConfig.register_thrift_port ?? 9090} required={Boolean(switchConfig.register_adapter_enabled || switchConfig.register_thrift_host)} onChange={handler} slotProps={{ htmlInput: { inputMode: 'numeric', min: 1, max: 65535 } }} helperText="1–65535" />
+      </>}
     </Stack>
   )
 }

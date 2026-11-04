@@ -623,7 +623,7 @@ test('queue controls apply explicit native depth and rate settings through the b
   await page.getByRole('textbox', { name: 'Queue depth (packets)', exact: true }).fill('64');
   await page.getByRole('textbox', { name: 'Queue rate (packets/s)', exact: true }).fill('1000');
   await page.getByRole('button', { name: 'Apply queue settings', exact: true }).click();
-  await expect(page.getByText('Queue changes acknowledged by BMv2.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Queue changes acknowledged by the switch.', { exact: true })).toBeVisible();
   const history = await json(await request.get('/api/queues', { params: { switch_id: switchId } }));
   expect(history.readback_available).toBeFalsy();
   expect(history.last_applied.some(item => item.port === 2 && item.depth_packets === 64)).toBeTruthy();
@@ -803,7 +803,7 @@ test('external stock BMv2 keeps MATs available and enables registers only with t
     await page.getByRole('tab', { name: 'ExternalBMv2', exact: true }).click();
     await page.getByRole('button', { name: 'Registers', exact: true }).click();
     await page.getByRole('link', { name: register, exact: true }).click();
-    await expect(page.getByText(/enable the BMv2 register adapter in its saved connection settings/)).toBeVisible();
+    await expect(page.getByText(/Check the switch connection settings or select another resource/)).toBeVisible();
 
     await json(await request.delete('/api/switches/active', { data: { device_id: externalId } }));
     await connect({ ...connection, register_thrift_host: '127.0.0.1', register_thrift_port: 59090 });
@@ -828,7 +828,7 @@ test('external stock BMv2 keeps MATs available and enables registers only with t
 
     // Reload providers after reconnecting the same device ID to adopt its new capabilities.
     await page.reload();
-    await expect(page.getByText('Register access: BMv2 Thrift adapter · up to 63 bits')).toBeVisible();
+    await expect(page.getByRole('heading', { name: register, exact: true })).toBeVisible();
     const row = page.getByTestId('resource-row-0');
     await row.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByRole('textbox', { name: 'Value for index 0', exact: true }).fill('424242');
