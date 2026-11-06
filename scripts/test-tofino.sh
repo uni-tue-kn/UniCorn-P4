@@ -40,6 +40,8 @@ done
 curl --retry 30 --retry-delay 1 --retry-connrefused --fail --silent "$E2E_BASE_URL" > /dev/null
 "${compose[@]}" exec -T backend mkdir -p /p4/workshop
 git -C "$workshop" archive "$revision" tofino_workshop.p4 src | "${compose[@]}" exec -T backend tar -x -C /p4/workshop
+"${compose[@]}" exec -T backend mkdir -p /p4/tofino
+tar -C examples/p4/tofino -cf - resources.p4 | "${compose[@]}" exec -T backend tar -x -C /p4/tofino
 "${compose[@]}" exec -T backend cp /fixtures/resources.p4 /p4/resources.p4
 npm --prefix tests/e2e ci
 npm --prefix tests/e2e test -- tofino.spec.js

@@ -11,17 +11,17 @@ backend="unituekn/unicornp4-backend:$VERSION"
 netsim="unituekn/unicornp4-netsim:$VERSION"
 docker pull "$backend"
 docker pull "$netsim"
-docker pull "unituekn/unicornp4-frontend:$VERSION"
 docker pull "$TOFINO_SDK_IMAGE"
 for target in compiler runtime backend; do
-    component=$target
-    if [[ "$target" == runtime ]]; then component=netsim; fi
+    case "$target" in
+        compiler) image="unituekn/unicornp4-tofino-sdk:compiler-$VERSION" ;;
+        runtime) image="unituekn/unicornp4-netsim:tofino-$VERSION" ;;
+        backend) image="unituekn/unicornp4-backend:tofino-$VERSION" ;;
+    esac
     # The docker driver sees the bases just pulled into the local image store;
     # a docker-container builder would try resolving local-only tags remotely.
     docker buildx build --builder default --load -f docker/tofino/Dockerfile \
         --target "$target" --build-arg "SDK_IMAGE=$TOFINO_SDK_IMAGE" \
         --build-arg "BACKEND_IMAGE=$backend" --build-arg "NETSIM_IMAGE=$netsim" \
-        -t "unituekn/unicornp4-$component-tofino:$VERSION" .
+        -t "$image" .
 done
-# Keep the matching UI on the optional release's promotion schedule as well.
-docker tag "unituekn/unicornp4-frontend:$VERSION" "unituekn/unicornp4-frontend-tofino:$VERSION"

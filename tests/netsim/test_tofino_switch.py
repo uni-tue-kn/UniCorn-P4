@@ -114,6 +114,70 @@ def test_failed_start_reaps_owned_supervisor(monkeypatch):
     assert instance.work_dir is None
 
 
+def test_forwarder_failure_cleans_every_process_and_retry_gets_a_fresh_endpoint(monkeypatch):
+    instance = switch()
+    instance.start_forwarder = TofinoSwitch.start_forwarder.__get__(instance, TofinoSwitch)
+    supervisors = [Mock(), Mock()]
+    for process in supervisors:
+        process.poll.return_value = None
+    instance.popen = Mock(side_effect=supervisors)
+    instance.read_state = Mock(return_value={'status': 'ready'})
+    relays = []
+
+    def relay(command, **_kwargs):
+        process = Mock(pid=700 + len(relays))
+        process.poll.return_value = 1 if not relays else None
+        relays.append(process)
+        if len(relays) == 2:
+            ready = Path(command[command.index('--ready-file') + 1])
+            ready.write_text(json.dumps({'pid': process.pid, 'host': '127.0.0.1', 'port': 62017}))
+        return process
+
+    monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.subprocess.Popen', relay)
+    with pytest.raises(RuntimeError, match='Control endpoint'):
+        instance.start([])
+    assert relays[0].terminate.call_count == supervisors[0].terminate.call_count == 1
+    assert instance.forwarder is instance.process is instance.work_dir is None
+    assert instance.grpc_port is None
+
+    instance.start([])
+    assert instance.grpc_port == 62017
+    instance.stop(deleteIntfs=False)
+    assert relays[1].terminate.call_count == supervisors[1].terminate.call_count == 1
+    assert instance.forwarder is instance.process is instance.work_dir is None
+    assert instance.grpc_port is None
+
+
+def test_multiple_native_relays_publish_unique_endpoints_and_stop_all_listeners(tmp_path, monkeypatch):
+    instances = [switch(), switch()]
+    processes = []
+
+    def relay(command, **_kwargs):
+        index = len(processes)
+        process = Mock(pid=800 + index)
+        process.poll.return_value = None
+        processes.append(process)
+        ready = Path(command[command.index('--ready-file') + 1])
+        ready.write_text(json.dumps({'pid': process.pid, 'host': '127.0.0.1', 'port': 62100 + index}))
+        return process
+
+    monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.subprocess.Popen', relay)
+    for index, instance in enumerate(instances):
+        work = tmp_path / str(index)
+        work.mkdir()
+        instance.name = f's{index + 1}'
+        instance.pid = 900 + index
+        instance.bfrt_port = 51051  # Safe in each private network namespace.
+        instance.work_dir = SimpleNamespace(name=str(work), cleanup=Mock())
+        TofinoSwitch.start_forwarder(instance)
+    assert [instance.grpc_port for instance in instances] == [62100, 62101]
+    assert all(process.poll.call_count for process in processes)
+    for instance in instances:
+        instance.stop(deleteIntfs=False)
+    assert all(process.terminate.call_count == process.wait.call_count == 1 for process in processes)
+    assert all(instance.grpc_port is None for instance in instances)
+
+
 def test_tofino_always_uses_a_private_network_namespace(monkeypatch):
     initialize = Mock()
     monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.Switch.__init__', initialize)
@@ -121,3 +185,5 @@ def test_tofino_always_uses_a_private_network_namespace(monkeypatch):
     assert initialize.call_args.kwargs['inNamespace'] is True
     assert instance.device_id == 8
     assert instance.runtime_device_id == 0
+    assert instance.bfrt_port == 51051
+    assert instance.grpc_port is None  # No host listener competes for the legacy port.

@@ -19,7 +19,7 @@ services:
     volumes:
       - test-p4:/p4:ro
   frontend:
-    image: unicorn-tofino-test-frontend:local
+    image: ${E2E_FRONTEND_IMAGE:-unicorn-tofino-test-frontend:local}
   compiler:
     init: true
     image: ${TOFINO_COMPILER_IMAGE:-unicorn-tofino-test-compiler:local}

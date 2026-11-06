@@ -139,6 +139,8 @@ class TofinoSwitch(P4Switch):
                 self.forwarder.kill()
                 self.forwarder.wait(timeout=5)
             self.forwarder = None
+        # Never advertise a relay endpoint after its listener has stopped.
+        self.grpc_port = None
         if self.process is not None:
             if self.process.poll() is None:
                 self.process.terminate()

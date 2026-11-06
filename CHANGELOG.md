@@ -19,7 +19,7 @@
 * Legacy preview images are stored in `docs/screenshots/`.
 * GitHub release notes start with concise launch instructions for BMv2 and optional Tofino models.
 * Program listings skip artifact hashing. Successful Tofino compiles clean older unused builds while preserving builds used by initialization, connected switches and saved/history states.
-* Optional Tofino releases promote a matching frontend alias with their runtime images, keeping the `latest` image family aligned.
+* Optional Tofino releases reuse the standard frontend and publish native backend, netsim and compiler tags in the existing Docker Hub repositories.
 * Native archives explicitly report unsupported action-profile/selector state and omit dependent entries, keeping partial snapshots importable.
 
 ### Fixed

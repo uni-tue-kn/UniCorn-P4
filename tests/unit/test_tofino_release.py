@@ -168,16 +168,18 @@ def test_optional_builds_reuse_pinned_sdk_and_matching_versioned_bases(shell):
     result = run(shell, 'build-tofino-release.sh')
     assert result.returncode == 0, result.stderr
     recorded = calls(shell)
-    assert recorded[:4] == [['docker', 'pull', image] for image in (
-        'unituekn/unicornp4-backend:1.2.0', 'unituekn/unicornp4-netsim:1.2.0', 'unituekn/unicornp4-frontend:1.2.0', SDK)]
-    assert recorded[-1] == ['docker', 'tag', 'unituekn/unicornp4-frontend:1.2.0', 'unituekn/unicornp4-frontend-tofino:1.2.0']
-    for call, target, component in zip(recorded[4:-1], ('compiler', 'runtime', 'backend'), ('compiler', 'netsim', 'backend')):
+    assert recorded[:3] == [['docker', 'pull', image] for image in (
+        'unituekn/unicornp4-backend:1.2.0', 'unituekn/unicornp4-netsim:1.2.0', SDK)]
+    images = ('unituekn/unicornp4-tofino-sdk:compiler-1.2.0',
+              'unituekn/unicornp4-netsim:tofino-1.2.0',
+              'unituekn/unicornp4-backend:tofino-1.2.0')
+    for call, target, image in zip(recorded[3:], ('compiler', 'runtime', 'backend'), images):
         assert call[:6] == ['docker', 'buildx', 'build', '--builder', 'default', '--load']
         assert call[call.index('--target') + 1] == target
         assert f'SDK_IMAGE={SDK}' in call
         assert 'BACKEND_IMAGE=unituekn/unicornp4-backend:1.2.0' in call
         assert 'NETSIM_IMAGE=unituekn/unicornp4-netsim:1.2.0' in call
-        assert f'unituekn/unicornp4-{component}-tofino:1.2.0' in call
+        assert image in call
         assert '--push' not in call
 
 
@@ -191,10 +193,16 @@ def test_tofino_tags_follow_standard_no_downgrade_policy(shell, current, promote
     result = run(shell, 'publish-images.sh', IMAGE_FAMILY='tofino', CURRENT_VERSION=current)
     assert result.returncode == 0, result.stderr
     recorded = [call for call in calls(shell) if call[0] == 'docker']
-    images = [f'unituekn/unicornp4-{component}-tofino' for component in ('backend', 'netsim', 'compiler', 'frontend')]
-    expected = [['docker', 'push', f'{image}:1.2.0'] for image in images]
+    images = ['unituekn/unicornp4-backend:tofino-1.2.0',
+              'unituekn/unicornp4-netsim:tofino-1.2.0',
+              'unituekn/unicornp4-tofino-sdk:compiler-1.2.0']
+    aliases = ['unituekn/unicornp4-backend:tofino-latest',
+               'unituekn/unicornp4-netsim:tofino-latest',
+               'unituekn/unicornp4-tofino-sdk:compiler-latest']
+    expected = [['docker', 'push', image] for image in images]
     if promote:
-        expected += [['docker', 'buildx', 'imagetools', 'create', '--tag', f'{image}:latest', f'{image}:1.2.0'] for image in images]
+        expected += [['docker', 'buildx', 'imagetools', 'create', '--tag', alias, image]
+                     for image, alias in zip(images, aliases)]
     assert recorded == expected
     assert Path(shell[1]['GITHUB_OUTPUT']).read_text() == f'latest={str(promote).lower()}\n'
 
@@ -204,15 +212,15 @@ def test_native_gate_exercises_final_images_and_cleans_private_state(shell):
     assert result.returncode == 0, result.stderr
     recorded = calls(shell)
     native = next(call for call in recorded if '/tests/run_native.sh' in call)
-    assert 'unituekn/unicornp4-compiler-tofino:1.2.0' in native
+    assert 'unituekn/unicornp4-tofino-sdk:compiler-1.2.0' in native
     assert native[native.index('--network') + 1] == 'none'
-    runtimes = [call for call in recorded if 'unituekn/unicornp4-netsim-tofino:1.2.0' in call]
+    runtimes = [call for call in recorded if 'unituekn/unicornp4-netsim:tofino-1.2.0' in call]
     assert len(runtimes) == 2
     names = [runtime[runtime.index('--name') + 1] for runtime in runtimes]
     assert any('UNICORN_ARCHITECTURE=tofino2' in call for call in runtimes)
     adapters = [call for call in recorded if '/tests/structured_register_smoke.py' in call]
     assert len(adapters) == 2
-    assert all('unituekn/unicornp4-backend-tofino:1.2.0' in adapter for adapter in adapters)
+    assert all('unituekn/unicornp4-backend:tofino-1.2.0' in adapter for adapter in adapters)
     assert {adapter[adapter.index('--network') + 1] for adapter in adapters} == {f'container:{name}' for name in names}
     assert any('UNICORN_NATIVE_ARCHITECTURE=tofino2' in call for call in adapters)
     assert all(['docker', 'rm', '-f', name] in recorded for name in names)
@@ -230,7 +238,7 @@ def test_exited_runtime_fails_fast_and_cleans_disposable_state(shell):
     assert result.returncode != 0
     assert 'exited before becoming ready' in result.stderr
     recorded = calls(shell)
-    runtime = next(call for call in recorded if 'unituekn/unicornp4-netsim-tofino:1.2.0' in call)
+    runtime = next(call for call in recorded if 'unituekn/unicornp4-netsim:tofino-1.2.0' in call)
     name = runtime[runtime.index('--name') + 1]
     assert ['docker', 'rm', '-f', name] in recorded
     assert ['docker', 'volume', 'rm', name.rsplit('-', 1)[0]] in recorded
@@ -264,7 +272,12 @@ def test_download_compose_can_merge_without_sources_or_builds(tmp_path):
     assert len(services) == 4
     for service in services.values():
         assert 'build' not in service
-        assert service['image'].endswith(':latest')
+    assert {service['image'] for service in services.values()} == {
+        'unituekn/unicornp4-frontend:latest',
+        'unituekn/unicornp4-backend:tofino-latest',
+        'unituekn/unicornp4-netsim:tofino-latest',
+        'unituekn/unicornp4-tofino-sdk:compiler-latest',
+    }
     assert services['unicornp4-compiler']['network_mode'] == 'host'
     assert services['unicornp4-compiler']['command'][-3:] == ['127.0.0.1', '--port', '8080']
     assert services['unicornp4-backend']['environment']['P4_DIR'] == '/p4/'

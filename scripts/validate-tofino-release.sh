@@ -4,9 +4,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${VERSION:?VERSION must be set}"
 : "${WORKSHOP_DIR:?WORKSHOP_DIR must contain the pinned public workshop}"
-compiler="${TOFINO_COMPILER_IMAGE:-unituekn/unicornp4-compiler-tofino:$VERSION}"
-netsim="${TOFINO_NETSIM_IMAGE:-unituekn/unicornp4-netsim-tofino:$VERSION}"
-backend="${TOFINO_BACKEND_IMAGE:-unituekn/unicornp4-backend-tofino:$VERSION}"
+compiler="${TOFINO_COMPILER_IMAGE:-unituekn/unicornp4-tofino-sdk:compiler-$VERSION}"
+netsim="${TOFINO_NETSIM_IMAGE:-unituekn/unicornp4-netsim:tofino-$VERSION}"
+backend="${TOFINO_BACKEND_IMAGE:-unituekn/unicornp4-backend:tofino-$VERSION}"
 mkdir -p test-results
 set -o pipefail
 docker run --rm --network none --cap-drop ALL --cap-add NET_ADMIN --cap-add NET_RAW \

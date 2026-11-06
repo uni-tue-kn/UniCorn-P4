@@ -243,10 +243,10 @@ def test_mixed_bmv2_and_both_tofino_generations_get_isolated_runtime_options(run
     runner.hosts = []
     runner.switches = {
         's1': {'target': 'tofino', 'architecture': 'tofino'},
-        's2': {'target': 'tofino', 'architecture': 'tofino2'},
-        's3': {},
+        's10': {'target': 'tofino', 'architecture': 'tofino2'},
+        's2': {},
     }
-    runner.links = runner.parse_links([['s1', 's2'], ['s2', 's3']])
+    runner.links = runner.parse_links([['s10', 's2'], ['s2', 's1']])
     monkeypatch.setattr(netsim, 'Mininet', Mock())
     monkeypatch.setattr(netsim, 'configured_switch',
                         lambda base, options: {'kind': 'tofino', 'base': base, **options})
@@ -258,15 +258,15 @@ def test_mixed_bmv2_and_both_tofino_generations_get_isolated_runtime_options(run
     runner.create_network()
 
     classes = topology.call_args.kwargs['switch_classes']
-    assert classes['s1']['kind'] == classes['s2']['kind'] == 'tofino'
+    assert classes['s1']['kind'] == classes['s10']['kind'] == 'tofino'
     assert classes['s1']['architecture'] == 'tofino'
-    assert classes['s2']['architecture'] == 'tofino2'
+    assert classes['s10']['architecture'] == 'tofino2'
     assert (classes['s1']['device_id'], classes['s1']['grpc_port'],
             classes['s1']['model_port_base'], classes['s1']['status_port']) == (0, 51051, 18000, 17000)
-    assert (classes['s2']['device_id'], classes['s2']['grpc_port'],
-            classes['s2']['model_port_base'], classes['s2']['status_port']) == (1, 51052, 18016, 17001)
-    assert (classes['s3']['kind'], classes['s3']['device_id'], classes['s3']['grpc_port'],
-            classes['s3']['thrift_port']) == ('bmv2', 2, 50053, 9092)
+    assert (classes['s2']['kind'], classes['s2']['device_id'], classes['s2']['grpc_port'],
+            classes['s2']['thrift_port']) == ('bmv2', 1, 50052, 9091)
+    assert (classes['s10']['device_id'], classes['s10']['grpc_port'],
+            classes['s10']['model_port_base'], classes['s10']['status_port']) == (2, 51053, 18032, 17002)
 
 
 def test_mixed_switch_discovery_publishes_dynamic_tofino_endpoints(runner):
@@ -345,6 +345,92 @@ def test_failed_tofino2_start_rolls_back_partial_mixed_topology(runner):
         'error': 'Tofino switch s2 failed',
         'switches': {'s1': 'ready', 's2': 'failed', 's3': 'pending'},
     }
+
+
+def test_repeated_mixed_redeploy_rolls_back_failure_then_reuses_only_released_endpoint(runner):
+    candidate = {
+        'hosts': [],
+        'switches': {
+            's1': {'target': 'tofino', 'architecture': 'tofino'},
+            's2': {'target': 'tofino', 'architecture': 'tofino2'},
+            's3': {},
+        },
+        'links': runner.parse_links([['s1', 's2'], ['s2', 's3']], hosts=[], switches={
+            's1': {'target': 'tofino'}, 's2': {'target': 'tofino'}, 's3': {}}),
+        'ext_intfs': [],
+        'layout': {},
+    }
+
+    def native(name, architecture, device_id, port):
+        return SimpleNamespace(name=name, target='tofino', architecture=architecture,
+            device_id=device_id, grpc_port=port, thrift_port=None,
+            target_options={'client_id': 0, 'pipe_id': 0, 'architecture': architecture})
+
+    first = SimpleNamespace(start=Mock(), stop=Mock(), switches=[
+        native('s1', 'tofino', 0, 42001), native('s2', 'tofino2', 1, 42002),
+        SimpleNamespace(name='s3', target='bmv2', device_id=2, grpc_port=50053, thrift_port=9092),
+    ])
+    failed = SimpleNamespace(start=Mock(), stop=Mock(), switches=[])
+    def fail_start():
+        runner.switch_progress('s1', 'ready')
+        runner.switch_progress('s2', 'failed')
+        raise RuntimeError('second deployment failed')
+    failed.start.side_effect = fail_start
+    retried = SimpleNamespace(start=Mock(), stop=Mock(), switches=[
+        # Reusing 42001 is safe only because the first relay was stopped.
+        native('s1', 'tofino', 0, 42001), native('s2', 'tofino2', 1, 42003),
+        SimpleNamespace(name='s3', target='bmv2', device_id=2, grpc_port=50053, thrift_port=9092),
+    ])
+    networks = iter((first, failed, retried))
+
+    def create_network():
+        runner.net = next(networks)
+
+    def destroy_topology():
+        if runner.net is not None:
+            runner.net.stop()
+        runner.net = None
+        runner.switch_mappings = []
+        runner.interface_mapping = {}
+
+    runner.create_network = create_network
+    runner.destroy_topology = destroy_topology
+    runner.program_hosts = Mock()
+    runner.build_interface_mapping = Mock(return_value={})
+
+    runner.run(candidate=candidate)
+    assert [item['grpc_port'] for item in runner.switch_mappings] == [42001, 42002, 50053]
+    assert len({item['grpc_port'] for item in runner.switch_mappings}) == 3
+
+    with pytest.raises(RuntimeError, match='second deployment failed'):
+        runner.run(candidate=candidate)
+    assert first.stop.call_count == failed.stop.call_count == 1
+    assert runner.net is None and runner.switch_mappings == []
+    assert runner.deployment['status'] == 'failed'
+
+    runner.run(candidate=candidate)
+    assert [item['grpc_port'] for item in runner.switch_mappings] == [42001, 42003, 50053]
+    assert len({item['grpc_port'] for item in runner.switch_mappings}) == 3
+    assert runner.deployment['status'] == 'ready'
+    runner.destroy_topology()
+    assert retried.stop.call_count == 1
+
+
+def test_mixed_interface_mapping_uses_each_generation_device_port_base(runner):
+    def model(name, architecture):
+        interface = Mock()
+        interface.name, interface.IP.return_value = f'{name}-eth1', ''
+        interface.link = None
+        loopback = Mock()
+        loopback.IP.return_value = '127.0.0.1'
+        return SimpleNamespace(name=name, target='tofino', architecture=architecture,
+            intfs={0: loopback, 1: interface},
+            device_port=lambda port, base=8 if architecture == 'tofino2' else 0: base + port - 1)
+
+    runner.net = SimpleNamespace(switches=[model('s1', 'tofino'), model('s2', 'tofino2')])
+    mapping = runner.build_interface_mapping()
+    assert mapping['s1'][0]['device_port'] == 0
+    assert mapping['s2'][0]['device_port'] == 8
 
 
 @pytest.mark.parametrize('target', ['other', None, 1, []])

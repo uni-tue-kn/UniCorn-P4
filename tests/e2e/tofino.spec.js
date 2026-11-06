@@ -32,9 +32,14 @@ async function newBuilderDraft(page, hostCount, targets, links) {
   await page.getByRole('button', { name: 'Topology menu', exact: true }).click();
   await page.getByRole('menuitem', { name: 'New draft', exact: true }).click();
   for (let host = 0; host < hostCount; host++) await page.getByRole('button', { name: 'Add host', exact: true }).click();
-  for (const target of targets) {
+  for (const specification of targets) {
+    const target = typeof specification === 'string' ? specification : specification.target;
     await page.getByRole('combobox', { name: 'New switch target', exact: true }).click();
     await page.getByRole('option', { name: target, exact: true }).click();
+    if (typeof specification !== 'string' && specification.generation) {
+      await page.getByRole('combobox', { name: 'Tofino generation', exact: true }).click();
+      await page.getByRole('option', { name: specification.generation, exact: true }).click();
+    }
     await page.getByRole('button', { name: 'Add switch', exact: true }).click();
   }
   for (const [left, right] of links) {
@@ -56,6 +61,19 @@ async function compiledWorkshop(request) {
   expect(compatible[0].target).toBe('tofino');
   expect(compatible[0].build_manifest).toBeTruthy();
   return compatible[0];
+}
+async function compileProgram(request, payload) {
+  const started = await request.post('/api/compile', { data: payload });
+  expect(started.status(), await started.text()).toBe(202);
+  const job = await started.json();
+  let completed;
+  await expect.poll(async () => {
+    const response = await request.get(`/api/compile/jobs/${job.job_id}`);
+    expect(response.status(), await response.text()).toBe(200);
+    completed = await response.json();
+    return completed.status;
+  }, { timeout: 180_000, intervals: [500, 1000, 2000] }).toBe('complete');
+  return completed.result.program;
 }
 async function writeRegisterCell(page, register, index, value) {
   const row = page.getByTestId(`resource-row-${index}`);
@@ -91,13 +109,14 @@ test.beforeAll(async ({ request }) => {
 });
 
 test('selects targets in the topology builder and deploys with automatic switch connections', async ({ page, request }) => {
-  test.setTimeout(300_000);
-  await newBuilderDraft(page, 3, ['Tofino model', 'BMv2'], [['h1', 's1'], ['h2', 's1'], ['h3', 's2'], ['s1', 's2']]);
+  test.setTimeout(600_000);
+  await newBuilderDraft(page, 4, ['Tofino model', 'BMv2', { target: 'Tofino model', generation: 'Tofino 2' }],
+    [['h1', 's1'], ['h2', 's1'], ['h3', 's2'], ['h4', 's3'], ['s1', 's3'], ['s3', 's2']]);
   await page.getByRole('textbox', { name: 'Latency', exact: true }).fill('2ms');
   await page.getByRole('spinbutton', { name: 'Bandwidth (Mbps)', exact: true }).fill('100');
   await page.getByRole('button', { name: 'Update link', exact: true }).click();
   const deploying = page.waitForResponse(response => response.url().endsWith('/topology/deploy') && response.request().method() === 'POST');
-  const connected = page.waitForResponse(response => response.url().endsWith('/api/switches/from_topology') && response.request().method() === 'POST', { timeout: 270_000 });
+  const connected = page.waitForResponse(response => response.url().endsWith('/api/switches/from_topology') && response.request().method() === 'POST', { timeout: 510_000 });
   await page.getByRole('button', { name: 'Deploy topology', exact: true }).click();
   const started = await deploying;
   expect(started.status(), await started.text()).toBe(202);
@@ -105,19 +124,28 @@ test('selects targets in the topology builder and deploys with automatic switch 
   expect(response.status(), await response.text()).toBe(200);
   const sent = JSON.parse(response.request().postDataJSON().switch_configs);
   const nativeConfig = sent.find(config => config.name === 's1');
+  const native2Config = sent.find(config => config.name === 's3');
   expect(nativeConfig.target).toBe('tofino');
+  expect(nativeConfig.target_options.architecture).toBe('tofino');
   expect(nativeConfig.target_options.runtime_device_id).toBe(0);
   expect(nativeConfig.runtime_device_id).toBeUndefined();
+  expect(native2Config.target).toBe('tofino');
+  expect(native2Config.target_options.architecture).toBe('tofino2');
+  expect(native2Config.target_options.runtime_device_id).toBe(0);
+  expect(native2Config.address).not.toBe(nativeConfig.address);
   const active = await json(await request.get('/api/switches/active'));
   expect(active.connections.find(connection => connection.name === 's1').target).toBe('tofino');
   expect(active.connections.find(connection => connection.name === 's2').target).toBe('bmv2');
+  expect(active.connections.find(connection => connection.name === 's3').target_options.architecture).toBe('tofino2');
   switchId = active.connections.find(connection => connection.name === 's1').device_id;
   expect(switchId).toBe(0);
   metadata = await json(await request.get('/api/init', { params: { switch_id: switchId } }));
   const topology = await json(await request.get('/netsim/topology/get'));
-  const trunk = topology.links.find(link => link.node1 === 's1' && link.node2 === 's2');
+  const trunk = topology.links.find(link => [link.node1, link.node2].sort().join('-') === 's2-s3');
   expect(trunk.latency).toBe('2ms');
   expect(trunk.bandwidth).toBe(100);
+  expect(topology.switches.s3).toEqual({ target: 'tofino', architecture: 'tofino2' });
+  expect(topology.interface_mapping.s3.map(port => port.device_port)).toEqual([8, 9, 10]);
   await expect(page.getByText('Live', { exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('tofino-builder-autoconnect.png'), fullPage: true });
 });
@@ -134,7 +162,7 @@ test('compiles the workshop in the shared Editor and follows its asynchronous bu
   await page.getByRole('button', { name: 'Compile', exact: true }).click();
   const started = await compiling;
   expect(started.status(), await started.text()).toBe(202);
-  expect(started.request().postDataJSON()).toEqual({ file: workshopSource });
+  expect(started.request().postDataJSON()).toEqual({ file: workshopSource, target: 'auto', architecture: 'tofino' });
   const job = await json(started);
   expect(job.job_id).toBeTruthy();
   await expect(page.getByRole('button', { name: 'Compiling…', exact: true })).toBeDisabled();
@@ -171,7 +199,7 @@ test('connects mixed targets and initializes the workshop through the shared UI'
   expect(mixed.connections.find(connection => connection.name === 's2').target).toBe('bmv2');
   await page.getByRole('button', { name: 'Edit initialization', exact: true }).click();
   await page.getByRole('combobox', { name: 'Compiled program', exact: true }).click();
-  await page.getByRole('option', { name: program.name, exact: true }).and(page.locator(`[data-value=${JSON.stringify(program.id)}]`)).click();
+  await page.getByRole('option', { name: `${program.name} · Tofino 1`, exact: true }).and(page.locator(`[data-value=${JSON.stringify(program.id)}]`)).click();
   await expect(page.getByRole('listbox')).not.toBeVisible();
   await expect(page.getByRole('button', { name: 'Advanced', exact: true })).not.toBeVisible();
   const keepEntries = page.getByRole('checkbox', { name: 'Keep existing entries', exact: true });
@@ -324,13 +352,29 @@ test('uses the shared queue screen with supported port shaping fields', async ({
 
 
 test('exports and asynchronously restores the native network through the shared archive UI', async ({ page, request }) => {
-  test.setTimeout(420_000); // Capture can take 90s; restoration has its own 240s budget.
+  test.setTimeout(720_000); // Capture plus sequential Tofino 1/2 restoration each have native startup budgets.
   // Every switch in a mixed archive needs a restorable pipeline. Exercise the
   // same selector on BMv2 as on the native switch, preserving legacy init args.
+  const native2Program = await compileProgram(request, {
+    file: '/p4/tofino/resources.p4', target: 'tofino', architecture: 'tofino2',
+  });
   const compiled = await request.post('/api/compile', { data: { file: '/p4/resources.p4' } });
   expect(compiled.status(), await compiled.text()).toBe(200);
   const active = await json(await request.get('/api/switches/active'));
   const otherId = active.connections.find(connection => connection.name === 's2').device_id;
+  const native2Id = active.connections.find(connection => connection.name === 's3').device_id;
+  await page.goto('/switches');
+  await page.getByRole('tab', { name: 's3', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit initialization', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Compiled program', exact: true }).click();
+  await expect(page.getByRole('option').filter({ hasText: 'Tofino 1' })).toHaveCount(0);
+  await page.getByRole('option', { name: `${native2Program.name} · Tofino 2`, exact: true })
+    .and(page.locator(`[data-value=${JSON.stringify(native2Program.id)}]`)).click();
+  const native2Initialized = page.waitForResponse(response => response.url().endsWith('/api/init') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Initialize', exact: true }).click();
+  const native2Response = await native2Initialized;
+  expect(native2Response.status(), await native2Response.text()).toBe(200);
+  expect(native2Response.request().postDataJSON()).toEqual({ switch_id: native2Id, program_id: native2Program.id, keep_entries: false });
   const files = await json(await request.get('/api/p4files', { params: { switch_id: otherId } }));
   expect(files.programs.some(item => item.target === 'tofino')).toBe(false);
   const legacy = files.programs.find(item => item.source === '/p4/resources.p4');
@@ -373,7 +417,7 @@ test('exports and asynchronously restores the native network through the shared 
   await expect(dialog.getByRole('table', { name: 'Switches in network bundle', exact: true })).toContainText('s2');
   const deploying = page.waitForResponse(response => response.url().endsWith('/api/network/import/deploy') && response.request().method() === 'POST');
   const finished = page.waitForResponse(async response => new URL(response.url()).pathname === '/api/network/import/deploy'
-    && response.request().method() === 'GET' && response.status() === 200 && !['pending', 'running'].includes((await response.json()).status), { timeout: 270_000 });
+    && response.request().method() === 'GET' && response.status() === 200 && !['pending', 'running'].includes((await response.json()).status), { timeout: 600_000 });
   await dialog.getByRole('button', { name: 'Import and deploy', exact: true }).click();
   const started = await deploying;
   expect(started.status(), await started.text()).toBe(202);
@@ -391,6 +435,23 @@ test('exports and asynchronously restores the native network through the shared 
   expect(native.categories.registers.failed || 0).toBe(0);
   expect(native.categories.registers.restored).toBeGreaterThan(0);
   expect(report.topology.switches.s1.target).toBe('tofino');
+  expect(report.topology.switches.s3).toEqual({ target: 'tofino', architecture: 'tofino2' });
+  const native2 = report.switches.find(target => target.name === 's3');
+  // Digest subscriptions are connection state and intentionally cannot be
+  // archived. Require that this is the only Tofino 2 partial category and
+  // that its actual table/register/counter/meter state was fully restored.
+  expect(native2.status).toBe('partial');
+  expect(native2.categories.digests).toEqual({
+    status: 'partial', captured: 0, restored: 0, failed: 0, errors: [],
+  });
+  for (const [category, result] of Object.entries(native2.categories)) {
+    if (category !== 'digests') expect(result.status, category).toBe('complete');
+    expect(result.errors || [], category).toEqual([]);
+    expect(result.failed || 0, category).toBe(0);
+  }
+  for (const category of ['counters', 'meters', 'registers', 'tables']) {
+    expect(native2.categories[category].restored, category).toBeGreaterThan(0);
+  }
   const restoration = dialog.getByRole('region', { name: 'Network restoration report', exact: true });
   await expect(restoration).toBeVisible();
   await expect(restoration.getByText(/^(?:Network imported successfully|Network imported with warnings)\.$/)).toBeVisible();
@@ -436,7 +497,7 @@ test('isolates two simultaneous native models with the same runtime device ID', 
     await selectSwitch(page, connection.name);
     await page.getByRole('button', { name: 'Edit initialization', exact: true }).click();
     await page.getByRole('combobox', { name: 'Compiled program', exact: true }).click();
-    await page.getByRole('option', { name: sharedProgram.name, exact: true }).and(page.locator(`[data-value=${JSON.stringify(sharedProgram.id)}]`)).click();
+    await page.getByRole('option', { name: `${sharedProgram.name} · Tofino 1`, exact: true }).and(page.locator(`[data-value=${JSON.stringify(sharedProgram.id)}]`)).click();
     const initialized = page.waitForResponse(result => result.url().endsWith('/api/init') && result.request().method() === 'POST');
     await page.getByRole('button', { name: 'Initialize', exact: true }).click();
     const result = await initialized;

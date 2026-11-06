@@ -212,9 +212,11 @@ def test_archive_matches_deployment_layout_and_excludes_private_state(repo, tmp_
         assert 'context:' not in deployment
         assert ':1.2.0' not in deployment
         native = archive.extractfile('UniCorn-P4/docker-compose.tofino.yaml').read().decode()
-        for component in ('backend', 'netsim', 'compiler', 'frontend'):
-            assert f'image: unituekn/unicornp4-{component}-tofino:latest' in native
-        assert native.count(':latest') == 4
+        assert 'unicornp4-frontend' not in native
+        assert 'image: unituekn/unicornp4-backend:tofino-latest' in native
+        assert 'image: unituekn/unicornp4-netsim:tofino-latest' in native
+        assert 'image: unituekn/unicornp4-tofino-sdk:compiler-latest' in native
+        assert native.count('-latest') == 3
         assert 'build:' not in native and 'context:' not in native and '../' not in native
         assert 'TOFINO_COMPILER_URL: http://127.0.0.1:8080' in native
         assert '--host, 127.0.0.1' in native
@@ -251,9 +253,22 @@ def test_extracted_bundle_has_all_compose_mounts_without_source_checkout(repo, t
     result = subprocess.run(command + ['config', '--format', 'json'], cwd=root,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    for service in json.loads(result.stdout)['services'].values():
+    services = json.loads(result.stdout)['services']
+    expected_images = {
+        'unituekn/unicornp4-backend:latest',
+        'unituekn/unicornp4-netsim:latest',
+        'unituekn/unicornp4-frontend:latest',
+    }
+    if tofino:
+        expected_images = {
+            'unituekn/unicornp4-backend:tofino-latest',
+            'unituekn/unicornp4-netsim:tofino-latest',
+            'unituekn/unicornp4-frontend:latest',
+            'unituekn/unicornp4-tofino-sdk:compiler-latest',
+        }
+    assert {service['image'] for service in services.values()} == expected_images
+    for service in services.values():
         assert 'build' not in service
-        assert service['image'].endswith(':latest')
         for mount in service.get('volumes', []):
             assert mount['type'] == 'bind'
             source = Path(mount['source'])

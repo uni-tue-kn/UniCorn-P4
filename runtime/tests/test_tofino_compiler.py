@@ -87,6 +87,8 @@ def test_supervisor_configuration_selects_tofino2(tmp_path):
     for name in ('bf-rt.json', 'pipe/context.json', 'pipe/tofino2.bin'):
         (bundle / name).write_text('{}')
     assert configuration(bundle, tmp_path / 'sde')['chip_list'][0]['chip_family'] == 'tofino2'
+    with pytest.raises(ValueError, match='architecture does not match'):
+        configuration(bundle, tmp_path / 'sde', 'tofino')
 
 
 def test_default_bundle_preserves_legacy_tofino1_override(monkeypatch):
