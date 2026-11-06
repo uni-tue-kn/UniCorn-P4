@@ -134,7 +134,13 @@ time.sleep(60)
         child = int(pidfile.read_text())
         state = Path(f'/proc/{child}/stat')
         for _ in range(50):
-            if not state.exists() or state.read_text().split()[2] == 'Z':
+            try:
+                process_state = state.read_text().split()[2]
+            except (FileNotFoundError, ProcessLookupError):
+                # A successfully reaped child can disappear at any point while
+                # procfs opens or reads its transient status entry.
+                break
+            if process_state == 'Z':
                 break
             time.sleep(.01)
         else:
