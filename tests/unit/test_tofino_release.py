@@ -23,27 +23,34 @@ def test_prebuilt_sdk_and_release_defaults_match_verified_source_pair():
     assert defaults['SDK_IMAGE'] == PUBLIC_SDK
     assert defaults['OPEN_P4STUDIO_REV'] == '6d8b203700e3ca0f1208418072f88dc4a6a597e8'
     assert defaults['P4C_REV'] == 'ff5070480d76cd171df54051404f118d005fbf5e'
-    workflow = (ROOT / '.github/workflows/tofino-release.yml').read_text()
-    sdk_input = workflow.split('      sdk_image:\n', 1)[1].split('\npermissions:', 1)[0]
-    assert f'        default: {PUBLIC_SDK_TAG}\n' in sdk_input
-    assert 'Resolve the published SDK tag to an immutable digest' in workflow
-    assert 'resolve-image-digest.sh "$TOFINO_SDK_IMAGE"' in workflow
-    assert "inputs.sdk_image || 'unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203'" in workflow
-    source_ci = (ROOT / '.github/workflows/tofino.yml').read_text()
-    assert 'SDK_IMAGE=build\n' in source_ci
-    assert 'OPEN_P4STUDIO_REV=6d8b203700e3ca0f1208418072f88dc4a6a597e8\n' in source_ci
-    assert 'P4C_REV=ff5070480d76cd171df54051404f118d005fbf5e\n' in source_ci
+    documentation = (ROOT / 'docker/tofino/README.md').read_text()
+    assert PUBLIC_SDK_TAG in documentation
+    assert 'scripts/resolve-image-digest.sh' in documentation
+    assert 'GitHub Actions never recompiles Open P4Studio' in documentation
 
 
-def test_dual_sdk_publication_is_manual_and_uses_the_prepared_runner_capacity():
-    workflow = (ROOT / '.github/workflows/publish-tofino-sdk.yml').read_text()
-    trigger = workflow.split('on:\n', 1)[1].split('\npermissions:', 1)[0]
-    assert 'workflow_dispatch:' in trigger
-    assert 'push:' not in trigger
-    assert "runs-on: [self-hosted, linux, x64, tofino]" in workflow
-    assert 'memory < 48 * 1024**3' in workflow
-    assert workflow.count('BUILD_JOBS=16') == 2
-    assert f'SDK_TAG: {PUBLIC_SDK_TAG}' in workflow
+def test_tofino_derived_images_use_standard_hosted_jobs_and_prebuilt_sdk():
+    workflows = ROOT / '.github/workflows'
+    assert not (workflows / 'tofino.yml').exists()
+    assert not (workflows / 'publish-tofino-sdk.yml').exists()
+    workflow = (workflows / 'tofino-release.yml').read_text()
+    assert 'runs-on: [self-hosted' not in workflow
+    assert workflow.count('runs-on: ubuntu-24.04') == 6
+    assert f'TOFINO_SDK_IMAGE: {PUBLIC_SDK}' in workflow
+    assert 'target: compiler' in workflow
+    assert 'target: runtime' in workflow
+    assert 'target: backend' in workflow
+    assert 'push: true' in workflow
+    assert 'SDK_IMAGE=${{ env.TOFINO_SDK_IMAGE }}' in workflow
+    assert 'TOFINO_VALIDATION_SCOPE: compiler' in workflow
+    assert 'TOFINO_VALIDATION_SCOPE: runtime' in workflow
+    assert 'architecture: [tofino, tofino2]' in workflow
+    assert 'needs: [prepare, validate-compiler, validate-runtime]' in workflow
+    assert 'TOFINO_CANDIDATE_COMMIT: ${{ needs.prepare.outputs.commit }}' in workflow
+    documentation = (ROOT / 'docker/tofino/README.md').read_text()
+    assert '--build-arg SDK_IMAGE=build --build-arg BUILD_JOBS=16' in documentation
+    assert 'bash scripts/validate-tofino-release.sh' in documentation
+    assert 'bash scripts/publish-images.sh' in documentation
 
 
 @pytest.mark.parametrize('base,override,services', [
@@ -209,6 +216,39 @@ def test_tofino_tags_follow_standard_no_downgrade_policy(shell, current, promote
     assert Path(shell[1]['GITHUB_OUTPUT']).read_text() == f'latest={str(promote).lower()}\n'
 
 
+def test_validated_candidates_are_promoted_without_pulling_layers(shell):
+    commit = 'c' * 40
+    result = run(shell, 'publish-images.sh', IMAGE_FAMILY='tofino',
+                 TOFINO_CANDIDATE_COMMIT=commit)
+    assert result.returncode == 0, result.stderr
+    recorded = [call for call in calls(shell) if call[0] == 'docker']
+    versioned = ['unituekn/unicornp4-backend:tofino-1.2.0',
+                 'unituekn/unicornp4-netsim:tofino-1.2.0',
+                 'unituekn/unicornp4-tofino-sdk:compiler-1.2.0']
+    candidates = ['unituekn/unicornp4-backend:tofino-candidate-' + commit,
+                  'unituekn/unicornp4-netsim:tofino-candidate-' + commit,
+                  'unituekn/unicornp4-tofino-sdk:compiler-candidate-' + commit]
+    latest = ['unituekn/unicornp4-backend:tofino-latest',
+              'unituekn/unicornp4-netsim:tofino-latest',
+              'unituekn/unicornp4-tofino-sdk:compiler-latest']
+    expected = [
+        ['docker', 'buildx', 'imagetools', 'create', '--tag', image, candidate]
+        for image, candidate in zip(versioned, candidates)
+    ] + [
+        ['docker', 'buildx', 'imagetools', 'create', '--tag', alias, image]
+        for image, alias in zip(versioned, latest)
+    ]
+    assert recorded == expected
+    assert not any(call[1] in ('pull', 'push') for call in recorded)
+
+
+def test_invalid_candidate_commit_fails_before_registry_access(shell):
+    result = run(shell, 'publish-images.sh', IMAGE_FAMILY='tofino',
+                 TOFINO_CANDIDATE_COMMIT='main')
+    assert result.returncode != 0
+    assert calls(shell) == []
+
+
 def test_native_gate_exercises_final_images_and_cleans_private_state(shell):
     result = run(shell, 'validate-tofino-release.sh')
     assert result.returncode == 0, result.stderr
@@ -235,6 +275,34 @@ def test_native_failure_stops_before_testing_application_images(shell):
     assert len(calls(shell)) == 1
 
 
+def test_compiler_scope_stops_before_application_images(shell):
+    result = run(shell, 'validate-tofino-release.sh', TOFINO_VALIDATION_SCOPE='compiler')
+    assert result.returncode == 0, result.stderr
+    recorded = calls(shell)
+    assert any('/tests/run_native.sh' in call for call in recorded)
+    assert any('/tests/compiler_smoke.py' in call for call in recorded)
+    assert not any('unituekn/unicornp4-netsim:tofino-1.2.0' in call for call in recorded)
+
+
+@pytest.mark.parametrize('architecture,suffix', [('tofino', 't1'), ('tofino2', 't2')])
+def test_hosted_runtime_scope_reclaims_compiler_before_finished_images(shell, architecture, suffix):
+    result = run(shell, 'validate-tofino-release.sh', TOFINO_VALIDATION_SCOPE='runtime',
+                 TOFINO_VALIDATION_ARCHITECTURE=architecture)
+    assert result.returncode == 0, result.stderr
+    recorded = calls(shell)
+    assert not any('/tests/run_native.sh' in call for call in recorded)
+    compile_index = next(i for i, call in enumerate(recorded)
+                         if call[:2] == ['docker', 'run'] and '-m' in call and
+                         'runtime.tofino.compile' in call)
+    remove_index = recorded.index(['docker', 'image', 'rm',
+                                   'unituekn/unicornp4-tofino-sdk:compiler-1.2.0'])
+    runtime_index = next(i for i, call in enumerate(recorded)
+                         if 'unituekn/unicornp4-netsim:tofino-1.2.0' in call)
+    assert compile_index < remove_index < runtime_index
+    assert any(f'UNICORN_SUFFIX={suffix}' in call for call in recorded)
+    assert len([call for call in recorded if '/tests/structured_register_smoke.py' in call]) == 1
+
+
 def test_exited_runtime_fails_fast_and_cleans_disposable_state(shell):
     result = run(shell, 'validate-tofino-release.sh', FAIL_RUNTIME='true')
     assert result.returncode != 0
@@ -245,31 +313,6 @@ def test_exited_runtime_fails_fast_and_cleans_disposable_state(shell):
     assert ['docker', 'rm', '-f', name] in recorded
     assert ['docker', 'volume', 'rm', name.rsplit('-', 1)[0]] in recorded
     assert not any('/tests/structured_register_smoke.py' in call for call in recorded)
-
-
-def test_workflow_requires_trusted_ref_and_native_validation_before_login():
-    workflow = (ROOT / '.github/workflows/tofino-release.yml').read_text()
-    trigger = workflow.split('on:\n', 1)[1].split('\npermissions:', 1)[0]
-    assert 'workflow_dispatch:' in trigger
-    assert 'workflow_run:' in trigger
-    assert 'workflows: [Release merged main pull request]' in trigger
-    assert 'types: [completed]' in trigger and 'branches: [main]' in trigger
-    assert "github.event.workflow_run.conclusion == 'success'" in workflow
-    assert "github.event.workflow_run.head_repository.full_name == github.repository" in workflow
-    assert 'from scripts.release_version import eligible_merge, next_version' in workflow
-    assert 'The completed standard-release run was not for a newly merged main PR' in workflow
-    assert 'needs: select\n' in workflow
-    assert "if: needs.select.outputs.ready == 'true'" in workflow
-    assert 'TAG: ${{ needs.select.outputs.tag }}' in workflow
-    # Each step is independent YAML at this indentation. Avoid adding a YAML
-    # runtime dependency to the ordinary Python test environment.
-    steps = workflow.split('\n      - ')
-    validation = next(i for i, step in enumerate(steps) if 'run: bash scripts/validate-tofino-release.sh' in step)
-    login = next(i for i, step in enumerate(steps) if 'uses: docker/login-action@' in step)
-    publish = next(i for i, step in enumerate(steps) if 'run: bash scripts/publish-images.sh' in step)
-    assert validation < login < publish
-    assert all('        if:' not in steps[i] for i in (validation, login, publish))
-    assert '          IMAGE_FAMILY: tofino' in steps[publish]
 
 
 def test_download_compose_can_merge_without_sources_or_builds(tmp_path):

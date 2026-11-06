@@ -142,13 +142,13 @@ application adapter, whose generated grpc/protobuf versions differ from the
 SDK's Python environment; that adapter proof was run from the current backend
 image against the disposable model namespace.
 
-A fresh SDK source build needs a larger x64 CI runner. Standard GitHub-hosted
-Linux runners advertise only 14GB SSD, below upstream's 20GB free-space check;
-the optional image/build cache also needs room. Use a self-hosted or configured
-larger runner with at least 60GB available disk and 16GB RAM (32GB preferred).
-These are practical build headroom recommendations; standard hosted-runner
-compatibility has not been established. See [GitHub's standard runner specs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
-and [larger runner sizes](https://docs.github.com/en/actions/reference/runners/larger-runners).
+A fresh SDK source build runs on the prepared VM, not in GitHub Actions. Reserve
+at least 60GB available disk and 16GB RAM (32GB preferred) for the image and
+build cache. The optional release workflow instead pulls the installed SDK by
+digest and builds the compiler, runtime, and backend in independent standard
+hosted-runner jobs. Compiler validation and the two runtime generations also
+run independently; a runtime job removes the compiler image after producing its
+test bundle so it remains below the hosted runner's disk limit.
 
 Prebuilt SDK packaging was then validated through the production Dockerfile
 `SDK_IMAGE` hook, not only a prototype image. The known cached SDK digest was

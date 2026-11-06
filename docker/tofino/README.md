@@ -1,9 +1,10 @@
 # Tofino image builds
 
-The optional SDK image is built on the prepared VM (or by manually dispatching
-the self-hosted `Build and publish dual-generation Tofino SDK` workflow) from
-pinned Open P4Studio source. Ordinary GitHub CI does not perform this expensive
-source build. Both Tofino model generations are smoke-tested before publishing:
+The optional SDK image is built only on the prepared VM from pinned Open
+P4Studio source. GitHub Actions never recompiles Open P4Studio: it uses the
+published SDK by immutable digest to build, validate, and publish the three
+UniCorn Tofino images. Both model generations are smoke-tested before the SDK
+or a UniCorn release is promoted:
 
 ```text
 unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203
@@ -11,7 +12,7 @@ unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203
 
 Normal Dockerfile and Compose builds pin that publication immutably as
 `unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3`.
-The readable tag remains the maintainer publication and release-workflow input.
+The readable tag remains the maintainer-facing publication alias.
 
 The image includes the Tofino 1 and Tofino 2 compiler, BF Runtime, driver, and
 model. It is built from Open P4Studio
@@ -47,8 +48,8 @@ docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag
 ```
 
 Use the printed `repository@sha256:...` reference for immutable release builds.
-The optional release workflow also resolves its tag input to a digest before it
-builds any release image.
+The release workflow pins that digest directly. Resolve the SDK tag before a
+manual application release build and compare it with the Dockerfile pin.
 
 From the repository root:
 
@@ -73,13 +74,42 @@ The model DMA adaptation applies only to emulated switches.
 
 ## Release images
 
-After the standard release, dispatch **Publish optional Tofino release images**
-from `main` with its stable release tag. The pinned public SDK is the default.
-The workflow validates actual model packets and externs before publishing
-versioned images and promoting `latest`. The deployment archive contains a
-pull-only Compose override. Its frontend image is an alias of the same release's
-standard UI, promoted together with the Tofino images so `latest` versions stay
-aligned. See [native tests](../../tests/tofino/README.md).
+After GitHub Actions publishes the standard stable release, the optional Tofino
+workflow builds the compiler, runtime, and backend as separate candidate jobs
+on standard GitHub-hosted runners. It validates the native compiler and both
+model generations before promoting the candidates to versioned and `latest`
+Docker Hub tags. The workflow never enters the Dockerfile's SDK source-build
+stage.
+
+For a manual fallback, use a clean checkout of the release tag on this VM. Keep
+Docker Hub credentials in the VM shell and resolve the public SDK to an
+immutable digest:
+
+```sh
+export TAG=vMAJOR.MINOR.PATCH
+export TOFINO_SDK_IMAGE="$(bash scripts/resolve-image-digest.sh \
+  unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203)"
+release_output="$(mktemp)"
+export GITHUB_OUTPUT="$release_output"
+bash scripts/prepare-tofino-release.sh
+export VERSION="$(sed -n 's/^version=//p' "$release_output")"
+release_commit="$(sed -n 's/^commit=//p' "$release_output")"
+test "$(git rev-parse HEAD)" = "$release_commit" || {
+  echo "Use a clean checkout of $TAG ($release_commit)" >&2
+  exit 1
+}
+export WORKSHOP_DIR="$PWD/.cache/tofino-rbfrt-workshop"
+bash scripts/build-tofino-release.sh
+bash scripts/validate-tofino-release.sh
+export IMAGE_FAMILY=tofino
+bash scripts/publish-images.sh
+```
+
+Do not publish manually unless native validation succeeds. The final command
+pushes the three versioned images and promotes `tofino-latest`/`compiler-latest`
+only when this is still the current release. The deployment archive contains a
+pull-only Compose override and continues using the standard frontend image. See
+[native tests](../../tests/tofino/README.md).
 
 ## Updating SDK source pins
 
@@ -94,10 +124,10 @@ docker build -f docker/tofino/Dockerfile --target sdk \
   -t unicorn-tofino-sdk:source .
 ```
 
-The manual source-build workflow uses the pinned Open P4Studio and p4c revisions
-above. Its 16-job configuration requires the prepared runner labelled `tofino`
-with 60 GiB free disk and 48 GiB RAM. Dependency layers and compiler objects are
-cached. This is build headroom, not the installed SDK size.
+The VM source build uses the pinned Open P4Studio and p4c revisions above. Its
+16-job configuration requires about 60 GiB free disk and 48 GiB RAM. Dependency
+layers and compiler objects are cached. This is build headroom, not the installed
+SDK size.
 
 Checked adaptations isolate the auxiliary CLI port, enable model-only DMA
 allocation without host hugepages, and limit dependency fetches to required

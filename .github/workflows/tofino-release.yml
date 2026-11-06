@@ -1,7 +1,8 @@
 name: Publish optional Tofino release images
 
-# Run after the normal release. Reuse a prepared SDK; never make BMv2 release
-# wait for SDK source compilation. Manual dispatch remains available for retry.
+# The Open P4Studio SDK is built and validated separately on the prepared VM.
+# This workflow only adds UniCorn to that immutable SDK and therefore fits on
+# standard GitHub-hosted runners when each finished image gets its own job.
 on:
   workflow_run:
     workflows: [Release merged main pull request]
@@ -13,11 +14,6 @@ on:
         description: Completed standard release tag (vMAJOR.MINOR.PATCH)
         required: true
         type: string
-      sdk_image:
-        description: SDK image override matching the release Dockerfile pins
-        required: false
-        default: unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203
-        type: string
 
 permissions:
   contents: read
@@ -26,6 +22,9 @@ permissions:
 concurrency:
   group: unicorn-tofino-release
   cancel-in-progress: false
+
+env:
+  TOFINO_SDK_IMAGE: unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3
 
 jobs:
   select:
@@ -86,71 +85,152 @@ jobs:
           PY
           printf 'ready=true\ntag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
-  publish:
+  prepare:
     needs: select
     if: needs.select.outputs.ready == 'true'
-    runs-on: [self-hosted, linux, x64, tofino]
-    timeout-minutes: 120
-    env:
-      TAG: ${{ needs.select.outputs.tag }}
-      TOFINO_SDK_IMAGE: ${{ inputs.sdk_image || 'unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: false
-      - name: Require completed standard release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "$TAG" --json isDraft,isPrerelease,assets > "$RUNNER_TEMP/tofino-release.json"
-          python3 - "$RUNNER_TEMP/tofino-release.json" <<'PY'
-          import json, sys
-          release = json.load(open(sys.argv[1]))
-          assert not release['isDraft'] and not release['isPrerelease'], 'A published stable release is required'
-          assert any(a['name'] == 'UniCorn-P4.tar.gz' for a in release['assets']), 'Standard release archive is missing'
-          PY
-      - name: Resolve the published SDK tag to an immutable digest
-        run: |
-          digest=$(bash scripts/resolve-image-digest.sh "$TOFINO_SDK_IMAGE")
-          echo "TOFINO_SDK_IMAGE=$digest" >> "$GITHUB_ENV"
       - name: Verify trusted stable release and immutable SDK reference
         id: release
+        env:
+          TAG: ${{ needs.select.outputs.tag }}
         run: bash scripts/prepare-tofino-release.sh
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: compiler
+            repository: unituekn/unicornp4-tofino-sdk
+            prefix: compiler
+          - target: runtime
+            repository: unituekn/unicornp4-netsim
+            prefix: tofino
+          - target: backend
+            repository: unituekn/unicornp4-backend
+            prefix: tofino
+    steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ steps.release.outputs.commit }}
-          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.commit }}
           persist-credentials: false
-      - name: Fetch pinned public native validation sources
-        run: |
-          git init "$RUNNER_TEMP/tofino-release-workshop"
-          git -C "$RUNNER_TEMP/tofino-release-workshop" fetch --depth 1 https://github.com/n1tr0-5urf3r/tofino-rbfrt-workshop.git 336f13b0291c913c58babf74bd7b1399d4391d13
-          git -C "$RUNNER_TEMP/tofino-release-workshop" checkout --detach FETCH_HEAD
-          test "$(git -C "$RUNNER_TEMP/tofino-release-workshop" rev-parse HEAD)" = 336f13b0291c913c58babf74bd7b1399d4391d13
-      - name: Build all finished optional images on matching versioned bases
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: bash scripts/build-tofino-release.sh
-      - name: Validate native packets, compiler HTTP service, and final runtime/backend
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-          WORKSHOP_DIR: ${{ runner.temp }}/tofino-release-workshop
-        run: bash scripts/validate-tofino-release.sh
-      - uses: actions/upload-artifact@v7.0.2
-        if: always()
-        with:
-          name: tofino-release-validation
-          path: test-results/tofino-*
-          retention-days: 14
-      # Registry credentials are made available only after real native tests.
+      - uses: docker/setup-buildx-action@v4.4.1
       - uses: docker/login-action@v4.7.0
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Publish optional version tags and promote only a current release
+      - name: Build and push immutable candidate
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: docker/tofino/Dockerfile
+          target: ${{ matrix.target }}
+          build-args: |
+            SDK_IMAGE=${{ env.TOFINO_SDK_IMAGE }}
+            BACKEND_IMAGE=unituekn/unicornp4-backend:${{ needs.prepare.outputs.version }}
+            NETSIM_IMAGE=unituekn/unicornp4-netsim:${{ needs.prepare.outputs.version }}
+          push: true
+          tags: ${{ matrix.repository }}:${{ matrix.prefix }}-candidate-${{ needs.prepare.outputs.commit }}
+          # Avoid a multi-gigabyte Actions cache. The immutable SDK and normal
+          # release bases already provide the expensive reusable layers.
+          no-cache: true
+
+  validate-compiler:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TOFINO_VALIDATION_SCOPE: compiler
+      TOFINO_COMPILER_IMAGE: unituekn/unicornp4-tofino-sdk:compiler-candidate-${{ needs.prepare.outputs.commit }}
+      WORKSHOP_DIR: ${{ runner.temp }}/tofino-release-workshop
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: docker/login-action@v4.7.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Fetch pinned public native validation sources
+        run: |
+          git init "$WORKSHOP_DIR"
+          git -C "$WORKSHOP_DIR" fetch --depth 1 https://github.com/n1tr0-5urf3r/tofino-rbfrt-workshop.git 336f13b0291c913c58babf74bd7b1399d4391d13
+          git -C "$WORKSHOP_DIR" checkout --detach FETCH_HEAD
+          test "$(git -C "$WORKSHOP_DIR" rev-parse HEAD)" = 336f13b0291c913c58babf74bd7b1399d4391d13
+      - name: Validate native compiler, packets, models, externs, and HTTP service
+        run: bash scripts/validate-tofino-release.sh
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: tofino-compiler-validation
+          path: test-results/tofino-*
+          retention-days: 14
+
+  validate-runtime:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [tofino, tofino2]
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TOFINO_VALIDATION_SCOPE: runtime
+      TOFINO_VALIDATION_ARCHITECTURE: ${{ matrix.architecture }}
+      TOFINO_COMPILER_IMAGE: unituekn/unicornp4-tofino-sdk:compiler-candidate-${{ needs.prepare.outputs.commit }}
+      TOFINO_NETSIM_IMAGE: unituekn/unicornp4-netsim:tofino-candidate-${{ needs.prepare.outputs.commit }}
+      TOFINO_BACKEND_IMAGE: unituekn/unicornp4-backend:tofino-candidate-${{ needs.prepare.outputs.commit }}
+      WORKSHOP_DIR: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: docker/login-action@v4.7.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Validate finished runtime and backend
+        run: bash scripts/validate-tofino-release.sh
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: tofino-${{ matrix.architecture }}-runtime-validation
+          path: test-results/tofino-*
+          retention-days: 14
+
+  promote:
+    needs: [prepare, validate-compiler, validate-runtime]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.7.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Promote validated candidates to release tags
         env:
-          VERSION: ${{ steps.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           IMAGE_FAMILY: tofino
+          TOFINO_CANDIDATE_COMMIT: ${{ needs.prepare.outputs.commit }}
         run: bash scripts/publish-images.sh

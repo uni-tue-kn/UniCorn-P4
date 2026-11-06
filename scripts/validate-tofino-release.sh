@@ -7,16 +7,36 @@ cd "$(dirname "$0")/.."
 compiler="${TOFINO_COMPILER_IMAGE:-unituekn/unicornp4-tofino-sdk:compiler-$VERSION}"
 netsim="${TOFINO_NETSIM_IMAGE:-unituekn/unicornp4-netsim:tofino-$VERSION}"
 backend="${TOFINO_BACKEND_IMAGE:-unituekn/unicornp4-backend:tofino-$VERSION}"
+scope="${TOFINO_VALIDATION_SCOPE:-all}"
+architecture="${TOFINO_VALIDATION_ARCHITECTURE:-all}"
+[[ "$scope" == all || "$scope" == compiler || "$scope" == runtime ]] || {
+    echo 'TOFINO_VALIDATION_SCOPE must be all, compiler, or runtime' >&2; exit 1;
+}
+[[ "$architecture" == all || "$architecture" == tofino || "$architecture" == tofino2 ]] || {
+    echo 'TOFINO_VALIDATION_ARCHITECTURE must be all, tofino, or tofino2' >&2; exit 1;
+}
+if [[ "$scope" == compiler && "$architecture" != all ]]; then
+    echo 'Compiler validation always exercises both architectures' >&2
+    exit 1
+fi
+if [[ "$scope" == runtime && "$architecture" == all ]]; then
+    echo 'Hosted runtime validation must select one architecture per runner' >&2
+    exit 1
+fi
 mkdir -p test-results
 set -o pipefail
-docker run --rm --network none --cap-drop ALL --cap-add NET_ADMIN --cap-add NET_RAW \
-    --security-opt no-new-privileges:true \
-    -v "$PWD/tests/tofino:/tests:ro" -v "$PWD/examples/p4/tofino:/sources:ro" \
-    -v "$WORKSHOP_DIR:/workshop:ro" --entrypoint bash "$compiler" \
-    /tests/run_native.sh 2>&1 | tee test-results/tofino-native.log
-docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
-    -v "$PWD/tests/tofino:/tests:ro" -v "$PWD/examples:/app/examples:ro" \
-    --entrypoint python3 "$compiler" /tests/compiler_smoke.py
+if [[ "$scope" == all || "$scope" == compiler ]]; then
+    docker run --rm --network none --cap-drop ALL --cap-add NET_ADMIN --cap-add NET_RAW \
+        --security-opt no-new-privileges:true \
+        -v "$PWD/tests/tofino:/tests:ro" -v "$PWD/examples/p4/tofino:/sources:ro" \
+        -v "$WORKSHOP_DIR:/workshop:ro" --entrypoint bash "$compiler" \
+        /tests/run_native.sh 2>&1 | tee test-results/tofino-native.log
+    docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
+        -v "$PWD/tests/tofino:/tests:ro" -v "$PWD/examples:/app/examples:ro" \
+        --entrypoint python3 "$compiler" /tests/compiler_smoke.py
+fi
+
+[[ "$scope" != compiler ]] || exit 0
 
 # A private namespace and fresh Docker volume avoid host ports and live state.
 validation=$(mktemp -d)
@@ -44,6 +64,12 @@ validate_runtime() {
         -v "$PWD/tests/tofino:/tests:ro" -v "$volume:/validation" \
         --entrypoint python3 "$compiler" -m runtime.tofino.compile /tests/structured_register.p4 \
         --output "/validation/structured-$suffix" --name "$program" --architecture "$architecture"
+    if [[ "$scope" == runtime ]]; then
+        # The standard hosted runner has only 14GB disk. The compiled bundle is
+        # now in the volume, so discard the 5.3GB compiler before pulling the
+        # finished runtime and backend images.
+        docker image rm "$compiler" > /dev/null
+    fi
     docker run -d --name "$container" --network none --cap-drop ALL --cap-add NET_ADMIN --cap-add NET_RAW \
         --security-opt no-new-privileges:true -v "$volume:/validation" \
         -e UNICORN_ARCHITECTURE="$architecture" -e UNICORN_BUNDLE="/validation/structured-$suffix" \
@@ -88,5 +114,9 @@ validate_runtime() {
     unset "containers[$last_index]"
 }
 
-validate_runtime tofino t1 unicorn_structured
-validate_runtime tofino2 t2 unicorn_structured_t2
+if [[ "$architecture" == all || "$architecture" == tofino ]]; then
+    validate_runtime tofino t1 unicorn_structured
+fi
+if [[ "$architecture" == all || "$architecture" == tofino2 ]]; then
+    validate_runtime tofino2 t2 unicorn_structured_t2
+fi
