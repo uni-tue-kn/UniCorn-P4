@@ -46,6 +46,42 @@ describe('topology builder', () => {
     expect(validateDraft({ ...topology(), links: [['h1', 's1', '2ms', 0]] })).toMatch(/positive/);
   });
 
+  it('selects the target when adding or configuring switches and preserves mixed targets', async () => {
+    const user = userEvent.setup();
+    render(<TopologyBuilder />);
+    await user.click(screen.getByRole('button', { name: 'Add switch' }));
+    expect(screen.getByRole('combobox', { name: 'Switch target' })).toHaveTextContent('BMv2');
+    await choose(user, 'New switch target', 'Tofino model');
+    await user.click(screen.getByRole('button', { name: 'Add switch' }));
+    expect(screen.getByRole('combobox', { name: 'Switch target' })).toHaveTextContent('Tofino model');
+    await choose(user, 'Switch target', 'BMv2');
+    await user.click(screen.getByRole('button', { name: 'Select switch s1' }));
+    await choose(user, 'Switch target', 'Tofino model');
+    await user.click(screen.getAllByRole('combobox', { name: 'Tofino generation' }).at(-1));
+    await user.click(await screen.findByRole('option', { name: 'Tofino 2' }));
+    await saveDraft(user);
+    await waitFor(() => expect(axios.post).toHaveBeenCalled());
+    const saved = axios.post.mock.calls[0][1].topology;
+    expect(saved.switches).toEqual({ s1: { target: 'tofino', architecture: 'tofino2' }, s2: { target: 'bmv2' } });
+  });
+
+  it('shows each switch target and Tofino generation on the topology canvas', () => {
+    context.loadedTopology = {
+      hosts: ['h1'],
+      switches: {
+        s1: {},
+        s2: { target: 'tofino', architecture: 'tofino' },
+        s3: { target: 'tofino', architecture: 'tofino2' },
+      },
+      links: [],
+      file_name: '/topologies/mixed-targets.json',
+    };
+    render(<TopologyBuilder />);
+    expect(within(screen.getByRole('button', { name: 'Select switch s1' })).getByText('BMv2')).toBeVisible();
+    expect(within(screen.getByRole('button', { name: 'Select switch s2' })).getByText('Tofino 1')).toBeVisible();
+    expect(within(screen.getByRole('button', { name: 'Select switch s3' })).getByText('Tofino 2')).toBeVisible();
+  });
+
   it('deleting a switch cascades its links, layout and external interfaces', () => {
     const value = topology();
     value.layout.s1 = { x: 50, y: 50 };
@@ -204,26 +240,32 @@ describe('topology builder', () => {
     expect(screen.getByRole('button', { name: 'Select switch s1' })).toBeVisible();
     expect(screen.getByText('Draft changes')).toBeVisible();
     expect(context.applyLoadedTopology).not.toHaveBeenCalled();
-    expect(axios.post.mock.calls.map(call => call[0])).toEqual(['/topologies', '/netsim/topology/load']);
+    expect(axios.post.mock.calls.map(call => call[0])).toEqual(['/topologies', '/netsim/topology/deploy']);
   });
 
-  it('deploys a snapshot and adopts the actual live topology and port metadata', async () => {
+  it.each([false, true])('deploys a snapshot and adopts live topology with terminal warning=%s', async warned => {
     const user = userEvent.setup();
     let loaded;
     axios.post.mockImplementation((url, body) => {
       if (url === '/topologies') { loaded = { ...body.topology, file_name: '/topologies/' + body.name, switches_online: [{ name: 's1', dev_id: 4, grpc_port: 50057, thrift_port: 9097 }], interface_mapping: {} }; return Promise.resolve({ data: { name: loaded.file_name } }); }
-      if (url === '/netsim/topology/load') return Promise.resolve({ data: loaded });
+      if (url === '/netsim/topology/deploy') return Promise.resolve({ data: { deployment_id: 'job1' } });
       return Promise.resolve({ data: [] });
     });
+    const warnings = warned ? ['Terminals could not be initialized: terminal unavailable'] : [];
+    axios.get.mockImplementation(() => Promise.resolve({ data: { status: 'ready', topology: loaded, warnings } }));
     context.applyLoadedTopology.mockImplementation(value => { context.loadedTopology = value; });
     context.getLoadedTopology.mockImplementation(() => Promise.resolve(loaded));
     render(<TopologyBuilder />);
     await user.click(screen.getByRole('button', { name: 'Add switch' }));
     await user.click(screen.getByRole('button', { name: 'Deploy topology' }));
     expect(await screen.findByText('Live', { exact: true })).toBeVisible();
-    expect(context.applyLoadedTopology).toHaveBeenCalledWith(loaded);
+    expect(context.applyLoadedTopology).toHaveBeenCalledWith(warned ? { ...loaded, deployment_warnings: warnings } : loaded);
     expect(JSON.parse(axios.post.mock.calls[2][1].switch_configs)[0]).toMatchObject({ address: '127.0.0.1:50057', register_thrift_port: 9097 });
     expect(sessionStorage.getItem('unicorn.topology.draft.v1')).toBeNull();
+    if (warned) {
+      expect(screen.getByText('Topology deployed. ' + warnings[0]).closest('[role="alert"]')).toHaveClass('MuiAlert-colorWarning');
+      expect(screen.queryByText('Topology deployed. Switch terminals and connections have been refreshed.')).not.toBeInTheDocument();
+    }
   });
 
   it('requires confirmation before clearing the running network and keeps the draft', async () => {

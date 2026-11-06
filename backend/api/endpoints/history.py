@@ -1,6 +1,6 @@
 from flask_restful import reqparse
 from ..database.TableStates import *
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 
    
 

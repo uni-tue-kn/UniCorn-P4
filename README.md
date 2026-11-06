@@ -22,13 +22,12 @@
 
 ## From P4 program to running network
 
-- **Edit and compile P4** in a browser workspace with file tabs, local language-server completion, syntax diagnostics, and compiler output.
-- **Build and visualize networks** with Mininet, a drag-and-drop topology editor, saved layouts, interface maps, and per-node terminals.
-- **Program match-action tables** discovered from P4Info, with single/bulk editing, filtering, decoding, and saved MAT snapshots.
-- **Inspect live traffic** with counters, resets, traffic graphs, and digest events emitted by your program.
-- **Configure registers and meters** through P4Runtime, with precise integer values and per-entry direct meters.
-- **Manage packet replication** through mirror sessions and multicast groups.
-- **Tune BMv2 queues** with per-port depth and packet-rate controls.
+- **Edit and compile P4** with a browser editor, completion and diagnostics.
+- **Build networks** with a visual Mininet editor and host/switch terminals.
+- **Connect switches** using BMv2, optional Tofino models, or external devices.
+- **Program resources** including tables, registers, meters, mirror sessions and multicast groups.
+- **Inspect traffic** with counters, throughput plots, digests and queue controls.
+- **Export/import networks** with their topology, programs and captured switch state.
 
 <table>
   <tr>
@@ -60,6 +59,8 @@
 
 _The topology and throughput screenshots show the campus telemetry example with real emulated traffic._
 
+Also available in dark mode: [topology](docs/screenshots/topology-dark.png) · [throughput](docs/screenshots/counters-dark.png).
+
 ## Quick start
 
 You need Linux and Docker with Compose v2.
@@ -71,27 +72,20 @@ docker compose pull
 docker compose up -d
 ```
 
-Open http://localhost:3000. Put your P4 files in `p4-files/` and topology JSON in
-`topologies/` inside the current `docker/` directory, then compile, load a topology,
-and initialize a switch. This uses the published `latest` images. For local source
-changes, see [development and tests](docs/usage.md#development-and-tests).
+Open http://localhost:3000. Put P4 files in `docker/p4-files/` and topology JSON
+in `docker/topologies/`. Compile a program, deploy a topology, then initialize a switch.
 
-Try the [sample network bundles](examples/networks/README.md) for forwarding,
-multicast, mirroring, and metering demonstrations. Import a bundle from the global network archive menu.
+Try a [sample network bundle](examples/networks/README.md) through the global
+**Network archive** menu.
 
-Published [release archives](https://github.com/uni-tue-kn/UniCorn-P4/releases) use
-the same deployment layout: extract `UniCorn-P4.tar.gz`, enter `UniCorn-P4/`, and run
-`docker compose pull` followed by `docker compose up -d`. The bundle's Compose file
-uses the published `latest` images.
+Or extract a [release archive](https://github.com/uni-tue-kn/UniCorn-P4/releases)
+and run the same Compose commands from its `UniCorn-P4/` folder.
+Both use published `latest` images. For source changes, see
+[development and tests](docs/usage.md#development-and-tests).
 
 ## Target support
 
-The bundled BMv2 emulator supports scalar registers up to **64 bits** through a
-P4Runtime server extension. Stock external BMv2/PI needs the explicit register
-adapter, which conservatively supports up to **63 bits**. Tables, counters, meters,
-and supported mirror sessions continue to use standard P4Runtime operations.
+BMv2 is included. The optional [Tofino setup](docs/tofino.md) adds the Open P4Studio
+model and compiler. Both targets share the same resource screens.
 
-See the [usage guide](docs/usage.md) for setup, resource workflows, external switches,
-testing, and releases. The [runtime notes](runtime/README.md) explain compatibility
-limits. Component versions are shown in the UI and recorded in [VERSION](VERSION).
-Development changes are listed in the [changelog](CHANGELOG.md).
+[Usage guide](docs/usage.md) · [Physical interfaces](docs/usage.md#use-external-network-interfaces) · [Compatibility](docs/compatibility.md) · [Changelog](CHANGELOG.md)

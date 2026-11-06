@@ -8,6 +8,7 @@ from flask_cors import CORS
 import os
 from unicorn_version import register_version_routes
 from .language_service import register_language_routes
+from .program_builds import register_build_routes
 
 from controller.controller import Controller
 exampleController = Controller()
@@ -16,6 +17,7 @@ def create_app():
     app = Flask(__name__)
     register_version_routes(app, "backend")
     register_language_routes(app)
+    register_build_routes(app)
     CORS(app, methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
     app.config['CORS_HEADERS'] = 'application/json'
     
@@ -27,6 +29,18 @@ def create_app():
     with app.app_context():
         db.create_all()
         migrate_switch_adapter_fields(db.engine)
+
+    def referenced_builds():
+        # Saved and history states replay their exact build. Connected switches
+        # report the build they run. These manifests are never pruned.
+        from .database.TableStates import TableStates
+        with app.app_context():
+            paths = {state.program_manifest for state in
+                     TableStates.query.filter(TableStates.program_manifest.isnot(None))}
+        paths.update(getattr(switch, 'program_manifest', None) for switch in list(exampleController.switch_configs.values()))
+        return {path for path in paths if path}
+
+    app.extensions['program_builds'].referenced = referenced_builds
 
     api = Api(app)
     

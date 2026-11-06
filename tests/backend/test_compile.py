@@ -55,3 +55,22 @@ def test_invalid_or_missing_source_does_not_start_compiler(client, source, monke
         assert response.status_code == 400
         assert 'command' not in response.json
     run.assert_not_called()
+
+
+@pytest.mark.parametrize(('payload', 'contents', 'expected'), [
+    ({'target': 'tofino', 'architecture': 'tofino2'}, '// source\n', 'tofino2'),
+    ({'target': 'auto'}, '#include <t2na.p4>\n', 'tofino2'),
+    ({'target': 'auto'}, '#include <tna.p4>\n#include <t2na.p4>\n', 'tofino'),
+])
+def test_compile_routes_tofino_generation_to_build_job(client, source, payload, contents, expected):
+    source.write_text(contents)
+    builds = client.application.extensions['program_builds']
+    original = builds.start
+    start = Mock(return_value={'job_id': 'generation-test'})
+    builds.start = start
+    try:
+        response = client.post('/compile', json={'file': str(source), **payload})
+    finally:
+        builds.start = original
+    assert response.status_code == 202
+    start.assert_called_once_with(source.resolve(), expected)

@@ -310,3 +310,15 @@ def test_unknown_saved_switch_and_invalid_settings_are_clean_errors(client, app)
     assert client.post('/switches/known', json={'db_id': 999}).status_code == 404
     assert client.patch('/switches/known', json={'db_id': 999, 'switch_config': '{}'}).status_code == 404
     assert client.delete('/switches/known', json={'db_id': 999}).status_code == 404
+
+
+def test_loaded_config_capabilities_reflect_the_register_probe_of_the_same_response(switch):
+    response = pb.ReadResponse()
+    actual = response.entities.add().register_entry
+    actual.register_id = switch.p4_helper.p4info.registers[1].preamble.id
+    actual.index.index = 0
+    actual.data.bitstring = b'\x00'
+    switch.bmv2.ReadEntities.return_value = iter([response])
+    config = switch.get_loaded_config()
+    assert config['register_access']['read'] is True
+    assert config['capabilities']['registers'] == config['register_access']

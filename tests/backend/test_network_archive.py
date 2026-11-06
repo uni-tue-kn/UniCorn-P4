@@ -629,3 +629,139 @@ def test_partial_restore_reports_total_failures_with_bounded_diagnostic_payload(
     assert len(status['errors']) == 2
     assert result['switches'][0]['categories']['meters']['restored'] == 8
     assert bundle._STAGES == {}
+
+
+class DeferredThreads:
+    def __init__(self): self.pending = []
+    def __call__(self, target, **_kwargs):
+        owner = self
+        class Thread:
+            def start(self): owner.pending.append(target)
+        return Thread()
+    def run(self):
+        while self.pending: self.pending.pop(0)()
+
+
+def test_async_import_http_polling_uses_app_context_and_idempotent_token(client, snapshot, monkeypatch):
+    from flask import has_app_context
+    from api import exampleController
+    raw = bundle.build_archive(snapshot.controller).getvalue()
+    staged = bundle.stage_import(raw)
+    destination, workers, contexts = Destination(), DeferredThreads(), []
+    monkeypatch.setattr(bundle.threading, 'Thread', workers)
+    monkeypatch.setattr(exampleController, 'switch_configs', destination.switch_configs)
+    monkeypatch.setattr(exampleController, 'addSwitchConnection', destination.addSwitchConnection)
+    monkeypatch.setattr(exampleController, 'deleteAllSwitchConnections', destination.deleteAllSwitchConnections)
+    monkeypatch.setattr(bundle, 'netsim_request', lambda *args, **kwargs: dict(snapshot.running,
+        switches_online=[{'name': 's1', 'dev_id': 42, 'grpc_port': 55099, 'thrift_port': 9191}]))
+    original = bundle._deploy_reserved
+    def restore(*args):
+        contexts.append(has_app_context())
+        return original(*args)
+    monkeypatch.setattr(bundle, '_deploy_reserved', restore)
+    token = staged['import_token']
+    try:
+        initial = client.post('/network/import/deploy', json={'import_token': token, 'async': True})
+        assert initial.status_code == 202 and initial.json['status'] == 'pending'
+        assert destination.calls == []
+        assert client.get('/network/import/deploy', query_string={'import_token': token}).json['progress']['phase'] == 'Preparing import'
+        assert client.post('/network/import/deploy', json={'import_token': token, 'async': True}).status_code == 202
+        assert len(workers.pending) == 1
+        workers.run()
+        final = client.get('/network/import/deploy', query_string={'import_token': token})
+        assert final.status_code == 200 and final.json['status'] == 'complete'
+        assert final.json['result']['switches'][0]['categories']['registers']['restored'] == 16
+        assert contexts == [True]
+        assert token not in bundle._STAGES and token in bundle._RESULTS
+        calls = list(destination.calls)
+        retry = client.post('/network/import/deploy', json={'import_token': token, 'async': True})
+        assert retry.status_code == 202 and retry.json == final.json
+        assert destination.calls == calls and not workers.pending
+        assert client.post('/network/import/deploy', json={'import_token': token}).json == final.json['result']
+        assert client.get('/network/import/deploy').status_code == 400
+        assert client.get('/network/import/deploy?import_token=unknown').status_code == 404
+    finally:
+        workers.run()
+
+
+def test_async_deployment_failure_is_cached_and_other_imports_remain_exclusive(snapshot, monkeypatch):
+    raw = bundle.build_archive(snapshot.controller).getvalue()
+    first, second = bundle.stage_import(raw), bundle.stage_import(raw)
+    destination, workers = Destination(), DeferredThreads()
+    monkeypatch.setattr(bundle.threading, 'Thread', workers)
+    monkeypatch.setattr(bundle, 'netsim_request', Mock(side_effect=OSError('Native startup unavailable')))
+    try:
+        bundle.deploy_import(destination, None, {'import_token': first['import_token'], 'async': True})
+        with pytest.raises(RuntimeError, match='Another network import'):
+            bundle.deploy_import(destination, None, {'import_token': second['import_token'], 'async': True})
+        assert bundle._STAGES[second['import_token']]['in_use'] is False
+        workers.run()
+        final = bundle.deployment_status(first['import_token'])
+        assert final['status'] == 'failed'
+        assert 'Native startup unavailable' in final['result']['error']
+        assert bundle.deploy_import(destination, None, {'import_token': first['import_token']}) == final['result']
+        assert not bundle._DEPLOY_LOCK.locked()
+    finally:
+        workers.run()
+
+
+def test_async_import_validates_before_start_and_thread_start_failure_allows_retry(snapshot, monkeypatch):
+    staged = bundle.stage_import(bundle.build_archive(snapshot.controller).getvalue())
+    threads = Mock()
+    threads.return_value.start.side_effect = RuntimeError('Thread unavailable')
+    monkeypatch.setattr(bundle.threading, 'Thread', threads)
+    destination = Destination()
+    with pytest.raises(ValueError, match='async must be'):
+        bundle.deploy_import(destination, None, {'import_token': staged['import_token'], 'async': 'yes'})
+    threads.assert_not_called()
+    with pytest.raises(RuntimeError, match='Thread unavailable'):
+        bundle.deploy_import(destination, None, {'import_token': staged['import_token'], 'async': True})
+    assert destination.calls == []
+    assert bundle._STAGES[staged['import_token']]['in_use'] is False
+    assert not bundle._DEPLOY_LOCK.locked()
+
+
+def test_native_topology_polling_has_per_switch_budget_and_fresh_replay_budget(snapshot, monkeypatch):
+    raw = bundle.build_archive(snapshot.controller).getvalue()
+    def native_topology(files, manifest):
+        topology = json.loads(files['topology.json'])
+        topology['switches']['native2'] = {'target': 'tofino'}
+        topology['links'].append(['s1', 'native2'])
+        files['topology.json'] = bundle.json_bytes(topology)
+    staged = bundle.stage_import(rewrite(raw, native_topology))
+    clock, requests, deadlines = [1000.0], [], []
+    monkeypatch.setattr(bundle.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(bundle.time, 'sleep', lambda _seconds: None)
+    ready = dict(snapshot.running, file_name='imported.json', switches_online=[{'name': 's1', 'dev_id': 42, 'grpc_port': 55099, 'thrift_port': 9191}])
+    def netsim(route, body=None, timeout=5):
+        requests.append((route, timeout))
+        if route == '/topology/deploy': return {'deployment_id': 'native-proof', 'status': 'pending'}
+        assert route == '/topology/deploy/native-proof'
+        if len(requests) == 2:
+            clock[0] += 250
+            return {'status': 'running', 'switches': {'native': {'status': 'starting'}}}
+        return {'status': 'ready', 'topology': ready}
+    monkeypatch.setattr(bundle, 'netsim_request', netsim)
+    original = bundle.restore_switch
+    def restore(*args):
+        deadlines.append(args[-1])
+        return original(*args)
+    monkeypatch.setattr(bundle, 'restore_switch', restore)
+    result = bundle.deploy_import(Destination(), None, {'import_token': staged['import_token']})
+    assert result['switches'][0]['categories']['registers']['restored'] == 16
+    assert deadlines == [clock[0] + 240]
+    assert requests == [('/topology/deploy', 10), ('/topology/deploy/native-proof', 10), ('/topology/deploy/native-proof', 10)]
+
+
+def test_native_topology_startup_timeout_releases_token_and_lock(snapshot, monkeypatch):
+    stage = {'deployment': {'status': 'pending'}}
+    clock = [1000.0]
+    monkeypatch.setattr(bundle.time, 'monotonic', lambda: clock[0])
+    def sleep(_seconds): clock[0] += 301
+    monkeypatch.setattr(bundle.time, 'sleep', sleep)
+    def netsim(route, body=None, timeout=5):
+        if route == '/topology/deploy': return {'deployment_id': 'native-proof'}
+        return {'status': 'running'}
+    monkeypatch.setattr(bundle, 'netsim_request', netsim)
+    with pytest.raises(TimeoutError, match='per-switch time budget'):
+        bundle._load_import_topology('native.json', {'switches': {'s1': {'target': 'tofino'}}}, stage)

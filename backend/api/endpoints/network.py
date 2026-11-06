@@ -1,8 +1,8 @@
-from flask import request, send_file
+from flask import current_app, request, send_file
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from .Endpoint import Endpoint
-from ..network_archive import MAX_ARCHIVE, build_archive, stage_import, deploy_import
+from ..network_archive import MAX_ARCHIVE, build_archive, stage_import, deploy_import, deployment_status
 
 
 class NetworkExport(Endpoint):
@@ -33,9 +33,19 @@ class NetworkImport(Endpoint):
 
 
 class NetworkDeploy(Endpoint):
+    def get(self):
+        try:
+            return deployment_status(request.args.get('import_token')), 200
+        except ValueError as error:
+            return {'error': str(error)}, 400
+        except KeyError as error:
+            return {'error': str(error)}, 404
+
     def post(self):
         try:
-            return deploy_import(self.controller, self.db, request.get_json(silent=True)), 200
+            body = request.get_json(silent=True)
+            result = deploy_import(self.controller, self.db, body, app=current_app._get_current_object())
+            return result, 202 if isinstance(body, dict) and body.get('async') is True else 200
         except (ValueError, TypeError) as error:
             return {'error': str(error)}, 400
         except KeyError as error:

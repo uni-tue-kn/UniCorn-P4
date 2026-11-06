@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased — 1.2.3
+
+### Added
+
+* Optional official Open P4Studio Tofino models and matching compiler, with per-switch target selection and mixed BMv2/Tofino topologies.
+* Shared native table, register, counter, meter, digest, mirror, multicast, and port-shaping controls, including structured registers with exact integer values.
+* Portable native program bundles, target-aware network archives, asynchronous model deployment and import progress, and official TNA headers in the editor.
+* Native model and browser validation using the public Tofino workshop P4 program, plus an optional cached CI workflow for the full SDK build.
+* Read-only connections to external Tofino switches alongside their existing controller, with automatic program discovery and writes blocked in the UI and backend.
+* New switch connections automatically suggest the next available local ID, with a manual override.
+* Optional Tofino release images with version and `latest` tags, a native validation gate before publishing, and a pull-only Compose override in the deployment archive.
+* Tofino builds use a digest-pinned `unituekn/unicornp4-tofino-sdk` image containing both Tofino generations. SDK source compilation and publication remain explicit maintainer operations on the prepared VM.
+
+### Changed
+
+* Deployment archives include only Compose/runtime files, public examples and user documentation. Build/test instructions and preview images stay in the repository.
+* Legacy preview images are stored in `docs/screenshots/`.
+* GitHub release notes start with concise launch instructions for BMv2 and optional Tofino models.
+* Program listings skip artifact hashing. Successful Tofino compiles clean older unused builds while preserving builds used by initialization, connected switches and saved/history states.
+* Optional Tofino releases reuse the standard frontend and publish native backend, netsim and compiler tags in the existing Docker Hub repositories.
+* Native archives explicitly report unsupported action-profile/selector state and omit dependent entries, keeping partial snapshots importable.
+
+### Fixed
+
+* Restored physical network interface setup instructions in the usage guide and deployment archive.
+* Editing saved switch connections preserves the target, target options and register-adapter settings.
+* Late BF Runtime stream readers cannot overwrite the replacement connection's state.
+* Native IPv6 values encode correctly, and read-only table fields no longer block entry edits or restores.
+* Automatic target detection skips unavailable includes and selects the matching Tofino 1 or Tofino 2 compiler architecture.
+* Topology deployment bounds every request and the complete operation, with retries for transient polling failures.
+* Local pipeline validation failures preserve the active program. Failed native reconnects clean up their streams and can be retried.
+* Failed emulator starts clean up partial networks and finish asynchronous jobs, including legacy `SystemExit` failures. Switch IDs and control ports follow Mininet's natural order.
+* Native archive validation returns client errors for malformed state, and filtered topology validation runs before existing connections are removed.
+* Native table rollback omits read-only fields, direct-resource operations reject indexed-resource IDs, and replay tolerates identical entries installed by the pipeline.
+* Native resource requests and archive capture/replay are serialized with pipeline replacement. Connection changes and manager creation are synchronized.
+* Queued native requests release the global connection lock while waiting, keeping other switches responsive and rejecting replaced connections safely.
+* Table priorities use the same larger-first order on both targets. Native TCAM groups survive edits, eight-group IPv6 addresses encode correctly, and signed range bounds compare numerically.
+* Compiler timeouts terminate the complete process group. Slow request bodies have a timeout and do not occupy the compilation lock.
+* Import and editor polling tolerate transient failures. Deployment warnings survive topology refreshes, BMv2 setup hints remain actionable, and queue-history columns match supported fields.
+* The network import dialog retries transient progress requests. Unavailable mirror/multicast controls show their capability reason, repeated register fields tolerate missing/scalar responses, and terminal input returns promptly during model startup.
+* Forwarder readiness belongs to the newly started process. Native logs retain bounded recent output and reset per deployment, workspace build roots reject symlinks, and archive source selection retains the exact file path.
+* Native network archives retain default table actions, their parameters, and attached direct meters.
+* Native archives omit fields that cannot be written back and report partial state instead of rejecting their own exports.
+* Closed native control streams report a disconnected state instead of appearing healthy.
+* Quoted standard SDK includes compile and survive network export/import while local header overrides remain frozen with the program.
+* Terminal failures no longer misreport successful network deployment or clear the prior topology before replacement begins.
+
 ## 1.2.2 — 2026-11-03
 
 ### Added

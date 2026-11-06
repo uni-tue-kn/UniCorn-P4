@@ -105,7 +105,7 @@ function HistoryList({ fullHistory }) {
                                 date = currentDate
                             }
                             return (
-                                <React.Fragment>
+                                <React.Fragment key={state.id}>
                                     {dateHeader}
                                     <ListItem secondaryAction={
                                         <IconButton onClick={(event) => deleteHistoryState(event, state.id)}>
@@ -122,7 +122,7 @@ function HistoryList({ fullHistory }) {
                                                 <div style={{ display: "flex" }}>
                                                     <Typography sx={{ color: 'grey' }}>{returnTime(state.last_init)}</Typography>
                                                     <Typography>&nbsp; &nbsp;</Typography>
-                                                    <Typography >{displayFile(state.p4_info_file)} {initializedFiles != null && initializedFiles.state_id == state.id && "(currently initialized)"}</Typography>
+                                                    <Typography >{state.target === 'tofino' ? state.program_name || 'Compiled program' : displayFile(state.p4_info_file)} {initializedFiles != null && initializedFiles.state_id == state.id && "(currently initialized)"}</Typography>
                                                 </div>}
                                             />
 
@@ -133,12 +133,12 @@ function HistoryList({ fullHistory }) {
                                             <Table>
                                                 <TableBody>
                                                     <TableRow>
-                                                        <TableCell>p4 info file</TableCell>
-                                                        <TableCell>{displayFile(state.p4_info_file)}</TableCell>
+                                                        <TableCell>{state.target === 'tofino' ? 'Program' : 'p4 info file'}</TableCell>
+                                                        <TableCell>{state.target === 'tofino' ? state.program_name || 'Compiled program' : displayFile(state.p4_info_file)}</TableCell>
                                                     </TableRow>
                                                     <TableRow>
-                                                        <TableCell>bmv2 file</TableCell>
-                                                        <TableCell>{displayFile(state.bmv2_file)}</TableCell>
+                                                        <TableCell>{state.target === 'tofino' ? 'Target' : 'bmv2 file'}</TableCell>
+                                                        <TableCell>{state.target === 'tofino' ? 'Tofino' : displayFile(state.bmv2_file)}</TableCell>
                                                     </TableRow>
                                                     <TableRow>
                                                         <TableCell>Created</TableCell>
@@ -153,9 +153,9 @@ function HistoryList({ fullHistory }) {
                                                                 </IconButton>
                                                             </Tooltip>
                                                             <Button 
-                                                            disabled={initializedFiles != null && initializedFiles.state_id == state.id} 
+                                                            disabled={initializedFiles?.read_only === true || initializedFiles?.capabilities?.pipeline?.write === false || (initializedFiles != null && initializedFiles.state_id == state.id) || (state.target || 'bmv2') !== (initializedFiles?.target || 'bmv2') || (state.target === 'tofino' && !state.program_manifest)}
                                                             size='small' variant='contained' 
-                                                            onClick={(event) => initialize(event, state.p4_info_file, state.bmv2_file, false, state.id)}
+                                                            onClick={(event) => initialize(event, state.target === 'tofino' ? { id: state.program_manifest } : state.p4_info_file, state.bmv2_file, false, state.id)}
                                                             >
                                                                 Re-Initialize state
                                                                 </Button>

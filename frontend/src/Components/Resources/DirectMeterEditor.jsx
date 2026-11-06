@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import { useInit } from '../../Contexts/InitContext';
 import { useSwitch } from '../../Contexts/SwitchContext';
 import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 import { DEFAULT_METER_DESCRIPTION, meterFields, meterFieldInfo, meterUnit } from '../Helpers/MeterFields';
@@ -28,6 +29,7 @@ export function validateMeterConfig(draft) {
 
 export default function DirectMeterEditor({ meter, tableEntry, disabled = false, onSaved }) {
   const { currentSwitchID } = useSwitch();
+  const capability = useInit()?.initializedFiles?.capabilities?.direct_meters;
   const entryKey = directMeterKey(tableEntry);
   const identity = `${currentSwitchID}:${meter.id}:${entryKey}`;
   const currentIdentity = useRef(identity);
@@ -76,6 +78,7 @@ export default function DirectMeterEditor({ meter, tableEntry, disabled = false,
     requested.current?.abort(); setOpen(false); setPhase(null);
   }
   async function write(next, action) {
+    if (capability?.write === false) return;
     const controller = new AbortController();
     requested.current?.abort(); requested.current = controller;
     const token = begin(action);
@@ -105,23 +108,24 @@ export default function DirectMeterEditor({ meter, tableEntry, disabled = false,
     catch (failure) { setError(failure.message); }
   }
   return <>
-    <Button size="small" variant="outlined" disabled={disabled || busy || currentSwitchID == null} onClick={() => setOpen(true)}>Edit meter</Button>
+    <Button size="small" variant="outlined" disabled={disabled || busy || currentSwitchID == null || capability?.read === false} onClick={() => setOpen(true)}>{capability?.write === false ? 'View meter' : 'Edit meter'}</Button>
     <Dialog open={open} onClose={close} fullWidth maxWidth="sm">
-      <DialogTitle>Edit direct meter</DialogTitle>
+      <DialogTitle>{capability?.write === false ? 'View direct meter' : 'Edit direct meter'}</DialogTitle>
       <Box component="form" onSubmit={save}>
         <DialogContent><Stack spacing={2}>
           <Typography>{meter.alias || meter.name} · {tableEntry.table_name}</Typography>
           <Typography variant="body2" color="text.secondary">Match: {JSON.stringify(tableEntry.match_fields || {})}{tableEntry.priority ? ` · priority ${tableEntry.priority}` : ''}{tableEntry.is_default_action ? ' · default entry' : ''}</Typography>
-          <Typography variant="body2" color="text.secondary">Rates are measured in {meterUnit(meter)}/s; bursts in {meterUnit(meter)}. Changes apply to this table entry.</Typography>
+          <Typography variant="body2" color="text.secondary">Rates are measured in {meterFieldInfo('cir', meter).unit}; bursts in {meterUnit(meter)}. Changes apply to this table entry.</Typography>
+          {capability?.write === false && <Alert severity="info">Read-only connection. Meter values are available for reading; changes are disabled.</Alert>}
           {error && <Alert severity="error">{error}</Alert>}
           {config === null && <Alert severity="info"><strong>Unconfigured — always green.</strong> {DEFAULT_METER_DESCRIPTION}</Alert>}
           {config !== undefined && meterFields.map(([field, label]) => {
             const info = meterFieldInfo(field, meter);
-            return <Tooltip key={field} title={info.description} placement="top"><TextField label={label} helperText={info.help} value={draft[field]} required disabled={busy} onChange={event => setDraft(previous => ({ ...previous, [field]: event.target.value }))} slotProps={{ htmlInput: { inputMode: 'numeric' } }} /></Tooltip>;
+            return <Tooltip key={field} title={info.description} placement="top"><TextField label={label} helperText={info.help} value={draft[field]} required disabled={busy || capability?.write === false} onChange={event => setDraft(previous => ({ ...previous, [field]: event.target.value }))} slotProps={{ htmlInput: { inputMode: 'numeric' } }} /></Tooltip>;
           })}
           <AsyncFeedback feedback={feedback} />
         </Stack></DialogContent>
-        <DialogActions><Button onClick={close} disabled={writing}>Cancel</Button><Tooltip title="Remove rate configuration; meter marks every packet green."><span><Button color="warning" onClick={() => write(null, 'reset')} disabled={busy || config == null}>Reset meter</Button></span></Tooltip><Button variant="contained" type="submit" disabled={busy || config === undefined}>Save meter</Button></DialogActions>
+        <DialogActions><Button onClick={close} disabled={writing}>Cancel</Button>{capability?.reset !== false && meter.reset !== false && <Tooltip title="Remove rate configuration; meter marks every packet green."><span><Button color="warning" onClick={() => write(null, 'reset')} disabled={busy || capability?.write === false || config == null}>Reset meter</Button></span></Tooltip>}<Button variant="contained" type="submit" disabled={busy || capability?.write === false || config === undefined}>Save meter</Button></DialogActions>
       </Box>
     </Dialog>
   </>;

@@ -126,3 +126,14 @@ def test_bad_candidate_preserves_existing_topology():
     assert response.status_code == 400
     assert runner.topo_file == 'previous.json'
     ws.close_clis.assert_not_called()
+
+
+def test_terminal_input_during_startup_returns_without_waiting_for_models(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    ws, runner = manager(monkeypatch)
+    ws.init_clis()
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        with runner.lifecycle_lock:
+            ws.close_clis()  # Deployment closes terminals before starting models.
+            workers.submit(ws.handle_message, {'target': 'h1', 'cmd': 'ping h2'}).result(timeout=2)
+    assert 'unavailable' in json.loads(ws.socket.emit.call_args.args[1])['data']

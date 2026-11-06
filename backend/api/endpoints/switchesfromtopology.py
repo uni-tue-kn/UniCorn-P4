@@ -21,9 +21,9 @@ class SwitchesFromTopology(Endpoint):
         return (switch_config["name"], switch_config["address"], switch_config["device_id"])
 
     def _get_or_create_switch_records(self, switch_configs):
+        switch_configs = [normalize_adapter_config(switch) for switch in switch_configs]
         records = {}
         for switch in switch_configs:
-            switch = normalize_adapter_config(switch)
             key = self._switch_key(switch)
             record = SwitchConfigs.query.filter_by(
                 name=switch["name"],
@@ -35,6 +35,9 @@ class SwitchesFromTopology(Endpoint):
                 self.db.session.add(record)
                 self.db.session.flush()
             else:
+                record.target = switch["target"]
+                record.target_options = switch["target_options"]
+                record.proto_dump_file = switch["proto_dump_file"]
                 record.register_adapter_enabled = switch["register_adapter_enabled"]
                 record.register_thrift_host = switch["register_thrift_host"]
                 record.register_thrift_port = switch["register_thrift_port"]
@@ -70,14 +73,27 @@ class SwitchesFromTopology(Endpoint):
         raise last_err
 
     def post(self):
-        
-        data = request.get_json()
-
-        if data is None or 'switch_configs' not in data:
-                return jsonify({'error': 'No switch_configs key in JSON data'}), 400
-        create_switches = data["create_switches"] if 'create_switches' in data else False
-
-        switch_configs = json.loads(data['switch_configs'])
+        # Validate the entire batch before replacing any active connections.
+        try:
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict) or 'switch_configs' not in data:
+                raise ValueError('Expected a JSON object containing switch_configs')
+            if set(data) - {'switch_configs', 'create_switches'}:
+                raise ValueError('Unexpected topology connection settings')
+            create_switches = data.get('create_switches', False)
+            if not isinstance(create_switches, bool):
+                raise ValueError('create_switches must be a boolean')
+            switch_configs = data['switch_configs']
+            if isinstance(switch_configs, str):
+                switch_configs = json.loads(switch_configs)
+            if not isinstance(switch_configs, list):
+                raise ValueError('switch_configs must contain an array of connection configurations')
+            switch_configs = [normalize_adapter_config(switch) for switch in switch_configs]
+            identifiers = [switch['device_id'] for switch in switch_configs]
+            if len(identifiers) != len(set(identifiers)):
+                raise ValueError('Switch connection device IDs must be unique')
+        except (ValueError, TypeError) as error:
+            return {'error': str(error)}, 400
         connected_device_ids = []
         
         # Disconnect all connected switches
@@ -101,6 +117,7 @@ class SwitchesFromTopology(Endpoint):
             return make_response(jsonify(self.controller.getSwitchConnections()), 200)
             
         except Exception as e:
+                self.db.session.rollback()
                 for device_id in connected_device_ids:
                     if device_id in self.controller.switch_configs:
                         self.controller.deleteSwitchConnection(device_id)

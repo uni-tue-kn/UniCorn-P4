@@ -161,14 +161,41 @@ export function EditorProvider({ children }) {
     return { ...previous, documents, order, activePath: previous.activePath === path ? order.at(-1) || '' : previous.activePath };
   }), []);
   const target = useCallback(path => setState(previous => ({ ...previous, target: path })), []);
-  const compile = useCallback(() => run(async () => {
+  const compile = useCallback((compileTarget = 'auto') => run(async () => {
     const snapshot = current.current;
     const source = snapshot.files.find(file => file.path === snapshot.target);
     if (!source || !source.path.endsWith('.p4')) { setError('Select a P4 source file to compile.'); return false; }
     for (const path of snapshot.order) if (!(await saveOne(path))) return false;
     setState(previous => ({ ...previous, compileStatus: 'busy', output: `Compiling ${source.absolute_path}\n…`, diagnostics: [] }));
     try {
-      const { data } = await axios.post('/compile', { file: source.absolute_path });
+      const requested = compileTarget === 'bmv2' ? { target: 'bmv2' }
+        : compileTarget === 'tofino2' ? { target: 'tofino', architecture: 'tofino2' }
+          : compileTarget === 'tofino' ? { target: 'tofino', architecture: 'tofino' }
+            : { target: 'auto', architecture: 'tofino' };
+      let { data } = await axios.post('/compile', { file: source.absolute_path, ...requested });
+      if (data?.job_id) {
+        const jobID = data.job_id;
+        const deadline = Date.now() + 15 * 60 * 1000;
+        let failures = 0;
+        for (;;) {
+          if (Date.now() >= deadline) throw new Error('Compilation monitoring timed out. Refresh the program list to check for a completed build.');
+          let job;
+          try {
+            job = (await axios.get(`/compile/jobs/${encodeURIComponent(jobID)}`, { timeout: Math.min(15000, deadline - Date.now()) })).data;
+            failures = 0;
+          } catch (failure) {
+            if ((failure.response && failure.response.status < 500) || ++failures >= 10) throw failure;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            continue;
+          }
+          if (!mounted.current) return false;
+          if (job.status === 'complete') { data = job.result; break; }
+          if (job.status === 'failed') throw { response: { data: job.result || { error: job.error || 'Compilation failed.' } } };
+          if (!['pending', 'running'].includes(job.status)) throw new Error('The compiler returned an invalid job status.');
+          setState(previous => ({ ...previous, output: `Compiling ${source.absolute_path}\n${job.message || 'Compilation is running…'}` }));
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
       const output = [`Compiling ${source.absolute_path}`, `Command: ${formatCompileCommand(data.command)}`, data.stdout, data.stderr, 'Success: Compilation completed.'].filter(Boolean).join('\n');
       setState(previous => ({ ...previous, output, compileStatus: 'success', diagnostics: compilerDiagnostics(data.stderr || '', previous.root, source.absolute_path, previous.files.map(file => file.path)) }));
       await refresh(); return true;
@@ -176,7 +203,7 @@ export function EditorProvider({ children }) {
       const data = failure.response?.data;
       const command = formatCompileCommand(data?.command);
       const message = compileErrorMessage(failure);
-      setState(previous => ({ ...previous, compileStatus: 'error', output: [`Compiling ${source.absolute_path}`, command && `Command: ${command}`, `Error: ${message}`].filter(Boolean).join('\n'),
+      setState(previous => ({ ...previous, compileStatus: 'error', output: [`Compiling ${source.absolute_path}`, command && `Command: ${command}`, data?.stdout, `Error: ${message}`].filter(Boolean).join('\n'),
         diagnostics: compilerDiagnostics(message, previous.root, source.absolute_path, previous.files.map(file => file.path)) }));
       return false;
     }

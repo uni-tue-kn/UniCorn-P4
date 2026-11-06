@@ -20,16 +20,18 @@
 #
 import os, json, re, argparse, math
 import subprocess
-from threading import RLock
+from threading import RLock, Lock
 from time import sleep
 
 from .utils.p4_mininet import P4Switch, P4Host
 from .utils.p4runtime_switch import P4RuntimeSwitch
+from .utils.tofino_switch import TofinoSwitch
 
 from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.link import TCLink, Intf
 from mininet.cli import CLI
+from mininet.util import natural
 
 RESERVED_EXTERNAL_INTERFACES = {"lo"}
 
@@ -41,18 +43,34 @@ def extract_id(name):
     raise ValueError(f"Node name '{name}' does not end with a number.")
 
 
+def configured_switch(base, switch_args):
+    class ConfiguredSwitch(base):
+        def __init__(self, *args, **kwargs):
+            kwargs.update(switch_args)
+            super().__init__(*args, **kwargs)
+    return ConfiguredSwitch
+
+
 def configureP4Switch(**switch_args):
     """ Helper class that is called by mininet to initialize
         the virtual P4 switches. 
         The switch must follow the simple_switch_grpc architecture.
     """
+    progress = switch_args.pop('progress', None)
     class ConfiguredP4RuntimeSwitch(P4RuntimeSwitch):
         def __init__(self, *opts, **kwargs):
             kwargs.update(switch_args)
             P4RuntimeSwitch.__init__(self, *opts, **kwargs)
 
+        def start(self, controllers):
+            if progress:
+                progress(self.name, 'starting')
+            super().start(controllers)
+            if progress:
+                progress(self.name, 'ready')
+
         def describe(self):
-            print(f"{self.name} -> gRPC port: {self.grpc_port}")
+            print(f"{self.name} -> control endpoint: 127.0.0.1:{self.grpc_port}")
 
     return ConfiguredP4RuntimeSwitch
 
@@ -60,7 +78,7 @@ def configureP4Switch(**switch_args):
 class ParsedTopo(Topo):
     """ The mininet topology class for the P4 environment
     """
-    def __init__(self, hosts: list, switches: list, links: list, log_dir: str, **opts):
+    def __init__(self, hosts: list, switches: list, links: list, log_dir: str, switch_classes=None, **opts):
         Topo.__init__(self, **opts)
         host_links = []
         switch_links = []
@@ -83,7 +101,10 @@ class ParsedTopo(Topo):
 
         for sw in switches:
             # Add switch to mininet topology graph
-            self.addSwitch(sw, log_file="%s/%s.log" %(log_dir, sw))
+            properties = {"log_file": "%s/%s.log" % (log_dir, sw)}
+            if switch_classes:
+                properties["cls"] = switch_classes[sw]
+            self.addSwitch(sw, **properties)
 
         for link in host_links:
             host_name = link['node1']
@@ -162,6 +183,8 @@ class MininetRunner:
         """
         self.quiet = quiet     
         self.lifecycle_lock = RLock()
+        self.operation_lock = Lock()
+        self.deployment_jobs = {}
         
         self.topo_file = topo_file
         # Ensure all the needed directories exist and are directories
@@ -189,6 +212,7 @@ class MininetRunner:
         
         # Will be populated with dicts like d = {"dev_id": 0, "grpc_port": 50051, "name": s1} in self.run()
         self.switch_mappings = []
+        self.deployment = {'status': 'idle', 'switches': {}}
         
         if topo_file:
             self.run()
@@ -199,6 +223,11 @@ class MininetRunner:
             topo = json.load(source)
         if not isinstance(topo, dict) or not isinstance(topo.get('hosts'), list) or not isinstance(topo.get('switches'), dict):
             raise ValueError("Topology requires hosts (list), switches (object) and links (list)")
+        for properties in topo['switches'].values():
+            if not isinstance(properties, dict) or properties.get('target', 'bmv2') not in ('bmv2', 'tofino'):
+                raise ValueError('Switch target must be bmv2 or tofino')
+            if properties.get('target', 'bmv2') == 'tofino' and properties.get('architecture', 'tofino') not in ('tofino', 'tofino2'):
+                raise ValueError('Tofino architecture must be tofino or tofino2')
         names = topo['hosts'] + list(topo['switches'])
         if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*[0-9]', name) for name in names):
             raise ValueError("Node names must be alphanumeric and end with a numeric ID")
@@ -207,8 +236,10 @@ class MininetRunner:
         if len(set(names)) != len(names):
             raise ValueError("Host and switch names must be unique")
         # The built-in host addressing scheme encodes IDs in one IPv4 octet.
-        if any(extract_id(name) > 254 for name in topo['hosts']) or any(extract_id(name) > 255 for name in topo['switches']):
-            raise ValueError("Node IDs exceed the built-in IPv4 addressing range")
+        for group, maximum in ((topo['hosts'], 254), (list(topo['switches']), 255)):
+            ids = [extract_id(name) for name in group]
+            if any(not 1 <= number <= maximum for number in ids) or len(set(ids)) != len(ids):
+                raise ValueError('Node IDs must be unique within hosts/switches and fit the built-in IPv4 addressing range')
         layout = topo.get('layout', {})
         if not isinstance(layout, dict) or any(name not in names for name in layout):
             raise ValueError("Layout must map existing nodes to positions")
@@ -218,6 +249,7 @@ class MininetRunner:
                 or not math.isfinite(position[axis]) or position[axis] < 0 for axis in ('x', 'y')
             ):
                 raise ValueError("Layout positions require finite nonnegative x and y")
+        ext_intfs = self.parse_ext_intfs(topo.get('ext_intfs', []), topo['switches'])
         links = self.parse_links(topo.get('links'), topo['hosts'], topo['switches'])
         for host in topo['hosts']:
             count = sum(link['node1'] == host or link['node2'] == host for link in links)
@@ -225,12 +257,22 @@ class MininetRunner:
                 raise ValueError(f'Host {host} must have exactly one switch link before deployment (found {count}).')
         for switch in topo['switches']:
             degree = sum(link['node1'] == switch or link['node2'] == switch for link in links)
+            port_count = degree + sum(item['switch'] == switch for item in ext_intfs)
+            if topo['switches'][switch].get('target', 'bmv2') == 'tofino' and port_count == 0:
+                raise ValueError(f'Tofino switch {switch} requires at least one interface before deployment.')
+            if topo['switches'][switch].get('target', 'bmv2') == 'tofino' and port_count > 64:
+                raise ValueError(f'Tofino switch {switch} supports at most 64 ports on pipe 0')
             interface = f'{switch}-eth{degree}'
             if len(interface) > 15:
                 raise ValueError(f"Switch {switch} requires interface {interface}, exceeding Linux's 15-character limit.")
+        if any(properties.get('target', 'bmv2') == 'tofino' for properties in topo['switches'].values()):
+            from runtime.tofino.supervisor import check_available
+            for architecture in sorted({properties.get('architecture', 'tofino') for properties in topo['switches'].values()
+                                        if properties.get('target', 'bmv2') == 'tofino'}):
+                check_available(architecture=architecture)
         return {"hosts": topo['hosts'], "switches": topo['switches'], "layout": layout,
                 "links": links,
-                "ext_intfs": self.parse_ext_intfs(topo.get('ext_intfs', []), topo['switches'])}
+                "ext_intfs": ext_intfs}
 
     def parse_topology_file(self, candidate=None):
         self.logger('Reading topology file.')
@@ -269,7 +311,8 @@ class MininetRunner:
                 raise ValueError(f"External interface '{intf_name}' is reserved and cannot be attached.")
             if intf_name in seen_interfaces:
                 raise ValueError(f"External interface '{intf_name}' is configured more than once.")
-            if not os.path.exists(os.path.join("/sys/class/net", intf_name)):
+            attached_names = {item.name for item in self.external_intf_objects}
+            if not os.path.exists(os.path.join("/sys/class/net", intf_name)) and intf_name not in attached_names:
                 raise ValueError(f"External interface '{intf_name}' does not exist on this system.")
 
             seen_interfaces.add(intf_name)
@@ -303,6 +346,7 @@ class MininetRunner:
         self.interface_mapping = {}
         self.external_intf_objects = []
         self.layout = {}
+        self.deployment = {'status': 'idle', 'switches': {}}
 
     def detach_external_interfaces(self):
         """Remove physical interfaces from Mininet tracking without deleting them."""
@@ -311,6 +355,12 @@ class MininetRunner:
             if node is None:
                 continue
             try:
+                if getattr(node, 'target', 'bmv2') == 'tofino':
+                    # Return physical interfaces to the caller's namespace
+                    # before destroying the switch namespace.
+                    process = node.popen(['ip', 'link', 'set', 'dev', intf.name, 'netns', str(os.getpid())])
+                    if process.wait() != 0:
+                        raise RuntimeError(f'Could not return external interface {intf.name}')
                 node.delIntf(intf)
                 intf.node = None
             except Exception as e:
@@ -330,23 +380,26 @@ class MininetRunner:
         
         self.parse_topology_file(candidate)
  
-        self.logger("Started topology!")
+        self.deployment = {'status': 'starting', 'switches': {name: 'pending' for name in self.switches}}
+        self.logger("Starting topology.")
         
         try:
             # Initialize mininet with the topology specified by the config
             self.create_network()
-            sleep(3)
-            self.switch_mappings = self.populate_switch_mappings()
-            sleep(.1)
-
             self.net.start()
-            sleep(.1)
+            self.switch_mappings = self.populate_switch_mappings()
 
             # some programming that must happen after the net has started
             self.program_hosts()
             self.interface_mapping = self.build_interface_mapping()
-        except Exception:
-            self.destroy_topology()
+            self.deployment = {'status': 'ready', 'switches': {name: 'ready' for name in self.switches}}
+        except BaseException as failure:
+            phases = dict(self.deployment['switches'])
+            try:
+                self.destroy_topology()
+            except Exception as cleanup:
+                failure.add_note('Network cleanup failed: ' + str(cleanup))
+            self.deployment = {'status': 'failed', 'error': str(failure), 'switches': phases}
             raise
 
         #self.do_net_cli()
@@ -398,7 +451,10 @@ class MininetRunner:
             if len(link) > 2:
                 link_dict['latency'] = formatLatency(link[2])
             if len(link) > 3:
-                link_dict['bandwidth'] = link[3]
+                bandwidth = link[3]
+                if isinstance(bandwidth, bool) or not isinstance(bandwidth, (int, float)) or not math.isfinite(bandwidth) or bandwidth <= 0:
+                    raise ValueError('Bandwidth must be a finite positive number')
+                link_dict['bandwidth'] = bandwidth
 
             links.append(link_dict)
         return links
@@ -406,10 +462,13 @@ class MininetRunner:
     def populate_switch_mappings(self):
         switch_mappings = []
         for s in self.net.switches:
-            d = {"dev_id": s.device_id,
-                "grpc_port": s.grpc_port,
-                "thrift_port": s.thrift_port,
-                "name": s.name}
+            target = getattr(s, 'target', 'bmv2')
+            d = {"dev_id": s.device_id, "grpc_port": s.grpc_port,
+                 "thrift_port": s.thrift_port, "name": s.name, "target": target,
+                 "address": f"127.0.0.1:{s.grpc_port}", "status": "ready"}
+            if target == 'tofino':
+                d.update(runtime_device_id=0, architecture=getattr(s, 'architecture', 'tofino'),
+                         target_options=s.target_options)
             switch_mappings.append(d) 
         return switch_mappings
 
@@ -440,6 +499,8 @@ class MininetRunner:
                     entry["peer_node"] = peer_intf.node.name
                     entry["peer_interface"] = peer_intf.name
 
+                if getattr(switch, 'target', 'bmv2') == 'tofino':
+                    entry['device_port'] = switch.device_port(port)
                 entries.append(entry)
             mapping[switch.name] = entries
 
@@ -455,6 +516,7 @@ class MininetRunner:
             "interface_mapping": self.interface_mapping
         }
         topo["layout"] = self.layout
+        topo["deployment"] = self.deployment
         if include_switches_online:
             topo["switches_online"] = self.switch_mappings
         return topo
@@ -468,22 +530,25 @@ class MininetRunner:
         """
         self.logger("Building mininet topology.")
 
-        self.topo = ParsedTopo(self.hosts, self.switches.keys(), self.links, self.log_dir)
-
-        # The class each Switch represents
-        # TODO upon loading a new topology, the dev_id and grpc ports are not freed but incremented
-        switchClass = configureP4Switch(
-                sw_path=self.bmv2_exe,  # simple_switch_grpc
-                json_path=self.switch_json, # None. Switch_json will be programmed later from controller
-                log_console=True,
-                pcap_dump=self.pcap_dir)
-
-        self.net = Mininet(topo = self.topo,
-                      link = TCLink,
-                      host = P4Host,
-                      cleanup=True,
-                      switch = switchClass,
-                      controller = None)
+        switch_classes = {}
+        for index, name in enumerate(sorted(self.switches, key=natural)):
+            properties = self.switches[name]
+            if properties.get('target', 'bmv2') == 'tofino':
+                options = dict(device_id=index, grpc_port=51051 + index,
+                               model_port_base=18000 + index * 16, status_port=17000 + index,
+                               architecture=properties.get('architecture', 'tofino'),
+                               progress=self.switch_progress)
+                # Program installation is performed by the control plane after
+                # connecting; each model first boots the bundled empty program.
+                switch_classes[name] = configured_switch(TofinoSwitch, options)
+            else:
+                switch_classes[name] = configureP4Switch(
+                    sw_path=self.bmv2_exe, json_path=self.switch_json,
+                    device_id=index, grpc_port=50051 + index, thrift_port=9090 + index,
+                    log_console=True, pcap_dump=self.pcap_dir, progress=self.switch_progress)
+        self.topo = ParsedTopo(self.hosts, self.switches, self.links, self.log_dir, switch_classes=switch_classes)
+        self.net = Mininet(topo=self.topo, link=TCLink, host=P4Host,
+                           cleanup=True, switch=P4RuntimeSwitch, controller=None)
         # Attaching physical / external interfaces to the switches
         for ext_intf in self.ext_intfs:
             sw_name = ext_intf["switch"]
@@ -493,6 +558,9 @@ class MininetRunner:
             self.external_intf_objects.append(intf)
             self.logger(f"Attached external interface {intf_name} to switch {sw_name}")
 
+
+    def switch_progress(self, name, status):
+        self.deployment['switches'][name] = status
 
     def program_hosts(self):
         """ Adds static ARP entries and default routes to each mininet host.

@@ -43,6 +43,8 @@ class SwitchesActive(Endpoint):
             except IntegrityError:
                 self.db.session.rollback()
                 existing_switch = SwitchConfigs.query.filter_by(name= new_switch.name, address = new_switch.address, device_id= new_switch.device_id).first()
+                existing_switch.target = new_switch.target
+                existing_switch.target_options = new_switch.target_options
                 existing_switch.register_adapter_enabled = new_switch.register_adapter_enabled
                 existing_switch.register_thrift_host = new_switch.register_thrift_host
                 existing_switch.register_thrift_port = new_switch.register_thrift_port

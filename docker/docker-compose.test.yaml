@@ -1,7 +1,7 @@
 # Isolated state and network; run with -p unicorn-integration.
 services:
   backend:
-    image: unicorn-test-backend
+    image: ${E2E_BACKEND_IMAGE:-unicorn-test-backend}
     build:
       context: ..
       dockerfile: docker/backend/Dockerfile
@@ -17,7 +17,7 @@ services:
       - ../tests/fixtures:/fixtures:ro
       - test-topologies:/topologies
   netsim:
-    image: unicorn-test-netsim
+    image: ${E2E_NETSIM_IMAGE:-unicorn-test-netsim}
     build:
       context: ..
       dockerfile: docker/netsim/Dockerfile
@@ -28,7 +28,7 @@ services:
       - test-logs:/topologies/logs
       - test-pcaps:/topologies/pcaps
   frontend:
-    image: unicorn-test-frontend
+    image: ${E2E_FRONTEND_IMAGE:-unicorn-test-frontend}
     build:
       context: ..
       dockerfile: docker/frontend/Dockerfile

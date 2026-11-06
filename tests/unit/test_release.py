@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -39,9 +40,18 @@ def repo(tmp_path):
     write(tmp_path, 'LICENSE', 'License\n')
     write(tmp_path, 'logo.png', 'tracked-logo-image')
     write(tmp_path, 'CHANGELOG.md', '# Changelog\n\n## Unreleased — 1.2.0\n\n### Added\n\n* New capabilities.\n\n## v1.0\n\n* Old history.\n')
-    write(tmp_path, 'docs/usage.md', 'Usage guide\n')
+    write(tmp_path, 'docs/usage.md', 'Usage guide\n\n## Use external network interfaces\n\n'
+          'Use `ext_intfs` to attach a dedicated physical interface.\n\n'
+          '## Development and tests\n\nDeveloper commands\n')
+    write(tmp_path, 'docs/tofino.md', 'Tofino setup\n\n## Source builds\n\nSDK build commands\n')
+    write(tmp_path, 'docs/compatibility.md', 'Target compatibility\n')
+    write(tmp_path, 'examples/networks/README.md', 'Import sample ZIPs through Network archive.\n\n'
+          '## Regenerate\n\nDeveloper sample generator\n')
     write(tmp_path, 'runtime/README.md', 'Runtime compatibility notes\n')
     write(tmp_path, 'runtime/p4-language-server/README.md', 'Editor language-server notes\n')
+    write(tmp_path, 'backend/main.py', '# application code belongs in images\n')
+    write(tmp_path, 'docker/backend/Dockerfile', 'FROM scratch\n')
+    write(tmp_path, 'docs/screenshots/preview.png', 'legacy UI preview')
     for screenshot in ('topology', 'tables', 'registers', 'meters', 'mirrors'):
         write(tmp_path, f'docs/screenshots/{screenshot}.png', f'tracked-screenshot-{screenshot}')
     write(tmp_path, 'docker/docker-compose.yaml', 'services: {}\n')
@@ -176,18 +186,22 @@ def test_archive_matches_deployment_layout_and_excludes_private_state(repo, tmp_
     with tarfile.open(output) as archive:
         names = archive.getnames()
         assert 'UniCorn-P4/docker-compose.yaml' in names
+        assert 'UniCorn-P4/docker-compose.tofino.yaml' in names
         assert 'UniCorn-P4/p4-files/tutorial/tutorial.p4' in names
         assert 'UniCorn-P4/p4-files/tutorial/tutorial.json' in names
         assert 'UniCorn-P4/p4-files/tutorial/tutorial.p4info.txt' in names
         assert 'UniCorn-P4/topologies/topology.json' in names
         assert 'UniCorn-P4/database/.empty' in names
-        assert 'UniCorn-P4/logo.png' in names
         assert 'UniCorn-P4/CHANGELOG.md' in names
         assert 'UniCorn-P4/docs/usage.md' in names
-        assert 'UniCorn-P4/runtime/README.md' in names
-        assert 'UniCorn-P4/runtime/p4-language-server/README.md' in names
-        for screenshot in ('topology', 'tables', 'registers', 'meters', 'mirrors'):
-            assert f'UniCorn-P4/docs/screenshots/{screenshot}.png' in names
+        assert {member.name.removeprefix('UniCorn-P4/') for member in archive if member.isfile()} == {
+            'VERSION', 'LICENSE', 'CHANGELOG.md', 'README.md',
+            'docker-compose.yaml', 'docker-compose.tofino.yaml', 'database/.empty',
+            'p4-files/tutorial/tutorial.p4', 'p4-files/tutorial/tutorial.json',
+            'p4-files/tutorial/tutorial.p4info.txt', 'p4-files/tutorial/src/headers.p4',
+            'topologies/topology.json', 'examples/networks/README.md',
+            'docs/usage.md', 'docs/tofino.md', 'docs/compatibility.md',
+        }
         assert archive.extractfile('UniCorn-P4/VERSION').read() == b'1.2.0\n'
         assert archive.extractfile('UniCorn-P4/p4-files/tutorial/src/headers.p4').read() == b'// included source\n'
         deployment = archive.extractfile('UniCorn-P4/docker-compose.yaml').read().decode()
@@ -197,13 +211,69 @@ def test_archive_matches_deployment_layout_and_excludes_private_state(repo, tmp_
         assert 'build:' not in deployment
         assert 'context:' not in deployment
         assert ':1.2.0' not in deployment
+        native = archive.extractfile('UniCorn-P4/docker-compose.tofino.yaml').read().decode()
+        assert 'unicornp4-frontend' not in native
+        assert 'image: unituekn/unicornp4-backend:tofino-latest' in native
+        assert 'image: unituekn/unicornp4-netsim:tofino-latest' in native
+        assert 'image: unituekn/unicornp4-tofino-sdk:compiler-latest' in native
+        assert native.count('-latest') == 3
+        assert 'build:' not in native and 'context:' not in native and '../' not in native
+        assert 'TOFINO_COMPILER_URL: http://127.0.0.1:8080' in native
+        assert '--host, 127.0.0.1' in native
+        assert 'read_only: true' in native
         readme = archive.extractfile('UniCorn-P4/README.md').read().decode()
         assert 'The Compose file uses published `latest` images.' in readme
         assert 'docker compose pull\ndocker compose up -d' in readme
+        assert 'docker compose -f docker-compose.yaml -f docker-compose.tofino.yaml up -d' in readme
+        assert 'Repository documentation' not in readme
+        assert 'Developer commands' not in archive.extractfile('UniCorn-P4/docs/usage.md').read().decode()
+        assert b'ext_intfs' in archive.extractfile('UniCorn-P4/docs/usage.md').read()
+        assert b'SDK build commands' not in archive.extractfile('UniCorn-P4/docs/tofino.md').read()
+        assert b'Developer sample generator' not in archive.extractfile('UniCorn-P4/examples/networks/README.md').read()
         assert 'pinned to this release' not in readme
         assert not any(name.endswith(('.db', '.log', '.pcap', '.p4i')) for name in names)
         assert not any('private' in name or 'local.json' in name for name in names)
         assert all(name.startswith('UniCorn-P4') for name in names)
+
+
+@pytest.mark.parametrize('tofino', [False, True])
+def test_extracted_bundle_has_all_compose_mounts_without_source_checkout(repo, tmp_path, tofino):
+    if not shutil.which('docker'):
+        pytest.skip('Compose configuration check requires the Docker CLI')
+    prepare(repo, git(repo, 'rev-parse', 'HEAD'), commit=True)
+    output = tmp_path / 'release.tar.gz'
+    package(repo, output)
+    extracted = tmp_path / 'download with spaces'
+    with tarfile.open(output) as archive:
+        archive.extractall(extracted, filter='data')
+    root = extracted / 'UniCorn-P4'
+    command = ['docker', 'compose', '--env-file', '/dev/null', '-f', 'docker-compose.yaml']
+    if tofino:
+        command += ['-f', 'docker-compose.tofino.yaml']
+    result = subprocess.run(command + ['config', '--format', 'json'], cwd=root,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    services = json.loads(result.stdout)['services']
+    expected_images = {
+        'unituekn/unicornp4-backend:latest',
+        'unituekn/unicornp4-netsim:latest',
+        'unituekn/unicornp4-frontend:latest',
+    }
+    if tofino:
+        expected_images = {
+            'unituekn/unicornp4-backend:tofino-latest',
+            'unituekn/unicornp4-netsim:tofino-latest',
+            'unituekn/unicornp4-frontend:latest',
+            'unituekn/unicornp4-tofino-sdk:compiler-latest',
+        }
+    assert {service['image'] for service in services.values()} == expected_images
+    for service in services.values():
+        assert 'build' not in service
+        for mount in service.get('volumes', []):
+            assert mount['type'] == 'bind'
+            source = Path(mount['source'])
+            assert source.is_relative_to(root)
+            assert source.is_dir()
 
 
 def test_archive_is_reproducible(repo, tmp_path):
@@ -215,7 +285,8 @@ def test_archive_is_reproducible(repo, tmp_path):
 
 
 def test_public_network_samples_are_packaged_without_untracked_archives(repo, tmp_path):
-    write(repo, 'examples/networks/README.md', '[Public source](../p4/runtime-lab/include.p4)\n')
+    write(repo, 'examples/networks/README.md', '[Public source](../p4/runtime-lab/include.p4)\n\n'
+          '## Regenerate\n\nRun scripts/create-sample-networks.py\n')
     write(repo, 'examples/networks/two-host-forwarding.zip', 'tracked sample archive')
     write(repo, 'examples/networks/campus-telemetry.zip', 'tracked public campus archive')
     write(repo, 'examples/p4/runtime-lab/include.p4', '// public sample fragment\n')
@@ -232,6 +303,7 @@ def test_public_network_samples_are_packaged_without_untracked_archives(repo, tm
         assert archive.extractfile('UniCorn-P4/examples/networks/campus-telemetry.zip').read() == b'tracked public campus archive'
         assert 'UniCorn-P4/p4-files/runtime-lab/include.p4' in names
         assert b'(../../p4-files/runtime-lab/include.p4)' in archive.extractfile('UniCorn-P4/examples/networks/README.md').read()
+        assert b'create-sample-networks.py' not in archive.extractfile('UniCorn-P4/examples/networks/README.md').read()
         assert not any('private.zip' in name for name in names)
 
 
@@ -252,3 +324,21 @@ def test_resource_sample_requires_compiled_outputs_and_maps_to_archive(repo, tmp
         assert 'UniCorn-P4/p4-files/resources/resources.json' in archive.getnames()
         assert 'UniCorn-P4/p4-files/resources/resources.p4info.txt' in archive.getnames()
         assert 'UniCorn-P4/topologies/resources.json' in archive.getnames()
+
+
+def test_optional_tofino_sources_and_documentation_are_packaged_without_bmv2_compilation(repo, tmp_path):
+    write(repo, 'examples/p4/tofino/resources.p4', '#include <tna.p4>\nPipeline() pipe; Switch(pipe) main;\n')
+    write(repo, 'docs/tofino.md', 'Optional source checkout setup\n')
+    write(repo, 'docker/tofino/README.md', 'Pinned native model details\n')
+    write(repo, 'tests/tofino/README.md', 'Native validation\n')
+    commit(repo, 'Add optional native sources')
+    prepare(repo, git(repo, 'rev-parse', 'HEAD'), commit=True)
+    output = tmp_path / 'tofino.tar.gz'
+    package(repo, output)
+    with tarfile.open(output) as archive:
+        names = archive.getnames()
+        assert 'UniCorn-P4/p4-files/tofino/resources.p4' in names
+        assert 'UniCorn-P4/p4-files/tofino/resources.json' not in names
+        assert 'UniCorn-P4/docs/tofino.md' in names
+        assert 'UniCorn-P4/docker/tofino/README.md' not in names
+        assert 'UniCorn-P4/tests/tofino/README.md' not in names

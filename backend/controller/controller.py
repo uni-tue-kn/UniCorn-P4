@@ -2,10 +2,20 @@
 
 # NOTICE: THIS FILE IS BASED ON https://github.com/p4lang/tutorials/tree/master/exercises/p4runtime
 
-from .managers.SwitchManager import SwitchManager
+from .targets import create_target
 
 from .utils.helper import P4InfoHelper
 import grpc
+from functools import wraps
+from threading import RLock
+
+
+def connections_locked(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self.connections_lock:
+            return method(self, *args, **kwargs)
+    return call
 
 class UpdateError(Exception):
     def __init__(self, e, id):
@@ -16,7 +26,9 @@ class UpdateError(Exception):
 class Controller:
     def __init__(self):
         self.switch_configs = {}
+        self.connections_lock = RLock()
 
+    @connections_locked
     def getSwitchConnections(self):
         """Returns internal dict of configured switches containing name, addresses, etc.
 
@@ -29,6 +41,7 @@ class Controller:
 
         return switch_list
 
+    @connections_locked
     def addSwitchConnection(self, switch_config):
         """Instantiates connection to a new switch based on passed configuration.
 
@@ -44,7 +57,7 @@ class Controller:
         # Check that no connection with same id exists already
         if self.switch_configs.get(id) is None:
 
-            new_switch = SwitchManager(id,switch_config)
+            new_switch = create_target(id, switch_config)
             # If this fails, then error will be logged and switch.connected will be set to false
             try:
                 new_switch.connect()
@@ -60,6 +73,7 @@ class Controller:
             raise Exception(
                 "This device_id is already assigned to another Switch Connection! Each device_id has to be unique!")
 
+    @connections_locked
     def deleteSwitchConnection(self, switch_id):
         """Stops an active switch connection and removes its reference from internal storage.
 
@@ -71,6 +85,7 @@ class Controller:
         # Remove reference
         del self.switch_configs[switch_id]
         
+    @connections_locked
     def deleteAllSwitchConnections(self):
         """Stops all active switch connections and removes their reference from internal storage.
         """
@@ -94,6 +109,19 @@ class Controller:
         # Initialize switch
         # TODO: Paths are determined in frontend? Find out where and remove this patch
         target_switch.initialize(p4_info_file,bmv2_file,keep_entries)
+
+
+    def initializeStoredState(self, switch_id, state, keep_entries=False, bundle=None):
+        """Restore a state after the API has validated its native build reference."""
+        target = self.switch_configs[switch_id]
+        if (getattr(state, "target", None) or "bmv2") != target.target:
+            raise ValueError("Saved state target does not match switch target")
+        if target.target == "tofino":
+            if bundle is None:
+                raise ValueError("A validated native program bundle is required to restore this state")
+            target.initialize_bundle(bundle, keep_entries)
+        else:
+            target.initialize(state.p4_info_file, state.bmv2_file, keep_entries)
 
 
     def getInitializedFiles(self, switch_id):

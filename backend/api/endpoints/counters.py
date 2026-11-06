@@ -2,7 +2,7 @@
 import grpc
 from flask import request
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from .resources import rpc_error
 from controller.managers.CounterManager import CounterManager
 from controller.managers.ResourceManager import integer
@@ -26,7 +26,7 @@ class CounterValue(Endpoint):
             if write:
                 if data.get('reset') is not True:
                     raise ValueError('reset must be true; only zero resets are supported')
-                count = CounterManager(switch).reset(counter_id, index)
+                count = switch.reset_counter(counter_id, index)
                 return {'success': True, 'counter_id': counter_id, 'reset_count': count}, 200
             return switch.get_counter_values(counter_id=counter_id, index=index), 200
         except (ValueError, KeyError, AttributeError, TypeError) as error:
@@ -56,7 +56,7 @@ class DirectCounters(Endpoint):
             if data.get('reset') is not True:
                 raise ValueError('reset must be true; only zero resets are supported')
             table_id = integer(data.get('table_id'), 'table_id', minimum=1, maximum=(1 << 32) - 1)
-            count = CounterManager(switch).reset_direct(table_id, data.get('table_entry'))
+            count = switch.reset_direct_counter(table_id, data.get('table_entry'))
             return {'success': True, 'table_id': table_id, 'reset_count': count}, 200
         except (ValueError, KeyError, AttributeError, TypeError) as error:
             return {'error': str(error)}, 400

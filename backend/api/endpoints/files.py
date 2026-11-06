@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 
 from .Endpoint import Endpoint
+from flask import request
+from ..program_builds import discover_builds
 
 
 P4INFO_SUFFIXES = ('.p4info.txt', '.p4info.txtpb', '.p4info.pb.txt')
@@ -22,7 +24,8 @@ class FileNames(Endpoint):
         files = set()
         # Never descend into linked directories: a directory link may escape the
         # allowed root, or form a cycle. Linked files are checked individually.
-        for directory, _, names in os.walk(root, followlinks=False):
+        for directory, directories, names in os.walk(root, followlinks=False):
+            directories[:] = [name for name in directories if not name.startswith('.')]
             for name in names:
                 path = Path(directory) / name
                 if _contained_file(path, root):
@@ -47,6 +50,18 @@ class FileNames(Endpoint):
                 'bmv2': str(bmv2),
                 'source': str(source) if source in files else None,
             })
+        native = discover_builds()
+        switch_id = request.args.get('switch_id', type=int)
+        if switch_id is not None:
+            switch = self.controller.switch_configs.get(switch_id)
+            target = getattr(switch, 'target', None) or (getattr(switch, 'config', {}) or {}).get('target', 'bmv2')
+            programs = [program for program in programs if program.get('target', 'bmv2') == target]
+            native = [program for program in native if program['target'] == target]
+            if target == 'tofino':
+                options = (getattr(switch, 'config', {}) or {}).get('target_options') or {}
+                architecture = options.get('architecture', 'tofino')
+                native = [program for program in native if program.get('architecture', 'tofino') == architecture]
+        programs.extend(native)
         return {'p4_info': [str(path) for path in p4info_files],
                 'bmv2': [str(path) for path in json_files],
                 'programs': programs}

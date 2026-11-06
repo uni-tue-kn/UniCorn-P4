@@ -7,9 +7,10 @@ import { useInit } from '../../Contexts/InitContext';
 import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 import { DEFAULT_METER_DESCRIPTION, meterFields, meterFieldInfo, meterUnit } from '../Helpers/MeterFields';
 import { parseLosslessJSON } from '../Helpers/LosslessJSON';
+import { displayRegisterValue, registerDraft, registerFields, registerFieldValue, registerWriteValue, RegisterFieldInput } from './RegisterFields';
 export const formatRegister = (value, radix) => BigInt(value).toString(Number(radix));
 
-function ResourceRow({ entry, kind, resource, radix, onWrite, busy }) {
+function ResourceRow({ entry, kind, resource, radix, onWrite, busy, writeAvailable = true, resetAvailable = true }) {
   const isRegister = kind === 'registers';
   const direct = kind === 'direct-meters';
   const [editing, setEditing] = useState(false);
@@ -17,22 +18,16 @@ function ResourceRow({ entry, kind, resource, radix, onWrite, busy }) {
   const [error, setError] = useState('');
   const label = direct ? JSON.stringify(entry.table_entry.match_fields) : String(entry.index);
   const meterConfig = entry.config;
+  const fields = registerFields(resource);
   const startEdit = () => {
     setError('');
-    setDraft(isRegister ? { value: String(entry.value) } : Object.fromEntries(meterFields.map(([key]) => [key, String(meterConfig?.[key] ?? '')])));
+    setDraft(isRegister ? registerDraft(entry, fields) : Object.fromEntries(meterFields.map(([key]) => [key, String(meterConfig?.[key] ?? '')])));
     setEditing(true);
   };
   const save = async () => {
     try {
       if (isRegister) {
-        if (!/^-?\d+$/.test(draft.value)) throw new Error('Enter a whole number in decimal.');
-        const value = BigInt(draft.value);
-        const width = BigInt(resource.type?.bitwidth || resource.bitwidth || 32);
-        const signed = resource.type?.kind === 'int';
-        const min = signed ? -(1n << (width - 1n)) : 0n;
-        const max = (1n << (signed ? width - 1n : width)) - 1n;
-        if (value < min || value > max) throw new Error(`Value must be between ${min} and ${max}.`);
-        await onWrite({ index: entry.index, value: value.toString() });
+        await onWrite({ index: entry.index, value: registerWriteValue(entry, fields, draft) });
       } else {
         const config = {};
         for (const [key] of meterFields) {
@@ -47,13 +42,13 @@ function ResourceRow({ entry, kind, resource, radix, onWrite, busy }) {
   };
   return <TableRow data-testid={`resource-row-${direct ? entry.id ?? label : entry.index}`}>
     <TableCell sx={{ maxWidth: 260, overflowWrap: 'anywhere' }}>{label}</TableCell>
-    {isRegister ? <TableCell>{editing ? <TextField size="small" disabled={busy} label={`Value for index ${label}`} value={draft.value} onChange={event => setDraft({ value: event.target.value })} helperText="Decimal integer" /> : <span data-testid={`value-${entry.index}`}>{formatRegister(entry.value, radix)}</span>}</TableCell> : !editing && !entry.config ?
+    {isRegister ? fields.map(field => <TableCell key={field.name}>{editing ? <RegisterFieldInput field={field} index={label} value={draft[field.name]} disabled={busy} onChange={value => setDraft(previous => ({ ...previous, [field.name]: value }))} /> : <span data-testid={fields.length === 1 ? `value-${entry.index}` : `value-${entry.index}-${field.name}`}>{displayRegisterValue(registerFieldValue(entry, field), radix, field.type || field)}</span>}</TableCell>) : !editing && !entry.config ?
       <TableCell colSpan={4}><Tooltip title={DEFAULT_METER_DESCRIPTION} describeChild><Box component="span" tabIndex={0} sx={{ textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>Unconfigured — always green</Box></Tooltip></TableCell> :
       meterFields.map(([key, title]) => <TableCell key={key}>{editing ? <Tooltip title={meterFieldInfo(key, resource).description} describeChild><TextField size="small" disabled={busy} label={`${title} for ${direct ? 'entry' : 'index'} ${label}`} helperText={meterFieldInfo(key, resource).help} value={draft[key]} onChange={event => setDraft(previous => ({ ...previous, [key]: event.target.value }))} slotProps={{ htmlInput: { inputMode: 'numeric' } }} /></Tooltip> : entry.config[key]}</TableCell>)}
     <TableCell>
       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-        {editing ? <><Button onClick={save} disabled={busy}>Save</Button><Button onClick={() => { setEditing(false); setError(''); }} disabled={busy}>Cancel</Button></> : <Button onClick={startEdit} disabled={busy}>Edit</Button>}
-        {!isRegister && !editing && <Tooltip title="Remove rate configuration; meter marks every packet green." describeChild><span><Button disabled={busy} onClick={async () => { setError(''); try { await onWrite({ ...(direct ? { table_entry: entry.table_entry } : { index: entry.index }), config: null }); } catch (err) { setError(err.response?.data?.error || err.message); } }}>Reset</Button></span></Tooltip>}
+        {editing ? <><Button onClick={save} disabled={busy || !writeAvailable}>Save</Button><Button onClick={() => { setEditing(false); setError(''); }} disabled={busy}>Cancel</Button></> : <Button onClick={startEdit} disabled={busy || !writeAvailable || (isRegister && fields.every(field => field.read_only))}>Edit</Button>}
+        {!isRegister && !editing && resetAvailable && <Tooltip title="Remove rate configuration; meter marks every packet green." describeChild><span><Button disabled={busy || !writeAvailable} onClick={async () => { setError(''); try { await onWrite({ ...(direct ? { table_entry: entry.table_entry } : { index: entry.index }), config: null }); } catch (err) { setError(err.response?.data?.error || err.message); } }}>Reset</Button></span></Tooltip>}
       </Stack>
       {error && <Alert severity="error">{error}</Alert>}
     </TableCell>
@@ -69,7 +64,12 @@ export default function ResourceContent({ kind, resource, resourceName }) {
   const { begin, complete, fail, cancel } = feedback;
   const { initializedFiles } = useInit() || {};
   const registerAccess = kind === 'registers' ? initializedFiles?.register_access : null;
-  const declaredUnsupported = registerAccess?.status === 'unsupported';
+  const capability = initializedFiles?.capabilities?.[kind.replace('-', '_')];
+  const declaredUnsupported = registerAccess?.status === 'unsupported' || capability?.read === false;
+  const [fieldDefinitions, setFieldDefinitions] = useState(null);
+  const displayedResource = fieldDefinitions ? { ...resource, fields: fieldDefinitions } : resource;
+  const registerType = resource.type || registerFields(displayedResource)[0].type || {};
+  const registerKind = registerType.kind === 'bytes' ? 'bit' : registerType.kind || 'bit';
   const [targetUnsupported, setTargetUnsupported] = useState(false);
   const [entries, setEntries] = useState(null);
   const [error, setError] = useState('');
@@ -84,21 +84,21 @@ export default function ResourceContent({ kind, resource, resourceName }) {
   const load = useCallback(async (signal, { manual = false, report = true, propagate = false } = {}) => {
     if (currentSwitchID == null) return;
     const token = report ? begin('refresh', { quiet: !manual }) : null;
-    if (declaredUnsupported) { setError('This switch does not support P4Runtime register access.'); setBusy(false); fail(token); return false; }
+    if (declaredUnsupported) { setError(kind === 'registers' ? 'This switch does not support register access.' : 'This switch does not support reading this resource.'); setBusy(false); fail(token); return false; }
     try {
       setBusy(true); setError(''); setTargetUnsupported(false);
       if (indexFilter && !/^\d+$/.test(indexFilter)) throw new Error('Index must be a nonnegative integer.');
       const response = await axios.get(`/${kind}`, { params: { switch_id: currentSwitchID, [key]: resource.id, ...(!direct && (indexFilter ? { index: indexFilter } : { offset: page * rowsPerPage, limit: rowsPerPage })) }, signal, transformResponse: [parseLosslessJSON] });
-      if (!signal?.aborted && currentIdentity.current === identity) { setEntries(response.data.entries); setTotal(indexFilter ? response.data.entries.length : response.data.total ?? response.data.entries.length); complete(token); return true; }
+      if (!signal?.aborted && currentIdentity.current === identity) { setFieldDefinitions(response.data.fields || null); setEntries(response.data.entries); setTotal(indexFilter ? response.data.entries.length : response.data.total ?? response.data.entries.length); complete(token); return true; }
       cancel(token); return false;
     } catch (err) {
-      if (!signal?.aborted && !axios.isCancel(err) && currentIdentity.current === identity) { setError(err.response?.data?.error || err.message); setTargetUnsupported(kind === 'registers' && err.response?.status === 501); fail(token); }
+      if (!signal?.aborted && !axios.isCancel(err) && currentIdentity.current === identity) { setError(err.response?.data?.error || err.message); setTargetUnsupported(err.response?.status === 501); fail(token); }
       else cancel(token);
       if (propagate) throw err;
       return false;
     } finally { if (!signal?.aborted && currentIdentity.current === identity) setBusy(false); }
   }, [currentSwitchID, kind, resource.id, key, indexFilter, direct, page, rowsPerPage, declaredUnsupported, identity, begin, complete, fail, cancel]);
-  useEffect(() => { setEntries(null); setError(''); setBusy(false); }, [identity]);
+  useEffect(() => { setEntries(null); setFieldDefinitions(null); setError(''); setBusy(false); }, [identity]);
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
@@ -106,6 +106,7 @@ export default function ResourceContent({ kind, resource, resourceName }) {
   }, [load]);
 
   async function write(entry) {
+    if (capability?.write === false) return;
     const token = begin(entry.config === null ? 'reset' : 'save');
     let accepted = false;
     setBusy(true);
@@ -122,9 +123,11 @@ export default function ResourceContent({ kind, resource, resourceName }) {
   const visible = direct ? filtered.slice(page * rowsPerPage, (page + 1) * rowsPerPage) : filtered;
   return <Box>
     <Typography variant="h5" gutterBottom sx={{ overflowWrap: 'anywhere' }}>{resourceName}</Typography>
-    <Typography color="text.secondary" sx={{ mb: 2 }}>{kind === 'registers' ? `${resource.type?.kind || 'bit'}<${resource.type?.bitwidth || resource.bitwidth || '?'}> · ${resource.size} cells` : `${direct ? 'Direct meter' : `${resource.size} meters`} · ${meterUnit(resource)}`}</Typography>
-    {registerAccess && <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Register access: {registerAccess.mode === 'adapter' ? 'BMv2 Thrift adapter' : registerAccess.mode === 'native' ? 'P4Runtime' : registerAccess.status}{registerAccess.max_bitwidth ? ` · up to ${registerAccess.max_bitwidth} bits` : ''}</Typography>}
-    {(declaredUnsupported || targetUnsupported) && <Alert severity="info" sx={{ mb: 2 }}>For an external BMv2 switch, enable the BMv2 register adapter in its saved connection settings in Switch Menu and reconnect. Enter an explicit Thrift host and port reachable from the backend. Stock BMv2 adapter access supports registers up to 63 bits.</Alert>}
+    <Typography color="text.secondary" sx={{ mb: 2 }}>{kind === 'registers' ? `${registerFields(displayedResource).length > 1 ? `${registerFields(displayedResource).length} fields` : `${registerKind}<${registerType.bitwidth || resource.bitwidth || '?'}>`} · ${resource.size} cells` : `${direct ? 'Direct meter' : `${resource.size} meters`} · ${meterUnit(resource)}`}</Typography>
+    {(declaredUnsupported || targetUnsupported) && <Alert severity="info" sx={{ mb: 2 }}>{kind === 'registers' && initializedFiles?.target !== 'tofino'
+      ? 'Register access is unavailable. For an external switch, enable the register adapter and configure its Thrift host and port in the connection settings.'
+      : capability?.reason || 'This resource operation is unavailable. Check the switch connection settings or select another resource.'}</Alert>}
+    {capability?.write === false && !declaredUnsupported && <Alert severity="info" sx={{ mb: 2 }}>This resource is available for reading. Changes are unavailable on this switch.</Alert>}
     <Paper sx={{ p: { xs: 2, md: 3 } }}>
       <Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'flex-start', flexWrap: 'wrap' }} useFlexGap>
         <Button variant="contained" onClick={() => load(undefined, { manual: true })} disabled={busy || currentSwitchID == null}>{feedback.pending && feedback.action === 'refresh' ? 'Refreshing…' : 'Refresh'}</Button>
@@ -137,8 +140,8 @@ export default function ResourceContent({ kind, resource, resourceName }) {
       {entries && !entries.length && <Alert severity="info">{direct ? 'Add a table entry to configure its direct meter.' : 'No entries returned.'}</Alert>}
       {entries && entries.length > 0 && <>
         <TableContainer><Table size="small" aria-label={resourceName}>
-          <TableHead><TableRow><TableCell>{direct ? 'Match fields' : 'Index'}</TableCell>{kind === 'registers' ? <TableCell>Value</TableCell> : meterFields.map(([key, title]) => <TableCell key={key}><Tooltip title={meterFieldInfo(key, resource).description} describeChild><Box component="span" tabIndex={0} sx={{ textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>{title} ({meterFieldInfo(key, resource).unit})</Box></Tooltip></TableCell>)}<TableCell>Actions</TableCell></TableRow></TableHead>
-          <TableBody>{visible.map(entry => <ResourceRow key={direct ? JSON.stringify(entry.table_entry) : entry.index} entry={entry} kind={kind} resource={resource} radix={radix} onWrite={write} busy={busy} />)}</TableBody>
+          <TableHead><TableRow><TableCell>{direct ? 'Match fields' : 'Index'}</TableCell>{kind === 'registers' ? registerFields(displayedResource).map(field => <TableCell key={field.name}>{field.label || field.name}</TableCell>) : meterFields.map(([key, title]) => <TableCell key={key}><Tooltip title={meterFieldInfo(key, resource).description} describeChild><Box component="span" tabIndex={0} sx={{ textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>{title} ({meterFieldInfo(key, resource).unit})</Box></Tooltip></TableCell>)}<TableCell>Actions</TableCell></TableRow></TableHead>
+          <TableBody>{visible.map(entry => <ResourceRow key={direct ? JSON.stringify(entry.table_entry) : entry.index} entry={entry} kind={kind} resource={displayedResource} radix={radix} onWrite={write} busy={busy} writeAvailable={capability?.write !== false} resetAvailable={capability?.reset !== false && resource.reset !== false} />)}</TableBody>
         </Table></TableContainer>
         <TablePagination component="div" disabled={feedback.pending} count={total} page={page} onPageChange={(_, value) => setPage(value)} rowsPerPage={rowsPerPage} rowsPerPageOptions={[10, 25, 50, 100]} onRowsPerPageChange={event => { setRowsPerPage(Number(event.target.value)); setPage(0); }} />
       </>}

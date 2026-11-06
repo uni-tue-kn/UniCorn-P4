@@ -56,7 +56,7 @@ jobs:
             complete=true
           fi
           echo "complete=$complete" >> "$GITHUB_OUTPUT"
-      - name: Extract this version's changelog for the release text
+      - name: Prepare launch instructions and this version's changelog
         if: steps.version.outputs.ready == 'true' && steps.published.outputs.complete != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}

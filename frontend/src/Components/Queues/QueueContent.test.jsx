@@ -1,12 +1,13 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import QueueContent, { validateQueueSettings } from './QueueContent';
 
-const context = vi.hoisted(() => ({ currentSwitchID: 0 }));
+const context = vi.hoisted(() => ({ currentSwitchID: 0, initializedFiles: null }));
 vi.mock('../../Contexts/SwitchContext', () => ({ useSwitch: () => context }));
+vi.mock('../../Contexts/InitContext', () => ({ useInit: () => context }));
 vi.mock('axios', () => ({ default: { get: vi.fn(), patch: vi.fn(), isCancel: () => false } }));
 const initial = { configured: true, write_available: true, readback_available: false,
   state: 'unknown', last_applied: [], message: 'Queue configuration readback is unavailable.',
@@ -15,7 +16,7 @@ const initial = { configured: true, write_available: true, readback_available: f
   ] } };
 
 beforeEach(() => {
-  vi.clearAllMocks(); context.currentSwitchID = 0;
+  vi.clearAllMocks(); context.currentSwitchID = 0; context.initializedFiles = null;
   axios.get.mockResolvedValue({ data: initial });
   axios.patch.mockResolvedValue({ data: { ...initial, state: 'last_applied', configuration: {
     defaults: { depth_packets: 128, rate_pps: '0' }, ports: [{ port: 1, interface: 's1-eth1', depth_packets: 128, rate_pps: '0', sources: { depth_packets: 'all_ports', rate_pps: 'all_ports' } }],
@@ -26,6 +27,14 @@ beforeEach(() => {
 });
 
 describe('queue controls', () => {
+  it('shows observer queue readback without allowing changes', async () => {
+    context.initializedFiles = { capabilities: { queues: { read: true, write: false } } };
+    render(<QueueContent />);
+    expect(await screen.findByRole('table', { name: 'Per-port queue configuration' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Apply queue settings' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh queues' })).toBeEnabled();
+    expect(axios.patch).not.toHaveBeenCalled();
+  });
   it('validates native integer bounds and retains full i64 rate precision', () => {
     expect(validateQueueSettings({ scope: 'all', port: '', depth: '128', rate: '9223372036854775807' })).toEqual({ port: null, depth_packets: 128, rate_pps: '9223372036854775807' });
     expect(() => validateQueueSettings({ scope: 'all', depth: '0', rate: '' })).toThrow(/between 1/);
@@ -53,7 +62,7 @@ describe('queue controls', () => {
     await user.type(screen.getByLabelText('Queue rate (packets/s)'), '0');
     await user.click(screen.getByRole('button', { name: 'Apply queue settings' }));
     await waitFor(() => expect(axios.patch).toHaveBeenCalledWith('/queues', { switch_id: 0, port: null, depth_packets: 128, rate_pps: '0' }));
-    expect(await screen.findByText('Queue changes acknowledged by BMv2.')).toBeVisible();
+    expect(await screen.findByText('Queue changes acknowledged by the switch.')).toBeVisible();
     expect(screen.getByRole('table', { name: 'Per-port queue configuration' })).toHaveTextContent('128 packets');
     await user.click(screen.getByRole('button', { name: 'Change history' }));
     expect(screen.getByRole('table', { name: 'Queue changes' })).toHaveTextContent('Unlimited (0)');
@@ -71,6 +80,45 @@ describe('queue controls', () => {
     await user.type(screen.getByLabelText('Queue rate (packets/s)'), '1000');
     await user.click(screen.getByRole('button', { name: 'Apply queue settings' }));
     await waitFor(() => expect(axios.patch).toHaveBeenCalledWith('/queues', { switch_id: 0, port: 3, rate_pps: '1000' }));
+  });
+
+  it('offers only supported port shaping fields and sends an exact packet burst', async () => {
+    const user = userEvent.setup();
+    context.initializedFiles = { capabilities: { queues: { read: true, write: true, all_ports: false, depth_packets: false, burst_packets: true } } };
+    axios.get.mockResolvedValue({ data: { ...initial, scope: 'port', readback_available: true, message: 'Switch queue configuration',
+      fields: { depth_packets: { write: false }, burst_packets: { write: true } }, limits: { max_rate_pps: '4294967295' } } });
+    render(<QueueContent />);
+    await screen.findByText('Switch queue configuration');
+    expect(screen.queryByLabelText('Queue depth (packets)')).not.toBeInTheDocument();
+    expect(screen.getByText('Values come from switch readback. Rates may be rounded by the switch.')).toBeVisible();
+    await user.click(screen.getByRole('combobox', { name: 'Target queues' }));
+    expect(screen.queryByRole('option', { name: 'All ports' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('option', { name: 'One port' }));
+    await user.clear(screen.getByLabelText('Egress port')); await user.type(screen.getByLabelText('Egress port'), '0');
+    await user.type(screen.getByLabelText('Queue rate (packets/s)'), '1000');
+    await user.type(screen.getByLabelText('Packet burst'), '64');
+    await user.click(screen.getByRole('button', { name: 'Apply queue settings' }));
+    await waitFor(() => expect(axios.patch).toHaveBeenCalledWith('/queues', { switch_id: 0, port: 0, rate_pps: '1000', burst_packets: '64' }));
+  });
+
+  it('keeps cached queue reads and controls available when only hardware readback is unavailable', async () => {
+    const user = userEvent.setup();
+    context.initializedFiles = { capabilities: { queues: { read: true, write: true, readback: false, state: 'last_applied' } } };
+    render(<QueueContent />);
+    expect(await screen.findByText('Queue configuration readback is unavailable.')).toBeVisible();
+    expect(axios.get).toHaveBeenCalledWith('/queues', expect.objectContaining({ params: { switch_id: 0 } }));
+    await user.type(screen.getByLabelText('Queue depth (packets)'), '128');
+    await user.click(screen.getByRole('button', { name: 'Apply queue settings' }));
+    await waitFor(() => expect(axios.patch).toHaveBeenCalledWith('/queues', { switch_id: 0, port: null, depth_packets: 128 }));
+    expect(await screen.findByText('Queue changes acknowledged by the switch.')).toBeVisible();
+  });
+
+  it('shows unsupported queue capability without making an unavailable request', async () => {
+    context.initializedFiles = { capabilities: { queues: { read: false, write: false } } };
+    render(<QueueContent />);
+    expect(await screen.findByText('Queue controls are unavailable on this switch.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Apply queue settings' })).not.toBeInTheDocument();
+    expect(axios.get).not.toHaveBeenCalled();
   });
 
   it('rejects invalid settings before making a write request', async () => {
@@ -98,7 +146,7 @@ describe('queue controls', () => {
     expect(screen.getByText(/outcome is unknown/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Change history' }));
     expect(screen.getByRole('table', { name: 'Queue changes' })).toHaveTextContent('42');
-    expect(screen.queryByText('Queue changes acknowledged by BMv2.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Queue changes acknowledged by the switch.')).not.toBeInTheDocument();
   });
 
   it('requires an explicit configured endpoint before enabling writes', async () => {
@@ -149,4 +197,16 @@ describe('queue controls', () => {
     expect(screen.getByRole('table', { name: 'Per-port queue configuration' })).toHaveTextContent('Unknown');
     expect(screen.getByRole('table', { name: 'Per-port queue configuration' })).toHaveTextContent('Not discovered');
   });
+});
+
+it('aligns history columns with a port rate/burst target that has no depth control', async () => {
+  context.initializedFiles = { capabilities: { queues: { read: true, write: true, depth_packets: false, burst_packets: true, all_ports: false } } };
+  axios.get.mockResolvedValue({ data: { ...initial, scope: 'port', last_applied: [{ port: 0, rate_pps: '100', burst_packets: '20', applied_at: 'now' }] } });
+  const user = userEvent.setup();
+  render(<QueueContent />);
+  await user.click(await screen.findByRole('button', { name: 'Change history' }));
+  const history = await screen.findByRole('table', { name: 'Queue changes' });
+  const rows = within(history).getAllByRole('row');
+  expect(within(rows[0]).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Port', 'Rate (packets/s)', 'Burst (packets)', 'Applied at']);
+  expect(within(rows[1]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['0', '100', '20', 'now']);
 });

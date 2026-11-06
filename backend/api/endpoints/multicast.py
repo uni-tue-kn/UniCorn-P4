@@ -1,7 +1,7 @@
 import grpc
 from flask import request
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from .resources import rpc_error
 from controller.managers.MulticastManager import MulticastManager
 from controller.managers.ResourceManager import integer
@@ -17,7 +17,7 @@ class MulticastGroups(Endpoint):
             switch = self.controller.switch_configs.get(integer(data.get('switch_id'), 'switch_id'))
             if switch is None or not switch.connected:
                 return {'error': 'Switch is not connected'}, 404
-            manager = MulticastManager(switch.bmv2)
+            manager = switch.manager("multicast")
             if update_type is None:
                 return manager.read(data.get('multicast_group_id')), 200
             manager.write(data, update_type)
@@ -26,6 +26,8 @@ class MulticastGroups(Endpoint):
             return {'error': str(error)}, 400
         except grpc.RpcError as error:
             return rpc_error(error, write=update_type is not None)
+        except RuntimeError as error:
+            return {"error": str(error)}, 409
 
     def get(self):
         return self.dispatch()

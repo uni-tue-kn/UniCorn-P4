@@ -25,7 +25,19 @@ export function canonicalFileUri(value: string): string {
 ]);
 edit('server/src/preprocessor/preprocessor.ts', [
   ["import { existsSync, readFileSync } from 'node:fs';", "import { existsSync, readFileSync, realpathSync, statSync, openSync, closeSync, readSync, fstatSync, constants } from 'node:fs';\nimport { fileURLToPath } from 'node:url';\nimport { p4ExtensionServer } from '../server';\nimport { bundledP4IncludeDir, canonicalFileUri } from '../bundled_paths';"],
+  ["\t\t\tcase 'line':", `            case 'error':
+                if (this.isActive(ifStack)) this.error(uri, lineNo, col, body.slice('error'.length).trim() || '#error');
+                break;
+            case 'line':`],
   ["if (existsSync(abs)) {", "if (existsSync(abs) && allowedPath(abs)) {"],
+  ["\t\t\t\tthis.processFile(resolved, readText(resolved));", `                // The compiler supplies this builtin for native architecture headers.
+                // Apply it only to bundled SDK headers; source defines take precedence.
+                const architecture = resolved === join(bundledP4IncludeDir(), 'tna.p4') ? '1'
+                  : resolved === join(bundledP4IncludeDir(), 't2na.p4') ? '2' : null;
+                if (architecture && !this.macros.has('__TARGET_TOFINO__')) {
+                  this.macros.set('__TARGET_TOFINO__', { kind: 'object', replacement: architecture });
+                }
+                this.processFile(resolved, readText(resolved));`],
   ["\t\tthis.fileContents.set(uri, source);", "\t\tif (this.visiting.size >= 32 || this.fileContents.size >= 128) { this.error(uri, 0, 0, 'Include limit exceeded'); return; }\n\t\tthis.fileContents.set(uri, source);"],
   ["function readText(path: string): string {\n\treturn readFileSync(path, 'utf8');\n}", `function allowedPath(path: string): boolean {
   try {

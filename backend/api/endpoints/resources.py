@@ -5,7 +5,7 @@ from google.protobuf.message import DecodeError
 from controller.p4.v1 import p4runtime_pb2
 from flask import request
 
-from .Endpoint import Endpoint
+from .Endpoint import SwitchEndpoint as Endpoint
 from controller.managers.ResourceManager import integer
 
 
@@ -17,6 +17,8 @@ def rpc_error(error, write=False):
              grpc.StatusCode.UNAUTHENTICATED: 401}
     response = {"error": error.details() or str(error.code()),
                 "code": error.code().name, "partial_write_possible": write}
+    if getattr(error, "errors", None):
+        response["errors"] = error.errors
     status = codes.get(error.code(), 503)
     for key, value in getattr(error, "trailing_metadata", lambda: ())() or ():
         if key != "grpc-status-details-bin":

@@ -5,6 +5,19 @@ from .Endpoint import Endpoint
 # Parses a topology file and configures mininet
 class LoadTopology(Endpoint):
     def post(self):
+        return self._exclusive(self._load_topology)
+
+    def _exclusive(self, action):
+        lock = getattr(self.netsim, 'operation_lock', None)
+        if lock is not None and not lock.acquire(blocking=False):
+            return {'error': 'Another network operation is running'}, 409
+        try:
+            return action()
+        finally:
+            if lock is not None:
+                lock.release()
+
+    def _load_topology(self):
 
         parser = reqparse.RequestParser()
         parser.add_argument('topology_file', required = True, type=str)
@@ -38,6 +51,9 @@ class LoadTopology(Endpoint):
         return self.clear_topology()
 
     def clear_topology(self):
+        return self._exclusive(self._clear_topology)
+
+    def _clear_topology(self):
         try:
             with self.netsim.lifecycle_lock:
                 self.ws.close_clis()

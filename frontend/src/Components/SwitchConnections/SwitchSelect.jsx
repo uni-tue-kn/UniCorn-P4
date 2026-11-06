@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tabs, Tab, IconButton, Stack, Divider, Button } from '@mui/material';
+import { Tabs, Tab, IconButton, Stack, Divider, Button, Chip } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import LanOutlinedIcon from '@mui/icons-material/LanOutlined';
@@ -36,6 +36,11 @@ const StyledTab = styled(Tab, { shouldForwardProp: prop => prop !== 'compact' })
       color: theme.palette.getContrastText(theme.palette.secondary.light),
     },
   }));
+
+function switchTargetLabel(switchConfig) {
+  if (switchConfig.target !== 'tofino') return 'BMv2';
+  return switchConfig.target_options?.architecture === 'tofino2' ? 'Tofino 2' : 'Tofino 1';
+}
 
 function SelectSwitch({ compact = false }) {
   const { switches, currentSwitchID, setCurrentSwitchID, deleteSwitch } = useSwitch();
@@ -87,14 +92,13 @@ function SelectSwitch({ compact = false }) {
             value={selectedTab ?? false} onChange={handleChange}
           >
             {switches?.map((switchConfig) => (
-              <StyledTab compact={compact} aria-label={switchConfig.name} icon={<RouterOutlinedIcon />} iconPosition="start" value={switchConfig.device_id} selected={selectedTab === switchConfig.device_id} key={switchConfig.device_id} label={<div sx={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ marginRight: compact ? 12 : 50 }}>
-                  {switchConfig.name}
-                </span>
+              <StyledTab compact={compact} aria-label={switchConfig.name} icon={<RouterOutlinedIcon />} iconPosition="start" value={switchConfig.device_id} selected={selectedTab === switchConfig.device_id} key={switchConfig.device_id} label={<Stack component="span" direction="row" spacing={compact ? 0.5 : 1} sx={{ alignItems: 'center' }}>
+                <span>{switchConfig.name}</span>
+                <Chip component="span" size="small" variant="outlined" label={switchTargetLabel(switchConfig)} sx={{ height: compact ? 18 : 22, color: 'inherit', borderColor: 'currentColor', fontSize: compact ? 10 : 11, '& .MuiChip-label': { px: 0.75 } }} />
                 <IconButton component="span" role="button" tabIndex={0} aria-label={`Disconnect ${switchConfig.name}`} color="inherit" size="small" onClick={(event) => handleClose(event, switchConfig.device_id)}>
                   <CloseIcon fontSize="small" sx={{ color: 'inherit' }} />
                 </IconButton>
-              </div>} />
+              </Stack>} />
             ))}
 
           </Tabs><IconButton aria-label="Connect switch" color="inherit" onClick={handleAddTab}>

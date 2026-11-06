@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from scripts.release_changelog import promote_changelog, release_notes
+from scripts.release_changelog import promote_changelog, release_document, release_notes
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = '# Changelog\n\n## Unreleased — 1.2.0\n\n### Added\n\n* Keep `$HOME` and `$(touch marker)` literal.\n\n```md\n## An example heading\n```\n\n## v1.0\n\nOld history.\n'
@@ -29,7 +29,7 @@ def test_empty_next_release_does_not_reuse_previous_notes():
     assert promote_changelog(second, '1.2.1', released_on='2026-11-02') == second
 
 
-def test_whitespace_only_notes_use_generated_notes_fallback():
+def test_whitespace_only_section_has_no_changelog_notes():
     assert release_notes('# Changes\n\n## 1.2.0 — 2026-10-31\n\n  \n\t\n', '1.2.0') == ''
 
 
@@ -40,17 +40,31 @@ def test_bracketed_unreleased_and_version_headings_are_supported():
     assert release_notes(promoted, '1.0.0') == 'Old.\n'
 
 
-def test_real_extraction_cli_preserves_exact_notes(tmp_path):
+@pytest.mark.parametrize('notes', [SOURCE, '# Changelog\n\n## Unreleased\n\n## 1.0.0\n\nOld history.\n'])
+def test_real_release_document_cli_starts_with_launch_instructions(tmp_path, notes):
     changelog, output = tmp_path / 'CHANGELOG.md', tmp_path / 'release notes.md'
-    promoted = promote_changelog(SOURCE, '1.2.0', released_on='2026-10-31')
+    promoted = promote_changelog(notes, '1.2.0', released_on='2026-10-31')
     changelog.write_text(promoted)
     subprocess.run([sys.executable, str(ROOT / 'scripts/release_changelog.py'), '--changelog', str(changelog),
                     '--version', '1.2.0', '--output', str(output)], check=True)
-    assert output.read_text() == release_notes(promoted, '1.2.0')
+    document = output.read_text()
+    assert document == release_document(promoted, '1.2.0')
+    assert document.startswith('## How to run\n')
+    assert 'UniCorn-P4.tar.gz' in document
+    assert 'docker compose up -d' in document
+    assert 'docker compose -f docker-compose.yaml -f docker-compose.tofino.yaml up -d' in document
+    assert 'http://localhost:3000' in document
+    assert 'Old history.' not in document
+    changes = release_notes(promoted, '1.2.0')
+    if changes:
+        assert document.endswith('## Changes\n\n' + changes)
+    else:
+        assert '## Changes' not in document
 
 
 @pytest.mark.parametrize('existing', [False, True])
-@pytest.mark.parametrize('notes', ['### Added\n\n* Keep `$(touch marker)` literal.\n', ''])
+@pytest.mark.parametrize('notes', ['### Added\n\n* Keep `$(touch marker)` literal.\n', '',
+    release_document(promote_changelog(SOURCE, '1.2.0'), '1.2.0')])
 def test_actual_publisher_uses_changelog_file_and_handles_retries(tmp_path, existing, notes):
     commands = tmp_path / 'commands.jsonl'
     executable = tmp_path / 'gh'

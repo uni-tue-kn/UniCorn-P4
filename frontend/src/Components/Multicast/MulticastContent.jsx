@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useSwitch } from '../../Contexts/SwitchContext';
+import { useInit } from '../../Contexts/InitContext';
 import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 
 function unsigned(value, label, maximum, minimum = 0) {
@@ -18,6 +19,9 @@ export function validateGroup(draft) {
 
 export default function MulticastContent() {
   const { currentSwitchID } = useSwitch();
+  const capability = useInit()?.initializedFiles?.capabilities?.multicast;
+  const readAvailable = capability?.read !== false;
+  const writeAvailable = readAvailable && capability?.write !== false;
   const feedback = useAsyncFeedback(currentSwitchID);
   const { begin, complete, fail, cancel } = feedback;
   const currentID = useRef(currentSwitchID);
@@ -30,7 +34,7 @@ export default function MulticastContent() {
   const [formError, setFormError] = useState('');
   const [deleteGroup, setDeleteGroup] = useState(null);
   const load = useCallback(async (signal, manual = false) => {
-    if (currentSwitchID == null) return;
+    if (currentSwitchID == null || !readAvailable) return;
     const token = begin('refresh', { quiet: !manual });
     try {
       setBusy(true); setError('');
@@ -41,7 +45,7 @@ export default function MulticastContent() {
       if (!signal?.aborted && !axios.isCancel(err) && currentID.current === currentSwitchID) { setError(err.response?.data?.error || err.message); fail(token); } else cancel(token);
       return false;
     } finally { if (!signal?.aborted && currentID.current === currentSwitchID) setBusy(false); }
-  }, [currentSwitchID, begin, complete, fail, cancel]);
+  }, [currentSwitchID, readAvailable, begin, complete, fail, cancel]);
   useEffect(() => {
     setGroups(null); setEditor(null); setDeleteGroup(null); setError(''); setBusy(false);
     const controller = new AbortController(); load(controller.signal);
@@ -54,6 +58,7 @@ export default function MulticastContent() {
   }
   async function save(event) {
     event.preventDefault();
+    if (!writeAvailable) return;
     const id = currentSwitchID;
     let token;
     try {
@@ -66,6 +71,7 @@ export default function MulticastContent() {
     finally { if (currentID.current === id) setBusy(false); }
   }
   async function remove() {
+    if (!writeAvailable) return;
     const id = currentSwitchID;
     const token = begin('delete');
     try {
@@ -76,18 +82,20 @@ export default function MulticastContent() {
     finally { if (currentID.current === id) setBusy(false); }
   }
   function setReplica(index, field, value) { setEditor(previous => ({ ...previous, replicas: previous.replicas.map((row, i) => i === index ? { ...row, [field]: value } : row) })); }
+  if (!readAvailable) return <Box><Typography variant="h5" gutterBottom>Multicast groups</Typography><Alert severity="info">{capability?.reason || 'Multicast controls are unavailable on this switch.'}</Alert></Box>;
   return <Box>
     <Typography variant="h5" gutterBottom>Multicast groups</Typography>
     <Typography sx={{ mb: 2 }} color="text.secondary">Replicate packets to a group of switch ports. The P4 program selects the group through its multicast metadata.</Typography>
+    {!writeAvailable && <Alert severity="info" sx={{ mb: 2 }}>This connection allows reading. Changes are disabled.</Alert>}
     <Paper sx={{ p: 3 }}>
-      <Stack direction="row" spacing={2} sx={{ mb: 2 }}><Button variant="contained" onClick={() => openEditor(null)} disabled={busy || currentSwitchID == null}>Add multicast group</Button><Button onClick={() => load(undefined, true)} disabled={busy || currentSwitchID == null}>{feedback.pending && feedback.action === 'refresh' ? 'Refreshing…' : 'Refresh'}</Button></Stack>
+      <Stack direction="row" spacing={2} sx={{ mb: 2 }}><Button variant="contained" onClick={() => openEditor(null)} disabled={busy || currentSwitchID == null || !writeAvailable}>Add multicast group</Button><Button onClick={() => load(undefined, true)} disabled={busy || currentSwitchID == null}>{feedback.pending && feedback.action === 'refresh' ? 'Refreshing…' : 'Refresh'}</Button></Stack>
       {!editor && deleteGroup == null && <AsyncFeedback feedback={feedback} sx={{ mb: 2 }} />}
       {error && <Alert severity="error">{error}</Alert>}
       {groups == null && busy && <CircularProgress aria-label="Loading multicast groups" />}
       {groups?.length === 0 && <Typography>No multicast groups configured.</Typography>}
-      {groups?.length > 0 && <TableContainer><Table aria-label="Multicast groups"><TableHead><TableRow><TableCell>Group ID</TableCell><TableCell>Replicas (port / instance)</TableCell><TableCell>Actions</TableCell></TableRow></TableHead><TableBody>{groups.map(group => <TableRow key={group.multicast_group_id} data-testid={`multicast-group-${group.multicast_group_id}`}><TableCell>{group.multicast_group_id}</TableCell><TableCell>{group.replicas.map(row => `${row.egress_port} / ${row.instance}`).join(', ') || 'None'}</TableCell><TableCell><Button disabled={busy} onClick={() => openEditor(group)}>Edit</Button><Button disabled={busy} onClick={() => setDeleteGroup(group.multicast_group_id)}>Delete</Button></TableCell></TableRow>)}</TableBody></Table></TableContainer>}
+      {groups?.length > 0 && <TableContainer><Table aria-label="Multicast groups"><TableHead><TableRow><TableCell>Group ID</TableCell><TableCell>Replicas (port / instance)</TableCell><TableCell>Actions</TableCell></TableRow></TableHead><TableBody>{groups.map(group => <TableRow key={group.multicast_group_id} data-testid={`multicast-group-${group.multicast_group_id}`}><TableCell>{group.multicast_group_id}</TableCell><TableCell>{group.replicas.map(row => `${row.egress_port} / ${row.instance}`).join(', ') || 'None'}</TableCell><TableCell><Button disabled={busy || !writeAvailable} onClick={() => openEditor(group)}>Edit</Button><Button disabled={busy || !writeAvailable} onClick={() => setDeleteGroup(group.multicast_group_id)}>Delete</Button></TableCell></TableRow>)}</TableBody></Table></TableContainer>}
     </Paper>
-    <Dialog open={editor != null} onClose={() => !busy && setEditor(null)} fullWidth maxWidth="sm">
+    <Dialog open={editor != null && writeAvailable} onClose={() => !busy && setEditor(null)} fullWidth maxWidth="sm">
       <DialogTitle>{editing ? 'Edit multicast group' : 'Add multicast group'}</DialogTitle>
       {editor && <form onSubmit={save}><DialogContent><Stack spacing={2}>
         <AsyncFeedback feedback={feedback} />
@@ -99,6 +107,6 @@ export default function MulticastContent() {
         <Button disabled={busy || editor.replicas.length >= 256} onClick={() => setEditor(previous => ({ ...previous, replicas: [...previous.replicas, { egress_port: '', instance: '0' }] }))}>Add replica</Button>
       </Stack></DialogContent><DialogActions><Button onClick={() => setEditor(null)} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy}>{feedback.pending && feedback.action === 'save' ? 'Saving…' : 'Save group'}</Button></DialogActions></form>}
     </Dialog>
-    <Dialog open={deleteGroup != null} onClose={() => !busy && setDeleteGroup(null)}><DialogTitle>Delete multicast group</DialogTitle><DialogContent>Delete group {deleteGroup}? Packets using this group will no longer be replicated.<AsyncFeedback feedback={feedback} /></DialogContent><DialogActions><Button onClick={() => setDeleteGroup(null)} disabled={busy}>Cancel</Button><Button onClick={remove} disabled={busy}>{feedback.pending && feedback.action === 'delete' ? 'Deleting…' : 'Confirm delete'}</Button></DialogActions></Dialog>
+    <Dialog open={deleteGroup != null && writeAvailable} onClose={() => !busy && setDeleteGroup(null)}><DialogTitle>Delete multicast group</DialogTitle><DialogContent>Delete group {deleteGroup}? Packets using this group will no longer be replicated.<AsyncFeedback feedback={feedback} /></DialogContent><DialogActions><Button onClick={() => setDeleteGroup(null)} disabled={busy}>Cancel</Button><Button onClick={remove} disabled={busy}>{feedback.pending && feedback.action === 'delete' ? 'Deleting…' : 'Confirm delete'}</Button></DialogActions></Dialog>
   </Box>;
 }

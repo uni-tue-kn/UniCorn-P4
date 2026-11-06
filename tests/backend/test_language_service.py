@@ -486,3 +486,60 @@ def test_real_server_maps_exact_diagnostics_and_completion_for_line_endings(lang
                        and message['params']['uri'] == source.as_uri() and message['params']['version'] == 2)
     assert diagnostics
     assert diagnostics[0]['range']['start'] == {'line': 23, 'character': 0}
+
+
+@pytest.mark.parametrize('header,define,expected', [
+    ('tna.p4', '', 'native_one'),
+    ('tna.p4', '#define __TARGET_TOFINO__ 2\n', 'native_two'),
+    ('t2na.p4', '', 'native_two'),
+    ('v1model.p4', '', 'standard_target'),
+])
+def test_real_server_bundled_architecture_headers_preserve_target_defines(language_client, source, header, define, expected):
+    try:
+        command = language._server_command()
+    except language.LanguageError:
+        pytest.skip('Bundled upstream server is exercised in the backend image')
+    includes = Path(command[2]).parents[2] / 'p4include'
+    if not (includes / header).is_file():
+        pytest.skip('Official architecture headers are installed by the optional backend image')
+    content = define + f'#include <core.p4>\n#include <{header}>\n' + '''control Main() {
+#if __TARGET_TOFINO__ == 1
+ bit<8> native_one;
+#elif __TARGET_TOFINO__ == 2
+ bit<8> native_two;
+#else
+ bit<8> standard_target;
+#endif
+ apply {
+ }
+}
+'''
+    source.write_text(content)
+    identifier = create(language_client)['session_id']
+    response = post(language_client, identifier, notify('didOpen', source, languageId='p4', version=1, text=content))
+    assert response.status_code == 200, response.json
+    diagnostics = [diagnostic for item in response.json['messages'] if item.get('method') == 'textDocument/publishDiagnostics'
+                   for diagnostic in item['params']['diagnostics']]
+    assert diagnostics == [], diagnostics
+    line = content.splitlines().index(' apply {') + 1
+    response = post(language_client, identifier, {'jsonrpc': '2.0', 'id': 31, 'method': 'textDocument/completion',
+        'params': {'textDocument': {'uri': source.as_uri()}, 'position': {'line': line, 'character': 1}}})
+    assert response.status_code == 200, response.json
+    labels = [item['label'] for item in next(item['result'] for item in response.json['messages'] if item.get('id') == 31)]
+    assert expected in labels
+    assert not ({'native_one', 'native_two', 'standard_target'} - {expected}) & set(labels)
+
+
+def test_real_server_reports_only_active_preprocessor_errors(language_client, source):
+    try:
+        language._server_command()
+    except language.LanguageError:
+        pytest.skip('Bundled upstream server is exercised in the backend image')
+    content = '#if 0\n#error inactive target branch\n#endif\n#error active target error\nstruct Header { bit<8> field; }\n'
+    source.write_text(content)
+    identifier = create(language_client)['session_id']
+    response = post(language_client, identifier, notify('didOpen', source, languageId='p4', version=1, text=content))
+    assert response.status_code == 200, response.json
+    diagnostics = [diagnostic for item in response.json['messages'] if item.get('method') == 'textDocument/publishDiagnostics'
+                   for diagnostic in item['params']['diagnostics']]
+    assert [diagnostic['message'] for diagnostic in diagnostics] == ['active target error']

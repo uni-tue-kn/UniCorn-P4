@@ -7,16 +7,27 @@ import DigestContent, { validateDigestConfig } from './DigestContent';
 
 const contexts = vi.hoisted(() => ({ digests: { learn: { id: 394223234, name: 'traffic_digest_t', alias: 'traffic_digest_t' } } }));
 vi.mock('../../Contexts/SwitchContext', () => ({ useSwitch: () => ({ currentSwitchID: 0 }) }));
-vi.mock('../../Contexts/InitContext', () => ({ useInit: () => ({ initializedFiles: { digests: contexts.digests } }) }));
+vi.mock('../../Contexts/InitContext', () => ({ useInit: () => ({ initializedFiles: { digests: contexts.digests, capabilities: contexts.capabilities } }) }));
 vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn(), isCancel: () => false } }));
 const stream = { primary: true, active: true, error: null };
 const event = { sequence: '1', digest_id: 394223234, list_id: '18446744073709551615', timestamp_ns: '9007199254740993', received_at: '2026-10-31T12:00:00+00:00', data: [{ kind: 'struct', name: 'traffic_digest_t', fields: { source_mac: { kind: 'bit', decimal: '187723572702975', hex: '0xaabbccddeeff', bitwidth: 48 } } }] };
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); contexts.capabilities = undefined;
   contexts.digests = { learn: { id: 394223234, name: 'traffic_digest_t', alias: 'traffic_digest_t' } };
 });
 
 describe('digests', () => {
+  it('shows observer digest definitions without configuration or an event subscription', async () => {
+    contexts.capabilities = { digests: { read: true, write: false, configure: false, events: false, listen: false, ack: false } };
+    render(<DigestContent />);
+    expect(await screen.findByText(/View digest definitions declared by the active program/)).toBeVisible();
+    expect(screen.getByText('Event capture is unavailable on this switch.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Enable digest' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clear events' })).not.toBeInTheDocument();
+    expect(axios.get).not.toHaveBeenCalled();
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(axios.delete).not.toHaveBeenCalled();
+  });
   it('keeps nanosecond values lossless and validates protocol limits', () => {
     const config = { max_timeout_ns: '9007199254740993', max_list_size: '1', ack_timeout_ns: '9223372036854775807' };
     expect(validateDigestConfig(config)).toEqual(config);
@@ -24,6 +35,16 @@ describe('digests', () => {
     expect(() => validateDigestConfig({ ...config, max_list_size: '-1' })).toThrow('max_list_size');
     expect(() => validateDigestConfig({ ...config, max_timeout_ns: '1.5' })).toThrow('max_timeout_ns');
     expect(() => validateDigestConfig({ ...config, ack_timeout_ns: '9223372036854775808' })).toThrow('ack_timeout_ns');
+  });
+  it('captures events while hiding configuration that the switch cannot change', async () => {
+    contexts.capabilities = { digests: { configure: false, write: false, events: true } };
+    axios.get.mockResolvedValue({ data: { events: [event], next_sequence: '1', dropped: 0, stream } });
+    render(<DigestContent />);
+    expect(await screen.findByTestId('digest-event-1')).toHaveTextContent('187723572702975');
+    expect(screen.queryByRole('textbox', { name: 'Maximum timeout (ns)' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Timeout and list-size settings are unavailable/)).toBeVisible();
+    expect(axios.get.mock.calls.every(([url]) => url === '/digest-events')).toBe(true);
+    expect(axios.post).not.toHaveBeenCalled();
   });
   it('enables, updates and disables a digest while showing decoded captured events', async () => {
     let config = null;

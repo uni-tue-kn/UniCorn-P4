@@ -267,10 +267,69 @@ describe('Save & Compile', () => {
     expect(axios.post).not.toHaveBeenCalled();
     await act(async () => { second.resolve({ data: { revision: revision('c') } }); await compiling; });
     expect(axios.patch.mock.calls.map(([, data]) => data.path)).toEqual(['main.p4', 'src/headers.p4']);
-    expect(axios.post).toHaveBeenCalledWith('/compile', { file: '/p4/main.p4' });
+    expect(axios.post).toHaveBeenCalledWith('/compile', { file: '/p4/main.p4', target: 'auto', architecture: 'tofino' });
     expect(editor.compileStatus).toBe('success');
     expect(editor.output).toContain('Generated pipeline');
     expect(editor.dirty).toEqual([]);
+  });
+
+  it('polls a compilation job and retains diagnostics and output from its completed result', async () => {
+    await start();
+    await call('openFile', 'main.p4');
+    const originalGet = axios.get.getMockImplementation();
+    let pending = true;
+    axios.get.mockImplementation((url, options) => url === '/compile/jobs/job1' ? Promise.resolve({ data: pending ? { status: 'running', message: 'Compiling program…' } : { status: 'complete', result: { command: ['compiler', '/p4/main.p4'], stdout: 'Program built', stderr: '/p4/main.p4:2: warning: unused', program: { target: 'tofino' } } } }) : originalGet(url, options));
+    axios.post.mockResolvedValueOnce({ status: 202, data: { job_id: 'job1', status: 'pending' } });
+    vi.useFakeTimers();
+    try {
+      let compilation;
+      await act(async () => { compilation = editor.compile(); });
+      expect(editor.busy).toBe(true);
+      expect(editor.output).toContain('Compiling program…');
+      pending = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); await compilation; });
+      expect(editor.compileStatus).toBe('success');
+      expect(editor.output).toContain('Program built');
+      expect(editor.diagnostics[0]).toMatchObject({ path: 'main.p4', line: 2, severity: 'warning' });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('recovers transient compilation poll failures without losing the job', async () => {
+    await start();
+    await call('openFile', 'main.p4');
+    const originalGet = axios.get.getMockImplementation();
+    let polls = 0;
+    axios.get.mockImplementation((url, options) => {
+      if (!url.startsWith('/compile/jobs/')) return originalGet(url, options);
+      expect(options.timeout).toBeGreaterThan(0);
+      expect(options.timeout).toBeLessThanOrEqual(15000);
+      polls++;
+      if (polls === 1) return Promise.reject({ message: 'Network Error' });
+      if (polls === 2) return Promise.reject({ response: { status: 502 } });
+      return Promise.resolve({ data: { status: 'complete', result: { stdout: 'Program built', stderr: '', command: [] } } });
+    });
+    axios.post.mockResolvedValueOnce({ status: 202, data: { job_id: 'resilient' } });
+    vi.useFakeTimers();
+    try {
+      let compilation;
+      await act(async () => { compilation = editor.compile(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); await compilation; });
+      expect(polls).toBe(3);
+      expect(editor.compileStatus).toBe('success');
+      expect(editor.output).toContain('Program built');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('reports a failed compilation job without losing saved buffers', async () => {
+    await start();
+    await call('openFile', 'main.p4');
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, options) => url.startsWith('/compile/jobs/') ? Promise.resolve({ data: { status: 'failed', result: { command: ['compiler'], stderr: '/p4/main.p4:3: error: invalid field' } } }) : originalGet(url, options));
+    axios.post.mockResolvedValueOnce({ status: 202, data: { job_id: 'failed', status: 'pending' } });
+    expect(await call('compile')).toBe(false);
+    expect(editor.compileStatus).toBe('error');
+    expect(editor.output).toContain('invalid field');
+    expect(editor.documents['main.p4'].content).toBe('// saved\n');
   });
 
   it('does not compile when an included buffer cannot be saved', async () => {
@@ -293,7 +352,7 @@ describe('Save & Compile', () => {
     const command = `['p4c', "/p4/O'Brien program.p4", '--target', 'bmv2']`;
     axios.post.mockResolvedValueOnce({ data: { command, stdout: '', stderr: "/p4/O'Brien program.p4(4): warning: unused declaration" } });
     expect(await call('compile')).toBe(true);
-    expect(axios.post).toHaveBeenCalledWith('/compile', { file: "/p4/O'Brien program.p4" });
+    expect(axios.post).toHaveBeenCalledWith('/compile', { file: "/p4/O'Brien program.p4", target: 'auto', architecture: 'tofino' });
     expect(editor.output).toContain(command);
     expect(editor.diagnostics[0]).toMatchObject({ path, line: 4, severity: 'warning' });
   });

@@ -1,0 +1,44 @@
+# Optional native Tofino model and matching compiler. Use with docker-compose.yaml.
+services:
+  unicornp4-backend:
+    image: unicornp4-backend-tofino:local
+    build:
+      context: ../
+      dockerfile: docker/tofino/Dockerfile
+      target: backend
+      args:
+        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3}
+    environment:
+      TOFINO_COMPILER_URL: http://127.0.0.1:8080
+
+  unicornp4-netsim:
+    image: unicornp4-netsim-tofino:local
+    build:
+      context: ../
+      dockerfile: docker/tofino/Dockerfile
+      target: runtime
+      args:
+        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3}
+    volumes:
+      - ./p4-files:/p4
+
+  unicornp4-compiler:
+    init: true
+    image: unicornp4-compiler-tofino:local
+    build:
+      context: ../
+      dockerfile: docker/tofino/Dockerfile
+      target: compiler
+      args:
+        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3}
+    command: [python3, -m, runtime.tofino.compiler_service, --host, 127.0.0.1, --port, '8080']
+    network_mode: host
+    volumes:
+      - ./p4-files:/p4
+    environment:
+      P4_DIR: /p4
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

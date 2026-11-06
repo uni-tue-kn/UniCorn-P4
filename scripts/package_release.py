@@ -50,13 +50,48 @@ def compose():
 '''
 
 
+def tofino_compose():
+    """Pull-only override for the deployment archive, not a source build."""
+    return '''# Optional native model; combine with docker-compose.yaml on Linux x64.
+services:
+  unicornp4-backend:
+    image: unituekn/unicornp4-backend:tofino-latest
+    environment:
+      TOFINO_COMPILER_URL: http://127.0.0.1:8080
+  unicornp4-netsim:
+    image: unituekn/unicornp4-netsim:tofino-latest
+    volumes:
+      - ./p4-files:/p4
+  unicornp4-compiler:
+    init: true
+    image: unituekn/unicornp4-tofino-sdk:compiler-latest
+    command: [python3, -m, runtime.tofino.compiler_service, --host, 127.0.0.1, --port, '8080']
+    network_mode: host
+    volumes:
+      - ./p4-files:/p4
+    environment:
+      P4_DIR: /p4
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+'''
+
+
 def package(repo, output, compiler_image=None, compiled_dir=None):
     tracked = git_bytes(repo, "ls-tree", "-r", "--name-only", "HEAD").decode().splitlines()
     version = git_bytes(repo, "show", "HEAD:VERSION").decode().strip()
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError("Deployment assets require a stable release VERSION")
     files = {"VERSION": (version + "\n").encode(), "docker-compose.yaml": compose().encode(),
+             "docker-compose.tofino.yaml": tofino_compose().encode(),
              "database/.empty": b""}
+    development_sections = {
+        "docs/usage.md": b"\n## Development and tests\n",
+        "docs/tofino.md": b"\n## Source builds\n",
+        "examples/networks/README.md": b"\n## Regenerate\n",
+    }
     for path in tracked:
         local = PurePosixPath(path)
         destination = None
@@ -64,9 +99,7 @@ def package(repo, output, compiler_image=None, compiled_dir=None):
             destination = str(PurePosixPath(*local.parts[1:]))
         elif local.parts[:2] == ("docker", "topologies") and len(local.parts) == 3 and path.endswith('.json'):
             destination = str(PurePosixPath(*local.parts[1:]))
-        elif path in ("README.md", "LICENSE", "logo.png", "CHANGELOG.md", "docs/usage.md", "runtime/README.md", "runtime/p4-language-server/README.md"):
-            destination = path
-        elif local.parts[:2] == ("docs", "screenshots") and len(local.parts) == 3 and path.endswith('.png'):
+        elif path in ("LICENSE", "CHANGELOG.md", "docs/usage.md", "docs/tofino.md", "docs/compatibility.md"):
             destination = path
         elif path == "tests/fixtures/resources.p4":
             destination = "p4-files/resources/resources.p4"
@@ -78,18 +111,28 @@ def package(repo, output, compiler_image=None, compiled_dir=None):
             destination = path
         if destination:
             files[destination] = git_bytes(repo, "show", f"HEAD:{path}")
+            # User guides also serve source checkouts. Keep only deployment
+            # instructions in the archive, whose build/test tools are in images.
+            if destination in development_sections:
+                files[destination] = files[destination].split(development_sections[destination], 1)[0].rstrip() + b"\n"
             if destination == "examples/networks/README.md":
                 files[destination] = files[destination].replace(b"(../p4/", b"(../../p4-files/")
     quickstart = (f"# UniCorn-P4 {version} deployment\n\n"
+        "## Quick start\n\n"
         "Extract this archive, enter the UniCorn-P4 directory, then run:\n\n"
         "```sh\ndocker compose pull\ndocker compose up -d\n```\n\n"
         "Open http://localhost:3000. The Compose file uses published `latest` images. "
         "P4 sources and compiled examples are in p4-files/; sample topologies "
         "are in topologies/. The database starts empty. Mininet requires Linux "
         "and the privileged container configured in docker-compose.yaml.\n\n"
-        "The following repository documentation also describes development "
-        "checkouts, whose docker/ subdirectory corresponds to this archive's root.\n\n---\n\n")
-    files['README.md'] = quickstart.encode() + files.get('README.md', b'')
+        "For optional Tofino models on Linux x64, once the Tofino images are published:\n\n"
+        "```sh\ndocker compose -f docker-compose.yaml -f docker-compose.tofino.yaml up -d\n```\n\n"
+        "[Usage guide](docs/usage.md) · "
+        "[Physical interfaces](docs/usage.md#use-external-network-interfaces) · "
+        "[Tofino setup](docs/tofino.md) · "
+        "[Compatibility](docs/compatibility.md) · "
+        "[Sample networks](examples/networks/README.md)\n")
+    files['README.md'] = quickstart.encode()
     units = [path for path, data in files.items() if path.startswith('p4-files/') and path.endswith('.p4')
              and re.search(rb'\bV1Switch\s*\(', data)]
     if not units:

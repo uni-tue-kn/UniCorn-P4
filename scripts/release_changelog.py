@@ -41,8 +41,8 @@ def promote_changelog(text, version, released_on=None):
     if pending:
         start, body, _end, _title = pending[0]
         return text[:start] + heading + text[body:]
-    # A merge without hand-written notes still gets its own version marker;
-    # publication falls back to GitHub-generated notes instead of reusing history.
+    # A merge without hand-written notes still gets its own version marker
+    # instead of reusing the previous release's history.
     start = entries[0][0] if entries else len(text)
     return text[:start].rstrip() + '\n\n' + heading + '\n' + text[start:]
 
@@ -56,13 +56,35 @@ def release_notes(text, version):
     return notes + '\n' if notes.strip() else ''
 
 
+def release_document(text, version):
+    notes = release_notes(text, version)
+    instructions = '''## How to run
+
+Download and extract **UniCorn-P4.tar.gz**, then enter its `UniCorn-P4/` folder.
+Requires Linux and Docker with Compose v2.
+
+```sh
+docker compose up -d
+```
+
+For optional Tofino models on Linux x64, once the Tofino images are published:
+
+```sh
+docker compose -f docker-compose.yaml -f docker-compose.tofino.yaml up -d
+```
+
+Open **http://localhost:3000**. Images are downloaded automatically.
+'''
+    return instructions + ('\n## Changes\n\n' + notes if notes else '')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--changelog', type=Path, default=Path('CHANGELOG.md'))
     parser.add_argument('--version', required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    args.output.write_text(release_notes(args.changelog.read_text(), args.version))
+    args.output.write_text(release_document(args.changelog.read_text(), args.version))
 
 
 if __name__ == '__main__':

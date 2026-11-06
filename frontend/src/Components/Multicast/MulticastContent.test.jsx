@@ -5,9 +5,11 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import MulticastContent, { validateGroup } from './MulticastContent';
 
+const context = vi.hoisted(() => ({ initializedFiles: null }));
+vi.mock('../../Contexts/InitContext', () => ({ useInit: () => context }));
 vi.mock('../../Contexts/SwitchContext', () => ({ useSwitch: () => ({ currentSwitchID: 0 }) }));
 vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn(), isCancel: () => false } }));
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); context.initializedFiles = null; });
 
 describe('multicast groups', () => {
   it('checks reserved IDs, zero ports and duplicate replicas while allowing empty groups', () => {
@@ -81,4 +83,29 @@ describe('multicast groups', () => {
     expect(screen.queryByText('Refreshed')).not.toBeInTheDocument();
     expect(screen.getByTestId('multicast-group-7')).toBeVisible();
   });
+});
+
+
+it('reads existing observer entries and disables add, edit and delete', async () => {
+  context.initializedFiles = { capabilities: { multicast: { read: true, write: false } } };
+  axios.get.mockResolvedValue({ data: { entries: [{ multicast_group_id: 7, replicas: [{ egress_port: '2', instance: 0 }] }] } });
+  render(<MulticastContent />);
+  const row = await screen.findByTestId('multicast-group-7');
+  expect(row).toHaveTextContent('2 / 0');
+  expect(screen.getByRole('button', { name: 'Add multicast group' })).toBeDisabled();
+  expect(within(row).getByRole('button', { name: 'Edit' })).toBeDisabled();
+  expect(within(row).getByRole('button', { name: 'Delete' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  expect(axios.post).not.toHaveBeenCalled();
+  expect(axios.patch).not.toHaveBeenCalled();
+  expect(axios.delete).not.toHaveBeenCalled();
+});
+
+it('explains unavailable multicast support without claiming read access or issuing a request', async () => {
+  context.initializedFiles = { capabilities: { multicast: { read: false, write: false, reason: 'PRE metadata is unavailable' } } };
+  render(<MulticastContent />);
+  expect(screen.getByRole('alert')).toHaveTextContent('PRE metadata is unavailable');
+  expect(screen.queryByText(/This connection allows reading/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Add multicast group' })).not.toBeInTheDocument();
+  expect(axios.get).not.toHaveBeenCalled();
 });

@@ -55,7 +55,12 @@ function SwitchHistory() {
             name: historySwitch.name,
             address: historySwitch.address,
             device_id: historySwitch.device_id,
-            proto_dump_file: historySwitch.proto_dump_file
+            proto_dump_file: historySwitch.proto_dump_file,
+            target: historySwitch.target || 'bmv2',
+            target_options: historySwitch.target_options || {},
+            register_adapter_enabled: historySwitch.register_adapter_enabled ?? false,
+            register_thrift_host: historySwitch.register_thrift_host ?? null,
+            register_thrift_port: historySwitch.register_thrift_port ?? null
         }
 
         newEditData['config'] = config

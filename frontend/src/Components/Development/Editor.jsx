@@ -98,6 +98,7 @@ export default function Editor() {
   const [panel, setPanel] = useState('output');
   const [outputOpen, setOutputOpen] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [compileTarget, setCompileTarget] = useState('auto');
   const [languageStatus, setLanguageStatus] = useState({ state: 'connecting' });
   const [reconnect, setReconnect] = useState(0);
   const [languageProblems, setLanguageProblems] = useState({});
@@ -126,7 +127,7 @@ export default function Editor() {
   async function showProblem(problem) {
     if (await workspace.openFile(problem.path)) setReveal({ path: problem.path, line: problem.line, column: problem.column, sequence: Date.now() });
   }
-  async function compile() { setPanel('output'); setOutputOpen(true); await workspace.compile(); }
+  async function compile() { setPanel('output'); setOutputOpen(true); await workspace.compile(compileTarget); }
   async function create() {
     const value = dialog?.kind === 'copy' ? workspace.documents[dialog.path]?.content || '' : '';
     if (await workspace.createFile(filename.trim(), value)) { setDialog(null); if (!desktop) setFilesOpen(false); }
@@ -153,6 +154,9 @@ export default function Editor() {
       <TextField select label="P4 source file" size="small" value={sources.some(file => file.path === workspace.target) ? workspace.target : ''} disabled={workspace.busy}
         onChange={event => { workspace.setTarget(event.target.value); workspace.openFile(event.target.value); }} sx={{ minWidth: 140, width: { xs: 170, sm: 280 }, flexGrow: { xs: 1, md: 0 }, maxWidth: '100%', '& .MuiInputBase-root': { height: 34, fontSize: 12 } }}>
         {sources.length ? sources.map(file => <MenuItem key={file.path} value={file.path}>{file.absolute_path}</MenuItem>) : <MenuItem disabled>No P4 source file found</MenuItem>}
+      </TextField>
+      <TextField select label="Compile for" size="small" value={compileTarget} disabled={workspace.busy} onChange={event => setCompileTarget(event.target.value)} sx={{ minWidth: 125, '& .MuiInputBase-root': { height: 34, fontSize: 12 } }}>
+        <MenuItem value="auto">Auto</MenuItem><MenuItem value="bmv2">BMv2</MenuItem><MenuItem value="tofino">Tofino 1</MenuItem><MenuItem value="tofino2">Tofino 2</MenuItem>
       </TextField>
       <Tooltip title="Save all modified files, then compile the selected P4 program. Ctrl/Cmd+Enter."><span><Button variant="contained" size="small" disabled={workspace.busy || !workspace.target} startIcon={workspace.compileStatus === 'busy' ? <CircularProgress color="inherit" size={16} /> : <PlayArrowIcon />} onClick={compile}>{workspace.compileStatus === 'busy' ? 'Compiling…' : 'Compile'}</Button></span></Tooltip>
       <Tooltip title={focused ? 'Return to navigation (Esc)' : 'Hide navigation and fill the window'}><IconButton size="small" aria-label={focused ? 'Exit focus mode' : 'Focus mode'} aria-pressed={focused} onClick={() => setFocused(value => !value)}>{focused ? <FullscreenExitIcon /> : <FullscreenIcon />}</IconButton></Tooltip>

@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import AsyncFeedback, { useAsyncFeedback } from '../Helpers/AsyncFeedback';
 
 const message = value => typeof value === 'string' ? value : JSON.stringify(value);
+const nativeFields = [['runtime_device_id', 'Device number', 4294967295], ['pipe_id', 'Pipeline instance', 65534], ['client_id', 'Client number', 4294967295]];
 const successfulCategory = value => ['complete', 'restored', 'ok'].includes(value.status) && !value.errors?.length && !value.error;
 function importedWithWarnings(result) {
   if (!result || result.status !== 'partial' || result.error) return false;
@@ -57,8 +58,20 @@ export function externalMappings(preview, drafts, enabled) {
   for (const target of preview?.switches || []) {
     const draft = drafts[target.key];
     if (target.kind !== 'external' || !draft?.selected) continue;
-    if (!draft.address?.trim()) throw new Error(`Enter a destination P4Runtime address for ${target.name}.`);
+    if (!draft.address?.trim()) throw new Error(`Enter a destination control address for ${target.name}.`);
     if (!/^\d+$/.test(String(draft.device_id)) || BigInt(draft.device_id) > 9007199254740991n) throw new Error(`Enter a valid device ID for ${target.name}.`);
+    if (target.target === 'tofino') {
+      const options = {};
+      for (const [key, label, maximum] of nativeFields) {
+        const value = draft.target_options?.[key] ?? target.target_options?.[key] ?? 0;
+        if (!/^\d+$/.test(String(value)) || BigInt(value) > BigInt(maximum)) throw new Error(`Enter a valid ${label.toLowerCase()} for ${target.name}.`);
+        options[key] = Number(value);
+      }
+      result[target.key] = { name: target.name, address: draft.address.trim(), device_id: Number(draft.device_id),
+        proto_dump_file: null, target: 'tofino', target_options: options,
+        register_adapter_enabled: false, register_thrift_host: null, register_thrift_port: null };
+      continue;
+    }
     const port = draft.thrift_host?.trim() ? Number(draft.thrift_port ?? '9090') : null;
     if (port != null && (!Number.isInteger(port) || port < 1 || port > 65535)) throw new Error(`Enter a valid Thrift port for ${target.name}.`);
     if (draft.adapter && !draft.thrift_host?.trim()) throw new Error(`Enter a Thrift host for ${target.name}'s register adapter.`);
@@ -85,6 +98,7 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
   const [restoreQueues, setRestoreQueues] = useState(true);
   const [targets, setTargets] = useState({});
   const [working, setWorking] = useState(false);
+  const [progress, setProgress] = useState('');
   const input = useRef(null);
   const request = useRef(null);
   const releaseLease = useRef(null);
@@ -154,9 +168,34 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
     catch (failure) { setError(failure.message); return; }
     const operation = start('deploy');
     if (!operation) return;
+    setProgress('');
     try {
-      const response = await axios.post('/network/import/deploy', { import_token: token, restore_external: restoreExternal,
-        external_targets: mappings, attach_external_interfaces: attachInterfaces, restore_queues: restoreQueues }, { signal: operation.controller.signal, timeout: 300000 });
+      const native = preview.switches.some(target => target.target === 'tofino') || Object.values(preview.topology?.switches || {}).some(target => target.target === 'tofino');
+      let response = await axios.post('/network/import/deploy', { import_token: token, restore_external: restoreExternal,
+        external_targets: mappings, attach_external_interfaces: attachInterfaces, restore_queues: restoreQueues,
+        ...(native ? { async: true } : {}) }, { signal: operation.controller.signal, timeout: native ? 30000 : 300000 });
+      if (response.status === 202) {
+        let job = response.data;
+        const deadline = Date.now() + 30 * 60 * 1000;
+        let failures = 0;
+        while (['pending', 'running'].includes(job.status)) {
+          if (Date.now() >= deadline) throw new Error('Network import monitoring timed out. Refresh the topology to check its current state.');
+          setProgress(failures ? 'Connection interrupted; checking import progress again…'
+            : job.progress?.message || job.progress?.phase || 'Starting network…');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          if (operation.controller.signal.aborted) return;
+          try {
+            job = (await axios.get('/network/import/deploy', { params: { import_token: token },
+              signal: operation.controller.signal, timeout: Math.min(15000, Math.max(1, deadline - Date.now())) })).data;
+            failures = 0;
+          } catch (failure) {
+            if (operation.controller.signal.aborted) return;
+            if ((failure.response && failure.response.status < 500) || ++failures >= 10) throw failure;
+          }
+        }
+        if (!job.result) throw new Error(job.error || 'The network import did not return a restoration report.');
+        response = { data: job.result };
+      }
       if (operation.controller.signal.aborted) return;
       setResult(response.data); setToken(null);
       const changed = Boolean(response.data.topology) || response.data.switches?.some(target => ['complete', 'restored', 'partial'].includes(target.status));
@@ -194,6 +233,7 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
       <DialogTitle>Import network</DialogTitle>
       <DialogContent>
         <Typography sx={{ mb: 2 }}>{filename}</Typography><AsyncFeedback feedback={feedback} sx={{ mb: 2 }} />
+        {working && feedback.action === 'deploy' && progress && <Typography role="status" variant="body2" sx={{ mb: 2 }}>{progress}</Typography>}
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {preview && <Stack spacing={2}>
           <Typography variant="subtitle2">Captured bundle preview</Typography>
@@ -213,11 +253,15 @@ export default function NetworkArchive({ disabled = false, onImported, onBusyCha
               {restoreExternal && external.map(target => <Box key={target.key} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
                 <FormControlLabel control={<Checkbox checked={Boolean(targets[target.key]?.selected)} disabled={working} onChange={event => changeTarget(target.key, { selected: event.target.checked, device_id: targets[target.key]?.device_id ?? String(target.device_id) })} />} label={`Restore ${target.name}`} />
                 {targets[target.key]?.selected && <Stack spacing={2}>
-                  <TextField label={`P4Runtime address for ${target.name}`} value={targets[target.key].address || ''} disabled={working} onChange={event => changeTarget(target.key, { address: event.target.value })} placeholder="192.0.2.10:50051" />
+                  <TextField label={`${target.target === 'tofino' ? 'Control' : 'P4Runtime'} address for ${target.name}`} value={targets[target.key].address || ''} disabled={working} onChange={event => changeTarget(target.key, { address: event.target.value })} placeholder="192.0.2.10:50051" />
                   <TextField label={`Device ID for ${target.name}`} value={targets[target.key].device_id ?? ''} disabled={working} onChange={event => changeTarget(target.key, { device_id: event.target.value })} />
+                  {target.target === 'tofino' ? <Box component="details"><Typography component="summary" sx={{ cursor: 'pointer', mb: 1 }}>Advanced connection options</Typography><Stack spacing={2}>
+                    {nativeFields.map(([key, label]) => <TextField key={key} label={`${label} for ${target.name}`} value={targets[target.key].target_options?.[key] ?? target.target_options?.[key] ?? 0} disabled={working} onChange={event => changeTarget(target.key, { target_options: { ...targets[target.key].target_options, [key]: event.target.value } })} />)}
+                  </Stack></Box> : <>
                   <FormControlLabel control={<Checkbox checked={Boolean(targets[target.key].adapter)} disabled={working} onChange={event => changeTarget(target.key, { adapter: event.target.checked })} />} label={`Use register adapter for ${target.name}`} />
                   <TextField label={`Thrift host for ${target.name}`} value={targets[target.key].thrift_host || ''} disabled={working} onChange={event => changeTarget(target.key, { thrift_host: event.target.value })} />
                   <TextField label={`Thrift port for ${target.name}`} value={targets[target.key].thrift_port ?? '9090'} disabled={working} onChange={event => changeTarget(target.key, { thrift_port: event.target.value })} />
+                  </>}
                 </Stack>}
               </Box>)}
             </>}

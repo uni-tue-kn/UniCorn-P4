@@ -1,0 +1,11 @@
+global-options:
+  build_model: true
+features:
+  drivers:
+    bfrt: true
+    grpc: true
+    thrift-driver: false
+    kernel-modules: false
+architectures:
+  - tofino
+  - tofino2

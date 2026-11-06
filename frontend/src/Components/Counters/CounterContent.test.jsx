@@ -5,12 +5,13 @@ import axios from 'axios';
 import CounterContent from './CounterContent';
 import DirectCounterReset from './DirectCounterReset';
 
-const context = vi.hoisted(() => ({ currentSwitchID: 0 }));
+const context = vi.hoisted(() => ({ currentSwitchID: 0, initializedFiles: null }));
 vi.mock('../../Contexts/SwitchContext', () => ({ useSwitch: () => context }));
+vi.mock('../../Contexts/InitContext', () => ({ useInit: () => context }));
 vi.mock('axios', () => ({ default: { get: vi.fn(), patch: vi.fn(), isCancel: () => false } }));
 const data = { entries: [{ index: 0, packets: '9007199254740993', bytes: '1234' }] };
 beforeEach(() => {
-  vi.clearAllMocks(); vi.useFakeTimers(); context.currentSwitchID = 0;
+  vi.clearAllMocks(); vi.useFakeTimers(); context.currentSwitchID = 0; context.initializedFiles = null;
   Object.defineProperty(document, 'hidden', { configurable: true, value: false });
   axios.get.mockResolvedValue({ data }); axios.patch.mockResolvedValue({ data: { success: true } });
 });
@@ -18,6 +19,16 @@ afterEach(() => { vi.useRealTimers(); });
 const flush = () => act(async () => {});
 
 describe('counter controls and polling', () => {
+  it('reads and plots observer counters without enabling either reset action', async () => {
+    context.initializedFiles = { capabilities: { counters: { read: true, write: false } } };
+    render(<CounterContent counterId={9} counterName="Ingress.counter" />);
+    await flush();
+    expect(screen.getByTestId('counter-row-0')).toHaveTextContent('9007199254740993');
+    expect(screen.getByRole('button', { name: 'Reset all counters' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reset counter index 0' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+    expect(axios.patch).not.toHaveBeenCalled();
+  });
   it('preserves displayed integers and resets explicit index zero or the whole resource', async () => {
     render(<CounterContent counterId={9} counterName="Ingress.counter" />);
     await flush();
@@ -92,6 +103,19 @@ describe('counter controls and polling', () => {
     await flush();
     expect(axios.patch).toHaveBeenCalledWith('/direct-counters', { switch_id: 0, table_id: 7, table_entry: entry, reset: true }, expect.anything());
     expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it('excludes unsupported default-entry resets and labels the supported all-table scope', async () => {
+    context.initializedFiles = { capabilities: { direct_counters: { write: true, default_reset: false, reset_scope: 'non_default_entries' } } };
+    const entry = { table_name: 'forward', match_fields: {}, is_default_action: true };
+    const view = render(<DirectCounterReset tableID={7} tableEntry={entry} label="Reset default counter" />);
+    expect(screen.getByRole('button', { name: 'Reset default counter' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset default counter' }));
+    expect(axios.patch).not.toHaveBeenCalled();
+    view.rerender(<DirectCounterReset tableID={7} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reset non-default counters' }));
+    await flush();
+    expect(axios.patch).toHaveBeenCalledWith('/direct-counters', { switch_id: 0, table_id: 7, table_entry: null, reset: true }, expect.anything());
   });
 
   it('shows pending manual refresh while retaining counters, then polls quietly', async () => {

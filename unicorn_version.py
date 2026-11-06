@@ -74,7 +74,7 @@ def runtime_versions(component):
             result[name] = (process.stdout or process.stderr).strip()[:256]
         except (OSError, subprocess.SubprocessError):
             continue
-    for name in ("PI_REV", "MININET_REV", "BMV2_VERSION", "P4C_VERSION"):
+    for name in ("PI_REV", "MININET_REV", "BMV2_VERSION", "P4C_VERSION", "OPEN_P4STUDIO_REV", "TOFINO_P4C_REV"):
         if os.environ.get("UNICORN_" + name):
             result[name.lower()] = os.environ["UNICORN_" + name]
     if component == "netsim":

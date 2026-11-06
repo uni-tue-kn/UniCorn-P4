@@ -35,7 +35,8 @@ export function TopologyProvider({ children }) {
     const name = running ? topology.file_name : '', sameNetwork = currentNetwork.current === name;
     currentNetwork.current = name;
     setCurrentTopologyName(name);
-    setLoadedTopology(running ? topology : null);
+    setLoadedTopology(previous => running ? (sameNetwork && previous?.deployment_warnings?.length && !Object.hasOwn(topology, 'deployment_warnings')
+      ? { ...topology, deployment_warnings: previous.deployment_warnings } : topology) : null);
     const hosts = running ? topology.hosts : [], switches = running ? Object.keys(topology.switches) : [];
     const same = (a, b) => a.length === b.length && a.every((value, index) => value === b[index]);
     setLoadedHosts(previous => sameNetwork && same(previous, hosts) ? previous : [...hosts]);

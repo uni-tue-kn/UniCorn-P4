@@ -1,4 +1,5 @@
 from .endpoints.load_topology import LoadTopology
+from .endpoints.deploy_topology import DeployTopology, DeploymentStatus
 from .endpoints.get_topology import GetTopology
 from .endpoints.switchesonline import SwitchesOnline
 from .endpoints.logs import LogFile
@@ -119,8 +120,9 @@ class WebsocketManager:
         if not isinstance(message, dict):
             return
         target = message.get("target")
-        with self.mn_runner.lifecycle_lock:
-            cli = self.clis.get(target) if isinstance(target, str) else None
+        # Deployment closes adapters before replacing nodes. Do not queue input
+        # behind model startup: a closed/missing adapter reports unavailable.
+        cli = self.clis.get(target) if isinstance(target, str) else None
         if cli is None:
             self.socket.emit("response", json.dumps({"name": target,
                 "data": "Terminal is unavailable. Load a topology first.\n"}))
@@ -169,6 +171,8 @@ class MininetManager:
 
     def create_api(self):
         self.api = Api(self.app)
+        self.api.add_resource(DeployTopology, '/topology/deploy', resource_class_kwargs={'netsim': self.mn_runner, 'ws': self.socketio})
+        self.api.add_resource(DeploymentStatus, '/topology/deploy/<string:deployment_id>', resource_class_kwargs={'netsim': self.mn_runner, 'ws': self.socketio})
         self.api.add_resource(LoadTopology, '/topology/load', resource_class_kwargs={
                               "netsim": self.mn_runner, "ws": self.socketio})
         self.api.add_resource(GetTopology, '/topology/get', resource_class_kwargs={

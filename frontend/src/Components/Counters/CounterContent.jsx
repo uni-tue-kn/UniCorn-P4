@@ -15,6 +15,7 @@ const counterHelp = { index: 'Counter array cell selected by the P4 program.',
 export default function CounterContent({ counterId, counterName }) {
   const { currentSwitchID } = useSwitch();
   const { initializedFiles } = useInit() || {};
+  const writeAvailable = initializedFiles?.capabilities?.counters?.write !== false;
   const [entries, setEntries] = useState(null);
   const [samples, setSamples] = useState([]);
   const [error, setError] = useState('');
@@ -80,6 +81,7 @@ export default function CounterContent({ counterId, counterName }) {
   }, [currentSwitchID, counterId, indexFilter, live, refresh, resetting, begin, complete, fail, cancel]);
 
   async function reset(index) {
+    if (!writeAvailable) return;
     const selected = identity;
     const token = begin('reset');
     resetController.current?.abort();
@@ -110,12 +112,13 @@ export default function CounterContent({ counterId, counterName }) {
   });
   return <Box>
     <Typography variant="h5" gutterBottom sx={{ overflowWrap: 'anywhere' }}>{counterName}</Typography>
+    {!writeAvailable && <Alert severity="info" sx={{ mb: 2 }}>This connection allows reading. Changes are disabled.</Alert>}
     <Paper sx={{ p: { xs: 2, md: 3 } }}>
       <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <Button startIcon={<LoopIcon />} onClick={() => { manualRefresh.current = begin('refresh'); setRefresh(previous => previous + 1); }} disabled={currentSwitchID == null || resetting || feedback.pending}>{feedback.pending && feedback.action === 'refresh' ? 'Refreshing…' : 'Refresh'}</Button>
         <TextField label="Traffic index" size="small" value={indexFilter} onChange={event => setIndexFilter(event.target.value)} helperText="Leave empty to graph all entries combined" slotProps={{ htmlInput: { inputMode: 'numeric' } }} sx={{ maxWidth: '100%' }} />
         <FormControlLabel control={<Checkbox checked={live} onChange={event => setLive(event.target.checked)} />} label="Live traffic" />
-        <Button color="warning" onClick={() => reset(null)} disabled={currentSwitchID == null || resetting || feedback.pending || entries == null}>Reset all counters</Button>
+        <Button color="warning" onClick={() => reset(null)} disabled={!writeAvailable || currentSwitchID == null || resetting || feedback.pending || entries == null}>Reset all counters</Button>
       </Stack>
       <AsyncFeedback feedback={feedback} sx={{ mt: 1 }} />
       {(error || writeError) && <Alert severity="error" sx={{ mt: 2 }}>{writeError || error}</Alert>}
@@ -123,7 +126,7 @@ export default function CounterContent({ counterId, counterName }) {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Reset affects only this counter resource. Traffic can increment counters immediately after a reset. Polling pauses when this page is hidden.</Typography>
       {entries == null && !error && currentSwitchID != null ? <CircularProgress aria-label="Loading counters" /> : <TableContainer><Table aria-label={counterName}>
         <TableHead><TableRow>{['index', 'packets', 'bytes'].map(key => <TableCell key={key}><Tooltip title={counterHelp[key]} describeChild><TableSortLabel active={sort.key === key} direction={sort.ascending ? 'asc' : 'desc'} onClick={() => setSort({ key, ascending: sort.key === key ? !sort.ascending : true })}>{key[0].toUpperCase() + key.slice(1)}</TableSortLabel></Tooltip></TableCell>)}<TableCell>Actions</TableCell></TableRow></TableHead>
-        <TableBody>{sorted.map(entry => <TableRow key={entry.index} data-testid={`counter-row-${entry.index}`}><TableCell>{entry.index}</TableCell><TableCell>{entry.packets}</TableCell><TableCell>{entry.bytes}</TableCell><TableCell><Button aria-label={`Reset counter index ${entry.index}`} disabled={resetting || feedback.pending || currentSwitchID == null} onClick={() => reset(entry.index)}>Reset</Button></TableCell></TableRow>)}</TableBody>
+        <TableBody>{sorted.map(entry => <TableRow key={entry.index} data-testid={`counter-row-${entry.index}`}><TableCell>{entry.index}</TableCell><TableCell>{entry.packets}</TableCell><TableCell>{entry.bytes}</TableCell><TableCell><Button aria-label={`Reset counter index ${entry.index}`} disabled={!writeAvailable || resetting || feedback.pending || currentSwitchID == null} onClick={() => reset(entry.index)}>Reset</Button></TableCell></TableRow>)}</TableBody>
       </Table></TableContainer>}
     </Paper>
   </Box>;

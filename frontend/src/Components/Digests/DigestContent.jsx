@@ -62,6 +62,9 @@ function DigestEvent({ event, alias }) {
 export default function DigestContent() {
   const { currentSwitchID } = useSwitch();
   const { initializedFiles } = useInit();
+  const capability = initializedFiles?.capabilities?.digests;
+  const configurationAvailable = capability?.configure !== false && capability?.write !== false;
+  const captureAvailable = capability?.events !== false;
   const digests = useMemo(() => Object.values(initializedFiles?.digests || {}).sort((a, b) => a.name.localeCompare(b.name)), [initializedFiles]);
   const [selection, setSelection] = useState('');
   const digestID = digests.find(digest => String(digest.id) === selection)?.id ?? digests[0]?.id;
@@ -89,7 +92,7 @@ export default function DigestContent() {
   const values = draft?.key === key ? draft.values : defaults;
   const stream = streamState?.key === key ? streamState.value : null;
   const loadConfig = useCallback(async (signal, manual = false) => {
-    if (currentSwitchID == null || digestID == null) return;
+    if (currentSwitchID == null || digestID == null || !configurationAvailable) return;
     const token = beginConfig('refresh', { quiet: !manual });
     try {
       setLoading(true); setConfigurationError('');
@@ -103,9 +106,9 @@ export default function DigestContent() {
       if (!signal?.aborted && !axios.isCancel(err) && currentKey.current === key) { setConfigurationError(err.response?.data?.error || err.message); failConfig(token); } else cancelConfig(token);
       return false;
     } finally { if (!signal?.aborted && currentKey.current === key) setLoading(false); }
-  }, [currentSwitchID, digestID, key, beginConfig, completeConfig, failConfig, cancelConfig]);
+  }, [currentSwitchID, digestID, key, configurationAvailable, beginConfig, completeConfig, failConfig, cancelConfig]);
   const loadEvents = useCallback(async (signal, manual = false) => {
-    if (currentSwitchID == null || digestID == null) return;
+    if (currentSwitchID == null || digestID == null || !captureAvailable) return;
     if (eventRequest.current?.key === key) {
       if (manual) eventRequest.current.feedback = beginEvent('refresh');
       return;
@@ -124,7 +127,7 @@ export default function DigestContent() {
       if (!signal?.aborted && !axios.isCancel(err) && currentKey.current === key) { setEventError(err.response?.data?.error || err.message); failEvent(token.feedback); } else cancelEvent(token.feedback);
       return false;
     } finally { if (eventRequest.current === token) eventRequest.current = null; }
-  }, [currentSwitchID, digestID, key, beginEvent, completeEvent, failEvent, cancelEvent]);
+  }, [currentSwitchID, digestID, key, captureAvailable, beginEvent, completeEvent, failEvent, cancelEvent]);
   useEffect(() => {
     setConfigurationError(''); setConfirmDisable(false); setBusy(false);
     const controller = new AbortController(); loadConfig(controller.signal);
@@ -137,11 +140,12 @@ export default function DigestContent() {
   useEffect(() => {
     const controller = new AbortController();
     loadEvents(controller.signal);
-    const timer = autoRefresh ? setInterval(() => loadEvents(controller.signal), 2000) : null;
+    const timer = captureAvailable && autoRefresh ? setInterval(() => loadEvents(controller.signal), 2000) : null;
     return () => { controller.abort(); if (timer) clearInterval(timer); };
   }, [autoRefresh, loadEvents]);
   async function save(event) {
     event.preventDefault();
+    if (!configurationAvailable) return;
     let token;
     try {
       const next = validateDigestConfig(values);
@@ -153,6 +157,7 @@ export default function DigestContent() {
     finally { if (currentKey.current === key) setBusy(false); }
   }
   async function disable() {
+    if (!configurationAvailable) return;
     const token = beginConfig('disable');
     try {
       setBusy(true); setConfigurationError('');
@@ -162,6 +167,7 @@ export default function DigestContent() {
     finally { if (currentKey.current === key) setBusy(false); }
   }
   async function clearEvents() {
+    if (!captureAvailable) return;
     const token = beginEvent('clear');
     try {
       setBusy(true);
@@ -173,27 +179,29 @@ export default function DigestContent() {
   }
   return <Box>
     <Typography variant="h5" gutterBottom>Digests</Typography>
-    <Typography sx={{ mb: 2 }} color="text.secondary">Receive structured notifications emitted by the P4 program. Enable a digest, then send traffic that calls it.</Typography>
+    <Typography sx={{ mb: 2 }} color="text.secondary">{captureAvailable ? 'Receive structured notifications emitted by the P4 program.' : 'View digest definitions declared by the active program.'} {captureAvailable && (configurationAvailable ? 'Enable a digest, then send traffic that calls it.' : 'Send traffic that emits these notifications.')}</Typography>
     {digests.length === 0 ? <Alert severity="info">The initialized program declares no digests.</Alert> : <Stack spacing={3}>
       <TextField select label="Digest" value={digestID ?? ''} onChange={event => setSelection(String(event.target.value))} disabled={busy} sx={{ maxWidth: 600 }}>{digests.map(digest => <MenuItem key={digest.id} value={digest.id}>{digest.alias || digest.name} ({digest.id})</MenuItem>)}</TextField>
-      <Paper sx={{ p: 3 }}><Typography variant="h6" gutterBottom>Digest configuration</Typography>
+      {!configurationAvailable && <Alert severity="info">Digest delivery is managed by the switch. Timeout and list-size settings are unavailable.</Alert>}
+      {configurationAvailable && <Paper sx={{ p: 3 }}><Typography variant="h6" gutterBottom>Digest configuration</Typography>
         {!confirmDisable && <AsyncFeedback feedback={configurationFeedback} sx={{ mb: 1 }} />}
         {configurationError && <Alert severity="error" sx={{ mb: 2 }}>{configurationError}</Alert>}
         {loading && <CircularProgress aria-label="Loading digest configuration" size={24} />}
         <Typography sx={{ mb: 2 }}>{config ? 'Enabled' : config === null ? 'Disabled' : 'Loading configuration…'}</Typography>
         <form onSubmit={save}><Stack spacing={2} sx={{ maxWidth: 600 }}>{fields.map(([field, label, help]) => <TextField key={field} label={label} helperText={help} value={values[field]} required disabled={busy || loading} onChange={event => setDraft({ key, values: { ...values, [field]: event.target.value } })} />)}<Stack direction="row" spacing={1}><Button variant="contained" type="submit" disabled={busy || loading || config === undefined}>{configurationFeedback.pending && configurationFeedback.action === 'save' ? 'Saving…' : config ? 'Save configuration' : 'Enable digest'}</Button><Button onClick={() => setConfirmDisable(true)} disabled={busy || loading || !config}>Disable digest</Button><Button onClick={() => loadConfig(undefined, true)} disabled={busy || loading}>{configurationFeedback.pending && configurationFeedback.action === 'refresh' ? 'Refreshing…' : 'Refresh configuration'}</Button></Stack></Stack></form>
-      </Paper>
-      <Paper sx={{ p: 3 }}><Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap' }}><Typography variant="h6">Captured events</Typography><Button onClick={() => loadEvents(undefined, true)} disabled={busy || eventFeedback.pending}>{eventFeedback.pending && eventFeedback.action === 'refresh' ? 'Refreshing…' : 'Refresh events'}</Button><Button onClick={clearEvents} disabled={busy || eventFeedback.pending}>{eventFeedback.pending && eventFeedback.action === 'clear' ? 'Clearing…' : 'Clear events'}</Button><FormControlLabel control={<Switch checked={autoRefresh} disabled={busy || eventFeedback.pending} onChange={event => setAutoRefresh(event.target.checked)} />} label="Auto refresh" /></Stack>
+      </Paper>}
+      {!captureAvailable && <Alert severity="info">Event capture is unavailable on this switch.</Alert>}
+      {captureAvailable && <Paper sx={{ p: 3 }}><Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap' }}><Typography variant="h6">Captured events</Typography><Button onClick={() => loadEvents(undefined, true)} disabled={busy || eventFeedback.pending}>{eventFeedback.pending && eventFeedback.action === 'refresh' ? 'Refreshing…' : 'Refresh events'}</Button><Button onClick={clearEvents} disabled={busy || eventFeedback.pending}>{eventFeedback.pending && eventFeedback.action === 'clear' ? 'Clearing…' : 'Clear events'}</Button><FormControlLabel control={<Switch checked={autoRefresh} disabled={busy || eventFeedback.pending} onChange={event => setAutoRefresh(event.target.checked)} />} label="Auto refresh" /></Stack>
         <AsyncFeedback feedback={eventFeedback} sx={{ mb: 1 }} />
-        <Typography color="text.secondary" sx={{ mb: 2 }}>The controller captures and acknowledges digest lists while connected. This view keeps the latest 200 lists; the server retains up to 256 lists within 4 MiB. Events are cleared when the pipeline changes or the connection closes.</Typography>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>Digest lists are captured while connected. This view keeps the latest 200 lists. Events are cleared when the pipeline changes or the connection closes.</Typography>
         {eventError && <Alert severity="error" sx={{ mb: 2 }}>{eventError}</Alert>}
         {stream?.stream?.error && <Alert severity="warning" sx={{ mb: 2 }}>{stream.stream.error}</Alert>}
         {stream && (!stream.stream?.active || !stream.stream?.primary) && <Alert severity="warning" sx={{ mb: 2 }}>Digest capture requires an active primary controller connection.</Alert>}
         {stream?.dropped > 0 && <Alert severity="warning" sx={{ mb: 2 }}>{stream.dropped} list(s) were rejected or evicted from the capture buffer.</Alert>}
         {events.length === 0 && <Typography>No digest events captured.</Typography>}
         <Stack spacing={2}>{events.map(event => <DigestEvent key={event.sequence} event={event} alias={digests.find(digest => digest.id === event.digest_id)?.alias || digests.find(digest => digest.id === event.digest_id)?.name} />)}</Stack>
-      </Paper>
+      </Paper>}
     </Stack>}
-    <Dialog open={confirmDisable} onClose={() => !busy && setConfirmDisable(false)}><DialogTitle>Disable digest</DialogTitle><DialogContent>Stop notifications for this digest? Captured events remain available until cleared.<AsyncFeedback feedback={configurationFeedback} /></DialogContent><DialogActions><Button onClick={() => setConfirmDisable(false)} disabled={busy}>Cancel</Button><Button onClick={disable} disabled={busy}>{configurationFeedback.pending && configurationFeedback.action === 'disable' ? 'Disabling…' : 'Confirm disable'}</Button></DialogActions></Dialog>
+    <Dialog open={confirmDisable && configurationAvailable} onClose={() => !busy && setConfirmDisable(false)}><DialogTitle>Disable digest</DialogTitle><DialogContent>Stop notifications for this digest? Captured events remain available until cleared.<AsyncFeedback feedback={configurationFeedback} /></DialogContent><DialogActions><Button onClick={() => setConfirmDisable(false)} disabled={busy}>Cancel</Button><Button onClick={disable} disabled={busy}>{configurationFeedback.pending && configurationFeedback.action === 'disable' ? 'Disabling…' : 'Confirm disable'}</Button></DialogActions></Dialog>
   </Box>;
 }
