@@ -47,6 +47,19 @@ def test_tofino_derived_images_use_standard_hosted_jobs_and_prebuilt_sdk():
     assert 'architecture: [tofino, tofino2]' in workflow
     assert 'needs: [prepare, validate-compiler, validate-runtime]' in workflow
     assert 'TOFINO_CANDIDATE_COMMIT: ${{ needs.prepare.outputs.commit }}' in workflow
+    # The runner context is not available while GitHub evaluates job-level env.
+    lines = workflow.splitlines()
+    assert sum(line.strip() == 'WORKSHOP_DIR: ${{ runner.temp }}' for line in lines) == 1
+    assert sum(line.strip() == 'WORKSHOP_DIR: ${{ runner.temp }}/tofino-release-workshop'
+               for line in lines) == 2
+    in_job_env = False
+    for line in lines:
+        if line == '    env:':
+            in_job_env = True
+        elif in_job_env and line.startswith('    ') and not line.startswith('      '):
+            in_job_env = False
+        elif in_job_env:
+            assert 'runner.temp' not in line
     documentation = (ROOT / 'docker/tofino/README.md').read_text()
     assert '--build-arg SDK_IMAGE=build --build-arg BUILD_JOBS=16' in documentation
     assert 'bash scripts/validate-tofino-release.sh' in documentation

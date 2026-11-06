@@ -155,7 +155,6 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       TOFINO_VALIDATION_SCOPE: compiler
       TOFINO_COMPILER_IMAGE: unituekn/unicornp4-tofino-sdk:compiler-candidate-${{ needs.prepare.outputs.commit }}
-      WORKSHOP_DIR: ${{ runner.temp }}/tofino-release-workshop
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -166,12 +165,16 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Fetch pinned public native validation sources
+        env:
+          WORKSHOP_DIR: ${{ runner.temp }}/tofino-release-workshop
         run: |
           git init "$WORKSHOP_DIR"
           git -C "$WORKSHOP_DIR" fetch --depth 1 https://github.com/n1tr0-5urf3r/tofino-rbfrt-workshop.git 336f13b0291c913c58babf74bd7b1399d4391d13
           git -C "$WORKSHOP_DIR" checkout --detach FETCH_HEAD
           test "$(git -C "$WORKSHOP_DIR" rev-parse HEAD)" = 336f13b0291c913c58babf74bd7b1399d4391d13
       - name: Validate native compiler, packets, models, externs, and HTTP service
+        env:
+          WORKSHOP_DIR: ${{ runner.temp }}/tofino-release-workshop
         run: bash scripts/validate-tofino-release.sh
       - uses: actions/upload-artifact@v7.0.2
         if: always()
@@ -195,7 +198,6 @@ jobs:
       TOFINO_COMPILER_IMAGE: unituekn/unicornp4-tofino-sdk:compiler-candidate-${{ needs.prepare.outputs.commit }}
       TOFINO_NETSIM_IMAGE: unituekn/unicornp4-netsim:tofino-candidate-${{ needs.prepare.outputs.commit }}
       TOFINO_BACKEND_IMAGE: unituekn/unicornp4-backend:tofino-candidate-${{ needs.prepare.outputs.commit }}
-      WORKSHOP_DIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -206,6 +208,8 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Validate finished runtime and backend
+        env:
+          WORKSHOP_DIR: ${{ runner.temp }}
         run: bash scripts/validate-tofino-release.sh
       - uses: actions/upload-artifact@v7.0.2
         if: always()
