@@ -28,7 +28,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self.respond(200, {"status": "ready", "target": "tofino"})
         elif self.path == "/capabilities":
-            self.respond(200, {"target": "tofino", "architecture": "tna", "available": True})
+            self.respond(200, {"target": "tofino", "architecture": "tna", "architectures": ["tna", "t2na"], "available": True})
         else:
             self.respond(404, {"error": "Not found"})
 
@@ -55,7 +55,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(429, {"error": "Tofino compiler is busy", "stdout": "", "stderr": ""})
                 return
             acquired = True
-            manifest, command, stdout, stderr = compile_program(source, output, request.get("name"))
+            architecture = request.get("architecture", "tofino")
+            manifest, command, stdout, stderr = compile_program(source, output, request.get("name"), architecture=architecture)
             self.respond(200, {"manifest": manifest, "command": command, "stdout": stdout, "stderr": stderr})
         except (ValueError, KeyError, TypeError) as error:
             self.respond(400, {"error": str(error), "stdout": "", "stderr": ""})

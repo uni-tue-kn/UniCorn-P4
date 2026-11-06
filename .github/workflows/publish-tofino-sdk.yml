@@ -1,0 +1,82 @@
+name: Build and publish dual-generation Tofino SDK
+
+on:
+  # Source builds are deliberately manual and run only on the prepared VM.
+  # Ordinary pushes must never replace a published SDK tag.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unicorn-tofino-sdk
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, tofino]
+    timeout-minutes: 350
+    env:
+      OPEN_P4STUDIO_REV: 6d8b203700e3ca0f1208418072f88dc4a6a597e8
+      P4C_REV: ff5070480d76cd171df54051404f118d005fbf5e
+      SDK_TAG: unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Check native build capacity
+        run: |
+          python3 - <<'PY'
+          import pathlib, shutil
+          free = shutil.disk_usage('.').free
+          memory = int(next(line.split()[1] for line in pathlib.Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:'))) * 1024
+          if free < 60 * 1024**3 or memory < 48 * 1024**3:
+              raise SystemExit('The 16-job source build needs 60 GiB free disk and 48 GiB RAM. Use the prepared VM runner labelled tofino.')
+          PY
+          docker info > /dev/null
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: docker/tofino/Dockerfile
+          target: compiler
+          build-args: |
+            SDK_IMAGE=build
+            OPEN_P4STUDIO_REV=${{ env.OPEN_P4STUDIO_REV }}
+            P4C_REV=${{ env.P4C_REV }}
+            BUILD_JOBS=16
+          load: true
+          tags: unicorn-tofino-sdk-validation:ci
+          cache-from: type=gha,scope=tofino-dual-sdk
+          cache-to: type=gha,mode=max,scope=tofino-dual-sdk
+      - name: Test both Tofino model generations
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          docker run --rm --network none --cap-drop ALL --cap-add NET_ADMIN --cap-add NET_RAW \
+            --security-opt no-new-privileges:true \
+            -v "$PWD/tests/tofino:/tests:ro" -v "$PWD/examples/p4/tofino:/sources:ro" \
+            --entrypoint bash unicorn-tofino-sdk-validation:ci /tests/run_native.sh 2>&1 | tee test-results/tofino-dual-sdk.log
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: tofino-dual-sdk-results
+          path: test-results/tofino-dual-sdk.log
+          retention-days: 14
+      - uses: docker/login-action@v4.7.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: docker/tofino/Dockerfile
+          target: sdk
+          build-args: |
+            SDK_IMAGE=build
+            OPEN_P4STUDIO_REV=${{ env.OPEN_P4STUDIO_REV }}
+            P4C_REV=${{ env.P4C_REV }}
+            BUILD_JOBS=16
+          push: true
+          tags: ${{ env.SDK_TAG }}
+          cache-from: type=gha,scope=tofino-dual-sdk
+          cache-to: type=gha,mode=max,scope=tofino-dual-sdk

@@ -40,3 +40,16 @@ it('keeps switch tabs mounted and focused through background refreshes and layou
   expect(screen.getByRole('tab', { name: 's1' })).toBe(tab);
   expect(tab).toHaveFocus();
 });
+
+it('shows the active runtime target on every switch tab', () => {
+  online = true;
+  connections = [
+    { name: 's1', device_id: 0, target: 'tofino', target_options: { architecture: 'tofino' } },
+    { name: 's2', device_id: 1, target: 'tofino', target_options: { architecture: 'tofino2' } },
+    { name: 's3', device_id: 2, target: 'bmv2', target_options: {} },
+  ];
+  render(<MemoryRouter><ThemeProvider theme={createTheme()}><SwitchSelect /></ThemeProvider></MemoryRouter>);
+  expect(screen.getByRole('tab', { name: 's1' })).toHaveTextContent('Tofino 1');
+  expect(screen.getByRole('tab', { name: 's2' })).toHaveTextContent('Tofino 2');
+  expect(screen.getByRole('tab', { name: 's3' })).toHaveTextContent('BMv2');
+});

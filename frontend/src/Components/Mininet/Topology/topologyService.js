@@ -8,7 +8,7 @@ export function switchConfigs(topology) {
     const target = switchInfo.target ?? topology.switches[switchInfo.name]?.target ?? 'bmv2';
     if (!['bmv2', 'tofino'].includes(target) || !Number.isInteger(switchInfo.grpc_port) || switchInfo.grpc_port < 1 || switchInfo.grpc_port > 65535 || !Number.isInteger(switchInfo.dev_id) || switchInfo.dev_id < 0) throw new Error('The emulator returned invalid switch endpoints.');
     const config = { name: switchInfo.name, target, address: switchInfo.address || `127.0.0.1:${switchInfo.grpc_port}`, device_id: switchInfo.dev_id, proto_dump_file: `${switchInfo.name}_proto.log` };
-    if (target === 'tofino') return { ...config, target_options: { client_id: 0, pipe_id: 0, runtime_device_id: switchInfo.runtime_device_id ?? 0, ...(switchInfo.target_options || {}) } };
+    if (target === 'tofino') return { ...config, target_options: { client_id: 0, pipe_id: 0, runtime_device_id: switchInfo.runtime_device_id ?? 0, ...(switchInfo.target_options || {}), architecture: switchInfo.architecture || topology.switches[switchInfo.name]?.architecture || switchInfo.target_options?.architecture || 'tofino' } };
     return { ...config, register_adapter_enabled: false, register_thrift_host: switchInfo.thrift_port ? '127.0.0.1' : null, register_thrift_port: switchInfo.thrift_port ?? null };
   });
   if (new Set(configs.map(config => config.name)).size !== names.length) throw new Error('Not all switch endpoints are available. Reload active topology and connect missing switches in Switch Menu.');

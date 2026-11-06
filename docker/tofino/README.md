@@ -1,14 +1,54 @@
 # Tofino image builds
 
-Normal builds reuse the public SDK image:
+The optional SDK image is built on the prepared VM (or by manually dispatching
+the self-hosted `Build and publish dual-generation Tofino SDK` workflow) from
+pinned Open P4Studio source. Ordinary GitHub CI does not perform this expensive
+source build. Both Tofino model generations are smoke-tested before publishing:
 
 ```text
-ghcr.io/n1tr0-5urf3r/open-p4studio@sha256:1431aaa7183f30191c16fda9880dc916b3e73fc2db14e93dc45177a48291412c
+unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203
 ```
 
-Its source pair is Open P4Studio `caf41f60aab293e32ccdb85e292433acdb1849b1`
-and p4c `17ade03c106793ef0d3cd15a3f789de2760ed486` (compiler 1.2.5.4).
-Preparation verifies both Git revisions, their gitlink, and the compiler binary.
+Normal Dockerfile and Compose builds pin that publication immutably as
+`unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3`.
+The readable tag remains the maintainer publication and release-workflow input.
+
+The image includes the Tofino 1 and Tofino 2 compiler, BF Runtime, driver, and
+model. It is built from Open P4Studio
+`6d8b203700e3ca0f1208418072f88dc4a6a597e8` and p4c
+`ff5070480d76cd171df54051404f118d005fbf5e`; the Dockerfile verifies both
+revisions and their gitlink. Normal Compose builds only pull the prepared SDK.
+
+## Build and publish on the VM
+
+Authenticate with Docker Hub in the VM shell so credentials remain outside the
+repository, then build the validation image from the pinned source pair:
+
+```sh
+docker login
+docker build -f docker/tofino/Dockerfile --target compiler \
+  --build-arg SDK_IMAGE=build --build-arg BUILD_JOBS=16 \
+  -t unicorn-tofino-sdk-validation:local .
+docker run --rm --network none --cap-drop ALL --cap-add NET_ADMIN --cap-add NET_RAW \
+  --security-opt no-new-privileges:true \
+  -v "$PWD/tests/tofino:/tests:ro" -v "$PWD/examples/p4/tofino:/sources:ro" \
+  --entrypoint bash unicorn-tofino-sdk-validation:local /tests/run_native.sh
+```
+
+Only after both generations pass, reuse the cached source build to package and
+push the single dual-generation SDK image:
+
+```sh
+tag=unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203
+docker build -f docker/tofino/Dockerfile --target sdk \
+  --build-arg SDK_IMAGE=build --build-arg BUILD_JOBS=16 -t "$tag" .
+docker push "$tag"
+docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag"
+```
+
+Use the printed `repository@sha256:...` reference for immutable release builds.
+The optional release workflow also resolves its tag input to a digest before it
+builds any release image.
 
 From the repository root:
 
@@ -17,14 +57,13 @@ bash scripts/build-tofino.sh
 ```
 
 This builds matching application bases and adds the SDK. Docker skips the
-source-build stage. `TOFINO_SDK_IMAGE` can override the base image, but its
-revisions must match the Dockerfile pins. Changing SDK versions requires
-updating the matching source pins too.
+source-build stage. `TOFINO_SDK_IMAGE` can override the SDK image, but its
+Open P4Studio and p4c revisions must match the Dockerfile pins.
 
 | Target | Adds |
 | --- | --- |
-| `compiler` | P4 compilation service and built-in empty program |
-| `runtime` | Model/driver and private Python libraries on the Mininet image |
+| `compiler` | P4 compilation service and built-in empty programs for both generations |
+| `runtime` | Tofino 1 or Tofino 2 model/driver and private Python libraries on the Mininet image |
 | `backend` | TNA language-server headers on the standard backend |
 
 The compiler uses shared `P4_DIR` files through a private HTTP worker. Each
@@ -42,7 +81,7 @@ pull-only Compose override. Its frontend image is an alias of the same release's
 standard UI, promoted together with the Tofino images so `latest` versions stay
 aligned. See [native tests](../../tests/tofino/README.md).
 
-## Optional SDK source build
+## Updating SDK source pins
 
 Source compilation is for SDK upgrades. The separately verified newer source
 pair can be built with:
@@ -55,9 +94,10 @@ docker build -f docker/tofino/Dockerfile --target sdk \
   -t unicorn-tofino-sdk:source .
 ```
 
-The **Native Tofino source validation** workflow uses that explicit source pair.
-Budget 60 GiB free disk and 16 GiB RAM for clean builds. Dependency layers and
-compiler objects are cached. This is build headroom, not the installed SDK size.
+The manual source-build workflow uses the pinned Open P4Studio and p4c revisions
+above. Its 16-job configuration requires the prepared runner labelled `tofino`
+with 60 GiB free disk and 48 GiB RAM. Dependency layers and compiler objects are
+cached. This is build headroom, not the installed SDK size.
 
 Checked adaptations isolate the auxiliary CLI port, enable model-only DMA
 allocation without host hugepages, and limit dependency fetches to required

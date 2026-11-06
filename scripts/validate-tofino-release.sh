@@ -22,48 +22,71 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:t
 validation=$(mktemp -d)
 name="unicorn-tofino-release-${validation##*/}"
 volume="$name"
+containers=()
 cleanup() {
-    docker logs "$name" > test-results/tofino-release-runtime.log 2>&1 || true
-    docker cp "$name:/validation/run/." test-results/tofino-release-runtime > /dev/null 2>&1 || true
-    docker rm -f "$name" > /dev/null 2>&1 || true
+    for container in "${containers[@]}"; do
+        suffix=${container##*-}
+        docker logs "$container" > "test-results/tofino-release-runtime-${suffix}.log" 2>&1 || true
+        docker cp "$container:/validation/run-${suffix}/." "test-results/tofino-release-runtime-${suffix}" > /dev/null 2>&1 || true
+        docker rm -f "$container" > /dev/null 2>&1 || true
+    done
     docker volume rm "$volume" > /dev/null 2>&1 || true
     rmdir "$validation"
 }
 trap cleanup EXIT
 docker volume create "$volume" > /dev/null
-docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
-    -v "$PWD/tests/tofino:/tests:ro" -v "$volume:/validation" \
-    --entrypoint python3 "$compiler" -m runtime.tofino.compile /tests/structured_register.p4 \
-    --output /validation/structured --name unicorn_structured
-docker run -d --name "$name" --network none --cap-drop ALL --cap-add NET_ADMIN --cap-add NET_RAW \
-    --security-opt no-new-privileges:true -v "$volume:/validation" \
-    --entrypoint bash "$netsim" -ec '
-      for port in 0 1; do
-        ip link add "utrelease${port}" type veth peer name "utpeer${port}"
-        ip link set dev "utrelease${port}" addrgenmode none
-        ip link set dev "utpeer${port}" addrgenmode none
-        ip link set "utrelease${port}" up
-        ip link set "utpeer${port}" up
-      done
-      printf "%s\n" '\''{"PortToIf":[{"device_port":0,"if":"utrelease0"},{"device_port":1,"if":"utrelease1"}]}'\'' > /validation/ports.json
-      exec python3 -m runtime.tofino.supervisor --name release-validation \
-        --bundle /validation/structured --work-dir /validation/run \
-        --port-map /validation/ports.json --bfrt-port 50052 \
-        --model-port-base 18001 --status-port 17777
-    ' > /dev/null
-ready=false
-for attempt in {1..120}; do
-    if docker exec "$name" python3 -c 'import json; assert json.load(open("/validation/run/state.json"))["status"] == "ready"' > /dev/null 2>&1; then
-        ready=true
-        break
-    fi
-    if [[ "$(docker inspect --format '{{.State.Running}}' "$name")" == false ]]; then
-        echo 'Finished runtime model exited before becoming ready' >&2
-        exit 1
-    fi
-    sleep 2
-done
-[[ "$ready" == true ]] || { echo 'Finished runtime model did not become ready' >&2; exit 1; }
-docker run --rm --network "container:$name" --cap-drop ALL --security-opt no-new-privileges:true \
-    -e PYTHONPATH=/app -v "$PWD/tests/tofino:/tests:ro" --entrypoint python3 "$backend" \
-    /tests/structured_register_smoke.py
+validate_runtime() {
+    local architecture=$1 suffix=$2 program=$3 container="$name-$2"
+    local ingress_port=0 egress_port=1
+    if [[ "$architecture" == tofino2 ]]; then ingress_port=8; egress_port=9; fi
+    containers+=("$container")
+    docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
+        -v "$PWD/tests/tofino:/tests:ro" -v "$volume:/validation" \
+        --entrypoint python3 "$compiler" -m runtime.tofino.compile /tests/structured_register.p4 \
+        --output "/validation/structured-$suffix" --name "$program" --architecture "$architecture"
+    docker run -d --name "$container" --network none --cap-drop ALL --cap-add NET_ADMIN --cap-add NET_RAW \
+        --security-opt no-new-privileges:true -v "$volume:/validation" \
+        -e UNICORN_ARCHITECTURE="$architecture" -e UNICORN_BUNDLE="/validation/structured-$suffix" \
+        -e UNICORN_SUFFIX="$suffix" -e UNICORN_INGRESS_PORT="$ingress_port" -e UNICORN_EGRESS_PORT="$egress_port" \
+        --entrypoint bash "$netsim" -ec '
+          for port in 0 1; do
+            ip link add "utrelease${port}" type veth peer name "utpeer${port}"
+            ip link set dev "utrelease${port}" addrgenmode none
+            ip link set dev "utpeer${port}" addrgenmode none
+            ip link set "utrelease${port}" up
+            ip link set "utpeer${port}" up
+          done
+          printf '\''{"PortToIf":[{"device_port":%d,"if":"utrelease0"},{"device_port":%d,"if":"utrelease1"}]}\n'\'' \
+            "$UNICORN_INGRESS_PORT" "$UNICORN_EGRESS_PORT" > "/validation/ports-${UNICORN_SUFFIX}.json"
+          exec python3 -m runtime.tofino.supervisor --name "release-validation-${UNICORN_SUFFIX}" \
+            --bundle "$UNICORN_BUNDLE" --architecture "$UNICORN_ARCHITECTURE" \
+            --work-dir "/validation/run-${UNICORN_SUFFIX}" \
+            --port-map "/validation/ports-${UNICORN_SUFFIX}.json" --bfrt-port 50052 \
+            --model-port-base 18001 --status-port 17777
+        ' > /dev/null
+    local ready=false
+    for attempt in {1..120}; do
+        if docker exec "$container" python3 -c "import json; assert json.load(open('/validation/run-$suffix/state.json'))['status'] == 'ready'" > /dev/null 2>&1; then
+            ready=true
+            break
+        fi
+        if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == false ]]; then
+            echo "Finished $architecture runtime model exited before becoming ready" >&2
+            exit 1
+        fi
+        sleep 2
+    done
+    [[ "$ready" == true ]] || { echo "Finished $architecture runtime model did not become ready" >&2; exit 1; }
+    docker run --rm --network "container:$container" --cap-drop ALL --security-opt no-new-privileges:true \
+        -e PYTHONPATH=/app -e UNICORN_NATIVE_ARCHITECTURE="$architecture" -e UNICORN_NATIVE_PROGRAM="$program" \
+        -v "$PWD/tests/tofino:/tests:ro" --entrypoint python3 "$backend" \
+        /tests/structured_register_smoke.py
+    docker logs "$container" > "test-results/tofino-release-runtime-${suffix}.log" 2>&1 || true
+    docker cp "$container:/validation/run-${suffix}/." "test-results/tofino-release-runtime-${suffix}" > /dev/null 2>&1 || true
+    docker rm -f "$container" > /dev/null
+    local last_index=$((${#containers[@]} - 1))
+    unset "containers[$last_index]"
+}
+
+validate_runtime tofino t1 unicorn_structured
+validate_runtime tofino2 t2 unicorn_structured_t2

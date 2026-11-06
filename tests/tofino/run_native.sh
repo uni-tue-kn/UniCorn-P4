@@ -39,12 +39,16 @@ for port in 0 1; do
   ip link set "utmodel${port}" up
   ip link set "uttest${port}" up
 done
-printf '%s\n' '{"PortToIf":[{"device_port":0,"if":"utmodel0"},{"device_port":1,"if":"utmodel1"}]}' > "${TEST_ROOT}/ports.json"
 run_program() {
-  local source_path=$1 program_name=$2 test_script=$3
-  python3 -m runtime.tofino.compile "${source_path}" --output "${TEST_ROOT}/${program_name}" --name "${program_name}"
+  local source_path=$1 program_name=$2 test_script=$3 architecture=${4:-tofino}
+  local ingress_port=0 egress_port=1
+  if [[ "$architecture" == tofino2 ]]; then ingress_port=8; egress_port=9; fi
+  printf '{"PortToIf":[{"device_port":%d,"if":"utmodel0"},{"device_port":%d,"if":"utmodel1"}]}\n' \
+    "$ingress_port" "$egress_port" > "${TEST_ROOT}/ports-${architecture}.json"
+  python3 -m runtime.tofino.compile "${source_path}" --output "${TEST_ROOT}/${program_name}" --name "${program_name}" --architecture "$architecture"
   python3 -m runtime.tofino.supervisor --name "${program_name}" --bundle "${TEST_ROOT}/${program_name}" \
-    --work-dir "${TEST_ROOT}/${program_name}-run" --port-map "${TEST_ROOT}/ports.json" \
+    --architecture "$architecture" \
+    --work-dir "${TEST_ROOT}/${program_name}-run" --port-map "${TEST_ROOT}/ports-${architecture}.json" \
     --bfrt-port 50052 --model-port-base 18001 --status-port 17777 &
   SUPERVISOR_PID=$!
   python3 - "${TEST_ROOT}/${program_name}-run/state.json" <<'PY'
@@ -61,11 +65,13 @@ for _ in range(1200):
 else:
     raise SystemExit('Native model initialization timed out')
 PY
-  python3 "/tests/${test_script}"
+  UNICORN_NATIVE_INGRESS_PORT="$ingress_port" UNICORN_NATIVE_EGRESS_PORT="$egress_port" \
+    python3 "/tests/${test_script}"
   stop_supervisor
   SUPERVISOR_PID=
 }
 run_program /sources/resources.p4 unicorn_resources native_smoke.py
+UNICORN_NATIVE_PROGRAM=unicorn_resources_t2 run_program /sources/resources.p4 unicorn_resources_t2 native_smoke.py tofino2
 python3 - "${TEST_ROOT}/priority.p4" <<'PY'
 from pathlib import Path
 import sys

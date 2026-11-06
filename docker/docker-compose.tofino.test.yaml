@@ -6,7 +6,7 @@ services:
       dockerfile: docker/tofino/Dockerfile
       target: backend
       args:
-        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-ghcr.io/n1tr0-5urf3r/open-p4studio@sha256:1431aaa7183f30191c16fda9880dc916b3e73fc2db14e93dc45177a48291412c}
+        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3}
     environment:
       TOFINO_COMPILER_URL: http://127.0.0.1:8080
   netsim:
@@ -15,7 +15,7 @@ services:
       dockerfile: docker/tofino/Dockerfile
       target: runtime
       args:
-        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-ghcr.io/n1tr0-5urf3r/open-p4studio@sha256:1431aaa7183f30191c16fda9880dc916b3e73fc2db14e93dc45177a48291412c}
+        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3}
     volumes:
       - test-p4:/p4:ro
   frontend:
@@ -28,7 +28,7 @@ services:
       dockerfile: docker/tofino/Dockerfile
       target: compiler
       args:
-        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-ghcr.io/n1tr0-5urf3r/open-p4studio@sha256:1431aaa7183f30191c16fda9880dc916b3e73fc2db14e93dc45177a48291412c}
+        SDK_IMAGE: ${TOFINO_SDK_IMAGE:-unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3}
     network_mode: service:netsim
     environment:
       P4_DIR: /p4

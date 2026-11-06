@@ -226,6 +226,8 @@ class MininetRunner:
         for properties in topo['switches'].values():
             if not isinstance(properties, dict) or properties.get('target', 'bmv2') not in ('bmv2', 'tofino'):
                 raise ValueError('Switch target must be bmv2 or tofino')
+            if properties.get('target', 'bmv2') == 'tofino' and properties.get('architecture', 'tofino') not in ('tofino', 'tofino2'):
+                raise ValueError('Tofino architecture must be tofino or tofino2')
         names = topo['hosts'] + list(topo['switches'])
         if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*[0-9]', name) for name in names):
             raise ValueError("Node names must be alphanumeric and end with a numeric ID")
@@ -265,7 +267,9 @@ class MininetRunner:
                 raise ValueError(f"Switch {switch} requires interface {interface}, exceeding Linux's 15-character limit.")
         if any(properties.get('target', 'bmv2') == 'tofino' for properties in topo['switches'].values()):
             from runtime.tofino.supervisor import check_available
-            check_available()
+            for architecture in sorted({properties.get('architecture', 'tofino') for properties in topo['switches'].values()
+                                        if properties.get('target', 'bmv2') == 'tofino'}):
+                check_available(architecture=architecture)
         return {"hosts": topo['hosts'], "switches": topo['switches'], "layout": layout,
                 "links": links,
                 "ext_intfs": ext_intfs}
@@ -463,7 +467,8 @@ class MininetRunner:
                  "thrift_port": s.thrift_port, "name": s.name, "target": target,
                  "address": f"127.0.0.1:{s.grpc_port}", "status": "ready"}
             if target == 'tofino':
-                d.update(runtime_device_id=0, target_options=s.target_options)
+                d.update(runtime_device_id=0, architecture=getattr(s, 'architecture', 'tofino'),
+                         target_options=s.target_options)
             switch_mappings.append(d) 
         return switch_mappings
 
@@ -531,6 +536,7 @@ class MininetRunner:
             if properties.get('target', 'bmv2') == 'tofino':
                 options = dict(device_id=index, grpc_port=51051 + index,
                                model_port_base=18000 + index * 16, status_port=17000 + index,
+                               architecture=properties.get('architecture', 'tofino'),
                                progress=self.switch_progress)
                 # Program installation is performed by the control plane after
                 # connecting; each model first boots the bundled empty program.

@@ -11,7 +11,7 @@
 * Read-only connections to external Tofino switches alongside their existing controller, with automatic program discovery and writes blocked in the UI and backend.
 * New switch connections automatically suggest the next available local ID, with a manual override.
 * Optional Tofino release images with version and `latest` tags, a native validation gate before publishing, and a pull-only Compose override in the deployment archive.
-* Tofino builds use the pinned public `n1tr0-5urf3r/open-p4studio` SDK image by default. Source compilation remains an explicit maintainer option.
+* Tofino builds use a digest-pinned `unituekn/unicornp4-tofino-sdk` image containing both Tofino generations. SDK source compilation and publication remain explicit maintainer operations on the prepared VM.
 
 ### Changed
 
@@ -28,7 +28,7 @@
 * Editing saved switch connections preserves the target, target options and register-adapter settings.
 * Late BF Runtime stream readers cannot overwrite the replacement connection's state.
 * Native IPv6 values encode correctly, and read-only table fields no longer block entry edits or restores.
-* Automatic target detection skips unavailable includes and rejects unsupported Tofino 2 programs before compilation.
+* Automatic target detection skips unavailable includes and selects the matching Tofino 1 or Tofino 2 compiler architecture.
 * Topology deployment bounds every request and the complete operation, with retries for transient polling failures.
 * Local pipeline validation failures preserve the active program. Failed native reconnects clean up their streams and can be retried.
 * Failed emulator starts clean up partial networks and finish asynchronous jobs, including legacy `SystemExit` failures. Switch IDs and control ports follow Mininet's natural order.

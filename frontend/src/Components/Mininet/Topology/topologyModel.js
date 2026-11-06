@@ -3,6 +3,9 @@ import { autoLayout } from './topologyLayout';
 export const emptyDraft = () => ({ hosts: [], switches: {}, links: [], layout: {} });
 export const nodeNames = draft => [...draft.hosts, ...Object.keys(draft.switches)];
 export const switchTarget = properties => properties && Object.hasOwn(properties, 'target') ? properties.target : 'bmv2';
+export const switchTypeLabel = properties => switchTarget(properties) === 'tofino'
+  ? ((properties?.architecture || 'tofino') === 'tofino2' ? 'Tofino 2' : 'Tofino 1')
+  : 'BMv2';
 export const numericId = name => Number(name.match(/\d+$/)?.[0]);
 const object = value => value != null && typeof value === 'object' && !Array.isArray(value);
 
@@ -14,6 +17,7 @@ export function validateDraft(draft) {
   if (new Set(names).size !== names.length) return 'Each node needs a unique name.';
   if (Object.values(draft.switches).some(value => !object(value))) return 'Switch properties must be objects.';
   if (Object.values(draft.switches).some(value => !['bmv2', 'tofino'].includes(switchTarget(value)))) return 'Switch target must be BMv2 or Tofino model.';
+  if (Object.values(draft.switches).some(value => switchTarget(value) === 'tofino' && !['tofino', 'tofino2'].includes(value.architecture || 'tofino'))) return 'Tofino architecture must be Tofino 1 or Tofino 2.';
   for (const [group, maximum] of [[draft.hosts, 254], [Object.keys(draft.switches), 255]]) {
     const ids = group.map(numericId);
     if (ids.some(id => id < 1 || id > maximum)) return 'Host IDs must be 1..254 and switch IDs 1..255.';

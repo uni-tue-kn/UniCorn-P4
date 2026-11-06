@@ -77,6 +77,9 @@ class TofinoTarget:
             raise ValueError("Keeping entries across a Tofino pipeline replacement is not supported")
         if bundle.get("target") != self.target:
             raise ValueError("Program bundle target does not match switch target")
+        selected_architecture = (self.config.get("target_options") or {}).get("architecture", "tofino")
+        if bundle.get("architecture", "tofino") != selected_architecture:
+            raise ValueError(f"Program architecture does not match this {selected_architecture} switch")
         validate_bundle_scope(bundle, self.client.pipe_id)
         with self.operation_lock:
             try:

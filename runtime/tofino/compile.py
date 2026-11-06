@@ -9,17 +9,19 @@ import subprocess
 import signal
 
 
-def compile_program(source, output, name=None, timeout=300):
+def compile_program(source, output, name=None, timeout=300, architecture="tofino"):
     source, output = Path(source).resolve(), Path(output).resolve()
     name = name or source.stem
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name):
         raise ValueError("Program name must be a P4 identifier, at most 64 characters")
+    if architecture not in ("tofino", "tofino2"):
+        raise ValueError("Architecture must be tofino or tofino2")
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output directory must be empty")
     output.mkdir(parents=True, exist_ok=True)
     install = Path(os.environ.get("SDE_INSTALL", "/opt/open-p4studio/install"))
     compiler = os.environ.get("UNICORN_TOFINO_COMPILER", str(install / "bin/bf-p4c"))
-    command = [compiler, "--target", "tofino", "--arch", "tna", "--std", "p4-16",
+    command = [compiler, "--target", architecture, "--arch", "tna" if architecture == "tofino" else "t2na", "--std", "p4-16",
                     "--program-name", name, "-o", str(output), str(source)]
     with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                           start_new_session=True) as process:
@@ -43,7 +45,7 @@ def compile_program(source, output, name=None, timeout=300):
         (output / "bfrt.json").rename(output / "bf-rt.json")
     profiles = []
     for context in sorted(output.glob("*/context.json")):
-        binary = context.parent / "tofino.bin"
+        binary = context.parent / ("tofino.bin" if architecture == "tofino" else "tofino2.bin")
         if not binary.is_file():
             raise ValueError(f"Missing compiler artifact {binary}")
         profiles.append({"profile_name": context.parent.name,
@@ -54,7 +56,7 @@ def compile_program(source, output, name=None, timeout=300):
         raise ValueError("Compiler did not produce BFRT metadata and a Tofino pipeline")
     if len(profiles) != 1:
         raise ValueError("Only one pipeline is supported per UniCorn switch")
-    manifest = {"target": "tofino", "program_name": name, "bfrt_json": "bf-rt.json",
+    manifest = {"target": "tofino", "architecture": architecture, "program_name": name, "bfrt_json": "bf-rt.json",
                 "profiles": profiles}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     shutil.copyfile(source, output / "source.p4")
@@ -66,8 +68,9 @@ def main():
     parser.add_argument("source")
     parser.add_argument("--output", required=True)
     parser.add_argument("--name")
+    parser.add_argument("--architecture", choices=("tofino", "tofino2"), default="tofino")
     args = parser.parse_args()
-    manifest, command, stdout, stderr = compile_program(args.source, args.output, args.name)
+    manifest, command, stdout, stderr = compile_program(args.source, args.output, args.name, architecture=args.architecture)
     print(stdout, end="")
     import sys
     print(stderr, end="", file=sys.stderr)

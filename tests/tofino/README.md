@@ -10,9 +10,26 @@ Use `E2E_SKIP_BUILD=true` for already built test images, or
 
 `native_smoke.py` runs with the official SDK's `bfrt_grpc.client` Python paths,
 program `unicorn_resources`, BFRT endpoint 127.0.0.1:50052, and veth peers
-`uttest0`/`uttest1` connected to native ports 0/1. It writes forwarding, register,
-counter and meter resources and checks a real60-byte Ethernet frame and native
+`uttest0`/`uttest1` connected to native ports 0/1 for Tofino 1 or 8/9 for
+Tofino 2. It writes forwarding, register,
+counter and meter resources and checks a real 60-byte Ethernet frame and native
 register/counter changes. It is intentionally not a mocked unit test.
+
+Fresh dual-generation SDK verification passed on 2026-11-06:
+
+* Open P4Studio `6d8b203700e3ca0f1208418072f88dc4a6a597e8` and matching
+  p4c `ff5070480d76cd171df54051404f118d005fbf5e` built one SDK image containing
+  both model/compiler families.
+* The real Tofino 1 model forwarded a 60-byte frame from device port 0 to 1;
+  the real Tofino 2 model forwarded the same frame from its front-panel ports
+  8 to 9. Each run updated register cell 7 from 100 to 101, counted one packet
+  and 64 bytes, and returned the configured meter state.
+* The Tofino 1 priority case and official-SDK structured-register test also
+  passed. The complete runner ended with
+  `PASS: native compiler/model/driver lifecycle smoke`.
+* The validated image was published as
+  `unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203` and normal builds pin
+  digest `sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3`.
 
 Fresh pinned official-source verification passed on 2026-11-04:
 

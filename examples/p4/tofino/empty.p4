@@ -1,5 +1,9 @@
 #include <core.p4>
+#if __TARGET_TOFINO__ == 2
+#include <t2na.p4>
+#else
 #include <tna.p4>
+#endif
 
 header ethernet_t { bit<48> dst; bit<48> src; bit<16> ether_type; }
 struct headers_t { ethernet_t ethernet; }
@@ -48,7 +52,13 @@ control Ingress(inout headers_t hdr, inout metadata_t md,
     action measure() { md.color = packet_meter.execute(md.index); }
     table metering { size = 1; actions = { measure; } const default_action = measure(); }
     apply {
+#if __TARGET_TOFINO__ == 2
+        // Tofino 2's model does not transmit this minimal program reliably in
+        // warp mode. Run its ordinary egress pipeline instead.
+        tm_md.bypass_egress = 0;
+#else
         tm_md.bypass_egress = 1;
+#endif
         forwarding.apply();
         tracking.apply();
         metering.apply();
@@ -59,13 +69,20 @@ control IngressDeparser(packet_out pkt, inout headers_t hdr, in metadata_t md,
     apply { pkt.emit(hdr); }
 }
 parser EgressParser(packet_in pkt, out headers_t hdr, out metadata_t md,
-    out egress_intrinsic_metadata_t intrinsic) { state start { md.packets = 0; md.index = 0; md.color = 0; transition accept; } }
+    out egress_intrinsic_metadata_t intrinsic) {
+    state start {
+        md.packets = 0; md.index = 0; md.color = 0;
+        pkt.extract(intrinsic);
+        transition ethernet;
+    }
+    state ethernet { pkt.extract(hdr.ethernet); transition accept; }
+}
 control Egress(inout headers_t hdr, inout metadata_t md,
     in egress_intrinsic_metadata_t intrinsic,
     in egress_intrinsic_metadata_from_parser_t parser_md,
     inout egress_intrinsic_metadata_for_deparser_t deparser_md,
     inout egress_intrinsic_metadata_for_output_port_t output_md) { apply {} }
 control EgressDeparser(packet_out pkt, inout headers_t hdr, in metadata_t md,
-    in egress_intrinsic_metadata_for_deparser_t deparser_md) { apply {} }
+    in egress_intrinsic_metadata_for_deparser_t deparser_md) { apply { pkt.emit(hdr); } }
 Pipeline(IngressParser(), Ingress(), IngressDeparser(), EgressParser(), Egress(), EgressDeparser()) pipe;
 Switch(pipe) main;

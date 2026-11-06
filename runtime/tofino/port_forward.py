@@ -1,6 +1,7 @@
 """Expose a loopback BFRT listener across a Mininet network namespace."""
 import argparse
 import ctypes
+import json
 import os
 import signal
 import socket
@@ -62,13 +63,16 @@ def main():
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(endpoint(args.listen))
     listener.listen(64)
+    bound_host, bound_port = listener.getsockname()[:2]
     if args.ready_file:
-        Path(args.ready_file).write_text(str(os.getpid()))
+        Path(args.ready_file).write_text(json.dumps({
+            'pid': os.getpid(), 'host': bound_host, 'port': bound_port,
+        }))
     listener.settimeout(0.5)
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
-    print(f'BFRT relay ready at {args.listen}', flush=True)
+    print(f'BFRT relay ready at {bound_host}:{bound_port}', flush=True)
     try:
         while not stop.is_set():
             try:

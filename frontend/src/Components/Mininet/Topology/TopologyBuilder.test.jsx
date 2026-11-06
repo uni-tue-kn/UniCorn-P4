@@ -57,10 +57,29 @@ describe('topology builder', () => {
     await choose(user, 'Switch target', 'BMv2');
     await user.click(screen.getByRole('button', { name: 'Select switch s1' }));
     await choose(user, 'Switch target', 'Tofino model');
+    await user.click(screen.getAllByRole('combobox', { name: 'Tofino generation' }).at(-1));
+    await user.click(await screen.findByRole('option', { name: 'Tofino 2' }));
     await saveDraft(user);
     await waitFor(() => expect(axios.post).toHaveBeenCalled());
     const saved = axios.post.mock.calls[0][1].topology;
-    expect(saved.switches).toEqual({ s1: { target: 'tofino' }, s2: { target: 'bmv2' } });
+    expect(saved.switches).toEqual({ s1: { target: 'tofino', architecture: 'tofino2' }, s2: { target: 'bmv2' } });
+  });
+
+  it('shows each switch target and Tofino generation on the topology canvas', () => {
+    context.loadedTopology = {
+      hosts: ['h1'],
+      switches: {
+        s1: {},
+        s2: { target: 'tofino', architecture: 'tofino' },
+        s3: { target: 'tofino', architecture: 'tofino2' },
+      },
+      links: [],
+      file_name: '/topologies/mixed-targets.json',
+    };
+    render(<TopologyBuilder />);
+    expect(within(screen.getByRole('button', { name: 'Select switch s1' })).getByText('BMv2')).toBeVisible();
+    expect(within(screen.getByRole('button', { name: 'Select switch s2' })).getByText('Tofino 1')).toBeVisible();
+    expect(within(screen.getByRole('button', { name: 'Select switch s3' })).getByText('Tofino 2')).toBeVisible();
   });
 
   it('deleting a switch cascades its links, layout and external interfaces', () => {

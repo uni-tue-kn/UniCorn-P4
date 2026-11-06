@@ -13,23 +13,35 @@ from scripts.package_release import compose, tofino_compose
 
 ROOT = Path(__file__).resolve().parents[2]
 SDK = 'unituekn/unicornp4-tofino-sdk@sha256:' + 'a' * 64
-PUBLIC_SDK = ('ghcr.io/n1tr0-5urf3r/open-p4studio@sha256:'
-              '1431aaa7183f30191c16fda9880dc916b3e73fc2db14e93dc45177a48291412c')
+PUBLIC_SDK_TAG = 'unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203'
+PUBLIC_SDK = 'unituekn/unicornp4-tofino-sdk@sha256:b6a4c770c9c483a2b125e4de4c3d32eb7d046a6e69648c534707ac7a655904a3'
 
 
 def test_prebuilt_sdk_and_release_defaults_match_verified_source_pair():
     dockerfile = (ROOT / 'docker/tofino/Dockerfile').read_text()
     defaults = dict(re.findall(r'^ARG (\w+)=(.+)$', dockerfile, re.MULTILINE))
     assert defaults['SDK_IMAGE'] == PUBLIC_SDK
-    assert defaults['OPEN_P4STUDIO_REV'] == 'caf41f60aab293e32ccdb85e292433acdb1849b1'
-    assert defaults['P4C_REV'] == '17ade03c106793ef0d3cd15a3f789de2760ed486'
+    assert defaults['OPEN_P4STUDIO_REV'] == '6d8b203700e3ca0f1208418072f88dc4a6a597e8'
+    assert defaults['P4C_REV'] == 'ff5070480d76cd171df54051404f118d005fbf5e'
     workflow = (ROOT / '.github/workflows/tofino-release.yml').read_text()
     sdk_input = workflow.split('      sdk_image:\n', 1)[1].split('\npermissions:', 1)[0]
-    assert f'        default: {PUBLIC_SDK}\n' in sdk_input
+    assert f'        default: {PUBLIC_SDK_TAG}\n' in sdk_input
+    assert 'Resolve the published SDK tag to an immutable digest' in workflow
     source_ci = (ROOT / '.github/workflows/tofino.yml').read_text()
     assert 'SDK_IMAGE=build\n' in source_ci
     assert 'OPEN_P4STUDIO_REV=6d8b203700e3ca0f1208418072f88dc4a6a597e8\n' in source_ci
     assert 'P4C_REV=ff5070480d76cd171df54051404f118d005fbf5e\n' in source_ci
+
+
+def test_dual_sdk_publication_is_manual_and_uses_the_prepared_runner_capacity():
+    workflow = (ROOT / '.github/workflows/publish-tofino-sdk.yml').read_text()
+    trigger = workflow.split('on:\n', 1)[1].split('\npermissions:', 1)[0]
+    assert 'workflow_dispatch:' in trigger
+    assert 'push:' not in trigger
+    assert "runs-on: [self-hosted, linux, x64, tofino]" in workflow
+    assert 'memory < 48 * 1024**3' in workflow
+    assert workflow.count('BUILD_JOBS=16') == 2
+    assert f'SDK_TAG: {PUBLIC_SDK_TAG}' in workflow
 
 
 @pytest.mark.parametrize('base,override,services', [
@@ -78,6 +90,8 @@ if name == 'docker' and os.environ.get('FAIL_NATIVE') and '/tests/run_native.sh'
 if name == 'docker' and os.environ.get('FAIL_RUNTIME'):
     if args[0] == 'exec': sys.exit(1)
     if args[0] == 'inspect': print('false')
+if name == 'docker' and args[:2] == ['image', 'inspect']:
+    print(os.environ.get('REPO_DIGESTS', ''))
 ''')
         executable.chmod(0o755)
     environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'],
@@ -105,6 +119,25 @@ def run(shell, script, **overrides):
 def calls(shell):
     path = shell[2]
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+def test_sdk_tag_resolution_handles_registry_ports_and_existing_digests(shell):
+    digest = 'b' * 64
+    tagged = 'registry.example:5000/team/sdk:dual'
+    immutable = f'registry.example:5000/team/sdk@sha256:{digest}'
+    result = run(shell, 'resolve-image-digest.sh', SDK_REF=tagged,
+                 REPO_DIGESTS='unrelated/sdk@sha256:' + 'a' * 64 + '\n' + immutable)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == immutable
+    assert ['docker', 'pull', tagged] in calls(shell)
+    assert ['docker', 'image', 'inspect', '--format',
+            '{{range .RepoDigests}}{{println .}}{{end}}', tagged] in calls(shell)
+
+    shell[2].write_text('')
+    result = run(shell, 'resolve-image-digest.sh', SDK_REF=immutable)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == immutable
+    assert calls(shell) == [['docker', 'pull', immutable]]
 
 
 def test_guard_requires_stable_matching_tag_on_main_and_immutable_sdk(shell):
@@ -173,13 +206,17 @@ def test_native_gate_exercises_final_images_and_cleans_private_state(shell):
     native = next(call for call in recorded if '/tests/run_native.sh' in call)
     assert 'unituekn/unicornp4-compiler-tofino:1.2.0' in native
     assert native[native.index('--network') + 1] == 'none'
-    runtime = next(call for call in recorded if 'unituekn/unicornp4-netsim-tofino:1.2.0' in call)
-    name = runtime[runtime.index('--name') + 1]
-    adapter = next(call for call in recorded if '/tests/structured_register_smoke.py' in call)
-    assert 'unituekn/unicornp4-backend-tofino:1.2.0' in adapter
-    assert adapter[adapter.index('--network') + 1] == f'container:{name}'
-    assert ['docker', 'rm', '-f', name] in recorded
-    assert ['docker', 'volume', 'rm', name] in recorded
+    runtimes = [call for call in recorded if 'unituekn/unicornp4-netsim-tofino:1.2.0' in call]
+    assert len(runtimes) == 2
+    names = [runtime[runtime.index('--name') + 1] for runtime in runtimes]
+    assert any('UNICORN_ARCHITECTURE=tofino2' in call for call in runtimes)
+    adapters = [call for call in recorded if '/tests/structured_register_smoke.py' in call]
+    assert len(adapters) == 2
+    assert all('unituekn/unicornp4-backend-tofino:1.2.0' in adapter for adapter in adapters)
+    assert {adapter[adapter.index('--network') + 1] for adapter in adapters} == {f'container:{name}' for name in names}
+    assert any('UNICORN_NATIVE_ARCHITECTURE=tofino2' in call for call in adapters)
+    assert all(['docker', 'rm', '-f', name] in recorded for name in names)
+    assert ['docker', 'volume', 'rm', names[0].rsplit('-', 1)[0]] in recorded
     assert not any('--publish' in call or '--privileged' in call or 'host' in call for call in recorded)
 
 
@@ -196,7 +233,7 @@ def test_exited_runtime_fails_fast_and_cleans_disposable_state(shell):
     runtime = next(call for call in recorded if 'unituekn/unicornp4-netsim-tofino:1.2.0' in call)
     name = runtime[runtime.index('--name') + 1]
     assert ['docker', 'rm', '-f', name] in recorded
-    assert ['docker', 'volume', 'rm', name] in recorded
+    assert ['docker', 'volume', 'rm', name.rsplit('-', 1)[0]] in recorded
     assert not any('/tests/structured_register_smoke.py' in call for call in recorded)
 
 

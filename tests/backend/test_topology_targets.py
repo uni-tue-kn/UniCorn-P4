@@ -11,6 +11,14 @@ def test_legacy_and_mixed_switch_properties_roundtrip():
     assert topology['switches']['s2']['program'] == 'saved-build'
 
 
+def test_tofino2_generation_roundtrips_and_invalid_generation_is_rejected():
+    topology = {'hosts': [], 'switches': {'s1': {'target': 'tofino', 'architecture': 'tofino2'}}, 'links': []}
+    assert validate_topology(topology)['switches']['s1']['architecture'] == 'tofino2'
+    topology['switches']['s1']['architecture'] = 'tofino3'
+    with pytest.raises(ValueError, match='Tofino architecture'):
+        validate_topology(topology)
+
+
 @pytest.mark.parametrize('target', [None, 'other', 1, [], {}])
 def test_invalid_target_rejected(target):
     with pytest.raises(ValueError, match='Switch target'):

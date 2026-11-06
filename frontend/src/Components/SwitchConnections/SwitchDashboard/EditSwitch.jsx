@@ -22,12 +22,13 @@ function EditSwitch({ open, setOpen, editConfig, id }) {
 
         if (configField === 'target') {
             newSwitchConfig.target = configValue;
-            newSwitchConfig.target_options = configValue === 'tofino' ? { runtime_device_id: 0, pipe_id: 0, client_id: 0 } : {};
+            newSwitchConfig.target_options = configValue === 'tofino' ? { runtime_device_id: 0, pipe_id: 0, client_id: 0, architecture: 'tofino' } : {};
             if (configValue === 'tofino') Object.assign(newSwitchConfig, { register_adapter_enabled: false, register_thrift_host: null, register_thrift_port: null });
             else Object.assign(newSwitchConfig, { register_adapter_enabled: false, register_thrift_host: '', register_thrift_port: 9090 });
         }
         else if (configField.startsWith('target_options.')) {
-            newSwitchConfig.target_options = { ...newSwitchConfig.target_options, [configField.slice('target_options.'.length)]: event.target.type === 'checkbox' ? event.target.checked : configValue === '' ? '' : Number(configValue) };
+            const field = configField.slice('target_options.'.length);
+            newSwitchConfig.target_options = { ...newSwitchConfig.target_options, [field]: field === 'architecture' ? configValue : event.target.type === 'checkbox' ? event.target.checked : configValue === '' ? '' : Number(configValue) };
         }
         else if (configField === 'register_adapter_enabled') {
             newSwitchConfig[configField] = event.target.checked;
@@ -56,7 +57,7 @@ function EditSwitch({ open, setOpen, editConfig, id }) {
         newSwitchConfig.register_thrift_port = event.target.value.thrift_port ?? 9090;
 
         newSwitchConfig.target = event.target.value.target || 'bmv2';
-        newSwitchConfig.target_options = event.target.value.target_options || (newSwitchConfig.target === 'tofino' ? { runtime_device_id: 0, pipe_id: 0, client_id: 0 } : {});
+        newSwitchConfig.target_options = event.target.value.target_options || (newSwitchConfig.target === 'tofino' ? { runtime_device_id: 0, pipe_id: 0, client_id: 0, architecture: 'tofino' } : {});
         if (newSwitchConfig.target === 'tofino') Object.assign(newSwitchConfig, { register_thrift_host: null, register_thrift_port: null });
         setSwitchConfig(newSwitchConfig);
     }    

@@ -12,7 +12,7 @@ on:
       sdk_image:
         description: SDK image override matching the release Dockerfile pins
         required: false
-        default: ghcr.io/n1tr0-5urf3r/open-p4studio@sha256:1431aaa7183f30191c16fda9880dc916b3e73fc2db14e93dc45177a48291412c
+        default: unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203
         type: string
 
 permissions:
@@ -36,9 +36,6 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify trusted stable release and immutable SDK reference
-        id: release
-        run: bash scripts/prepare-tofino-release.sh
       - name: Require completed standard release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,6 +47,15 @@ jobs:
           assert not release['isDraft'] and not release['isPrerelease'], 'A published stable release is required'
           assert any(a['name'] == 'UniCorn-P4.tar.gz' for a in release['assets']), 'Standard release archive is missing'
           PY
+      - name: Resolve the published SDK tag to an immutable digest
+        env:
+          SDK_REF: ${{ inputs.sdk_image }}
+        run: |
+          digest=$(bash scripts/resolve-image-digest.sh "$SDK_REF")
+          echo "TOFINO_SDK_IMAGE=$digest" >> "$GITHUB_ENV"
+      - name: Verify trusted stable release and immutable SDK reference
+        id: release
+        run: bash scripts/prepare-tofino-release.sh
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ steps.release.outputs.commit }}

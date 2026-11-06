@@ -6,7 +6,9 @@ import time
 import bfrt_grpc.client as gc
 
 priority_check = os.environ.get('UNICORN_NATIVE_PRIORITY') == 'true'
-program_name = 'unicorn_priority' if priority_check else 'unicorn_resources'
+program_name = os.environ.get('UNICORN_NATIVE_PROGRAM', 'unicorn_priority' if priority_check else 'unicorn_resources')
+ingress_port = int(os.environ.get('UNICORN_NATIVE_INGRESS_PORT', '0'))
+egress_port = int(os.environ.get('UNICORN_NATIVE_EGRESS_PORT', '1'))
 interface = gc.ClientInterface(grpc_addr='127.0.0.1:50052', client_id=77, device_id=0)
 interface.bind_pipeline_config(program_name)
 info = interface.bfrt_info_get(program_name)
@@ -18,12 +20,12 @@ if priority_check:
     # group. Larger UI priorities 1, 2 and 2**24 map to smaller native values.
     for priority, index in ((1, 6), (2, 8), (1 << 24, 7)):
         forward.entry_add(target, [forward.make_key([
-            gc.KeyTuple('intrinsic.ingress_port', 0, mask=511),
+            gc.KeyTuple('intrinsic.ingress_port', ingress_port, mask=511),
             gc.KeyTuple('$MATCH_PRIORITY', (1 << 24) - priority)])],
-            [forward.make_data([gc.DataTuple('port', 1), gc.DataTuple('index', index)], 'Ingress.forward')])
+            [forward.make_data([gc.DataTuple('port', egress_port), gc.DataTuple('index', index)], 'Ingress.forward')])
 else:
-    forward.entry_add(target, [forward.make_key([gc.KeyTuple('intrinsic.ingress_port', 0)])],
-                      [forward.make_data([gc.DataTuple('port', 1), gc.DataTuple('index', 7)], 'Ingress.forward')])
+    forward.entry_add(target, [forward.make_key([gc.KeyTuple('intrinsic.ingress_port', ingress_port)])],
+                      [forward.make_data([gc.DataTuple('port', egress_port), gc.DataTuple('index', 7)], 'Ingress.forward')])
 register = info.table_get('Ingress.packet_register')
 key = register.make_key([gc.KeyTuple('$REGISTER_INDEX', 7)])
 field = register.info.data_field_name_list_get()[0]
@@ -61,5 +63,6 @@ counts = list(counter.entry_get(target, [ckey], {'from_hw': True}))[0][0].to_dic
 assert counts['$COUNTER_SPEC_PKTS'] == 1, counts
 assert counts['$COUNTER_SPEC_BYTES'] >= len(packet), counts
 print(json.dumps({'forwarded_bytes': len(received), 'register_pipe_values': values, 'counter': counts, 'meter': meter_read,
+                  'ingress_port': ingress_port, 'egress_port': egress_port,
                   'priority_check': priority_check, 'result': 'PASS'}, indent=2))
 interface.tear_down_stream()

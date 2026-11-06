@@ -267,7 +267,7 @@ describe('Save & Compile', () => {
     expect(axios.post).not.toHaveBeenCalled();
     await act(async () => { second.resolve({ data: { revision: revision('c') } }); await compiling; });
     expect(axios.patch.mock.calls.map(([, data]) => data.path)).toEqual(['main.p4', 'src/headers.p4']);
-    expect(axios.post).toHaveBeenCalledWith('/compile', { file: '/p4/main.p4' });
+    expect(axios.post).toHaveBeenCalledWith('/compile', { file: '/p4/main.p4', target: 'auto', architecture: 'tofino' });
     expect(editor.compileStatus).toBe('success');
     expect(editor.output).toContain('Generated pipeline');
     expect(editor.dirty).toEqual([]);
@@ -352,7 +352,7 @@ describe('Save & Compile', () => {
     const command = `['p4c', "/p4/O'Brien program.p4", '--target', 'bmv2']`;
     axios.post.mockResolvedValueOnce({ data: { command, stdout: '', stderr: "/p4/O'Brien program.p4(4): warning: unused declaration" } });
     expect(await call('compile')).toBe(true);
-    expect(axios.post).toHaveBeenCalledWith('/compile', { file: "/p4/O'Brien program.p4" });
+    expect(axios.post).toHaveBeenCalledWith('/compile', { file: "/p4/O'Brien program.p4", target: 'auto', architecture: 'tofino' });
     expect(editor.output).toContain(command);
     expect(editor.diagnostics[0]).toMatchObject({ path, line: 4, severity: 'warning' });
   });

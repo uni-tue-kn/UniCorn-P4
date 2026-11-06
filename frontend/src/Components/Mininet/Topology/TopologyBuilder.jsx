@@ -11,7 +11,7 @@ import { TOPOLOGY_DRAFT_STORAGE_KEY, useTopology } from '../../../Contexts/Topol
 import { useSwitch } from '../../../Contexts/SwitchContext';
 import { useSnackbar } from '../../../Contexts/SnackbarContext';
 import { autoLayout } from './topologyLayout';
-import { deploymentFilename, emptyDraft, liveLinkLabels, nodeNames, normalizeTopology, numericId, removeNode, renameNode, safeFilename, switchTarget, validateDraft, validateDeployableTopology, validateHostLinkChange } from './topologyModel';
+import { deploymentFilename, emptyDraft, liveLinkLabels, nodeNames, normalizeTopology, numericId, removeNode, renameNode, safeFilename, switchTarget, switchTypeLabel, validateDraft, validateDeployableTopology, validateHostLinkChange } from './topologyModel';
 import { clearTopology, deployTopology } from './topologyService';
 
 export { removeNode, renameNode, validateDraft } from './topologyModel';
@@ -43,6 +43,7 @@ export default function TopologyBuilder() {
   const [canvasSize, setCanvasSize] = useState(() => boundsFor(initial.topology));
   const [importName, setImportName] = useState('');
   const [newSwitchTarget, setNewSwitchTarget] = useState('bmv2');
+  const [newSwitchArchitecture, setNewSwitchArchitecture] = useState('tofino');
   const [deploymentProgress, setDeploymentProgress] = useState('');
   const [selected, setSelected] = useState('');
   const [nameInput, setNameInput] = useState('');
@@ -115,7 +116,7 @@ export default function TopologyBuilder() {
     while (group.some(name => numericId(name) === id) || names.includes(prefix + id)) id++;
     if (id > (kind === 'host' ? 254 : 255)) { setError('No automatic ID is available; rename an existing node first.'); return; }
     const name = prefix + id, point = { x: 100 + (names.length % 5) * 150, y: 100 + Math.floor(names.length / 5) * 110 };
-    change({ ...draft, hosts: kind === 'host' ? [...draft.hosts, name] : draft.hosts, switches: kind === 'switch' ? { ...draft.switches, [name]: newSwitchTarget === 'bmv2' ? {} : { target: newSwitchTarget } } : draft.switches, layout: { ...draft.layout, [name]: point } });
+    change({ ...draft, hosts: kind === 'host' ? [...draft.hosts, name] : draft.hosts, switches: kind === 'switch' ? { ...draft.switches, [name]: newSwitchTarget === 'bmv2' ? {} : { target: newSwitchTarget, architecture: newSwitchArchitecture } } : draft.switches, layout: { ...draft.layout, [name]: point } });
     setCanvasSize(size => ({ width: Math.max(size.width, point.x + 70), height: Math.max(size.height, point.y + 70) }));
     setSelectedLink(null); select(name);
   }
@@ -293,6 +294,7 @@ export default function TopologyBuilder() {
     <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
       <Button disabled={busy} variant="outlined" onClick={() => addNode('host')}>Add host</Button>
       <TextField select label="New switch target" value={newSwitchTarget} disabled={busy} onChange={event => setNewSwitchTarget(event.target.value)} size="small" sx={{ minWidth: 160 }}><MenuItem value="bmv2">BMv2</MenuItem><MenuItem value="tofino">Tofino model</MenuItem></TextField>
+      {newSwitchTarget === 'tofino' && <TextField select label="Tofino generation" value={newSwitchArchitecture} disabled={busy} onChange={event => setNewSwitchArchitecture(event.target.value)} size="small" sx={{ minWidth: 150 }}><MenuItem value="tofino">Tofino 1</MenuItem><MenuItem value="tofino2">Tofino 2</MenuItem></TextField>}
       <Button disabled={busy} variant="outlined" onClick={() => addNode('switch')}>Add switch</Button>
       <Button disabled={busy || names.length < 2} variant={drawingLink ? 'contained' : 'outlined'} startIcon={<AddLinkIcon />} aria-pressed={drawingLink} onClick={startLink}>Add link</Button>
       {drawingLink && <Button onClick={cancelLink}>Cancel link</Button>}
@@ -349,7 +351,7 @@ export default function TopologyBuilder() {
               }}>
               {host ? <circle r="27" fill="#e3f2fd" stroke={stroke} strokeWidth={active || hover ? 4 : 2} /> : <rect x="-34" y="-24" width="68" height="48" rx="6" fill="#e8f5e9" stroke={stroke} strokeWidth={active || hover ? 4 : 2} />}
               {linkSource === name && <circle r="36" fill="none" stroke="#1565c0" strokeWidth="2" strokeDasharray="4 3" />}
-              <text textAnchor="middle" y="5" fill="#172b38" fontSize="15" fontWeight="600" pointerEvents="none">{name}</text><text textAnchor="middle" y="44" fill="currentColor" fontSize="12" pointerEvents="none">{host ? 'Host' : 'Switch'}</text>
+              <text textAnchor="middle" y="5" fill="#172b38" fontSize="15" fontWeight="600" pointerEvents="none">{name}</text><text textAnchor="middle" y="44" fill="currentColor" fontSize="12" pointerEvents="none">{host ? 'Host' : switchTypeLabel(draft.switches[name])}</text>
             </g>;
           })}
           {live && Object.values(loadedTopology.interface_mapping || {}).flat().filter(entry => entry.type === 'external' && draft.switches[entry.node]).map(entry => {
@@ -375,7 +377,8 @@ export default function TopologyBuilder() {
       </Paper>}
       {!drawingLink && selected && <Paper component="section" aria-label="Node properties" variant="outlined" sx={{ p: 2, minWidth: 0 }}><Stack spacing={2}>
         <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}><Typography variant="subtitle1">{selected}</Typography><IconButton aria-label="Close node properties" size="small" onClick={() => select('')}><CloseIcon fontSize="small" /></IconButton></Stack>
-        {Object.hasOwn(draft.switches, selected) && <TextField select label="Switch target" value={switchTarget(draft.switches[selected])} disabled={busy} onChange={event => change({ ...draft, switches: { ...draft.switches, [selected]: { ...draft.switches[selected], target: event.target.value } } })} size="small" fullWidth><MenuItem value="bmv2">BMv2</MenuItem><MenuItem value="tofino">Tofino model</MenuItem></TextField>}
+        {Object.hasOwn(draft.switches, selected) && <><TextField select label="Switch target" value={switchTarget(draft.switches[selected])} disabled={busy} onChange={event => { const previous = draft.switches[selected]; const target = event.target.value; const properties = { ...previous, target }; if (target === 'bmv2') delete properties.architecture; else properties.architecture ||= 'tofino'; change({ ...draft, switches: { ...draft.switches, [selected]: properties } }); }} size="small" fullWidth><MenuItem value="bmv2">BMv2</MenuItem><MenuItem value="tofino">Tofino model</MenuItem></TextField>
+        {switchTarget(draft.switches[selected]) === 'tofino' && <TextField select label="Tofino generation" value={draft.switches[selected].architecture || 'tofino'} disabled={busy} onChange={event => change({ ...draft, switches: { ...draft.switches, [selected]: { ...draft.switches[selected], architecture: event.target.value } } })} size="small" fullWidth><MenuItem value="tofino">Tofino 1</MenuItem><MenuItem value="tofino2">Tofino 2</MenuItem></TextField>}</>}
         <TextField label="Node name" value={nameInput} disabled={busy} onChange={event => setNameInput(event.target.value)} size="small" helperText="Up to 10 characters; end with a unique numeric ID" fullWidth /><Button disabled={busy} variant="outlined" onClick={applyName}>Apply name</Button><Button disabled={busy} color="error" onClick={deleteSelected}>Delete node</Button><Typography variant="caption" color="text.secondary">Drag the node or use arrow keys to move it.</Typography>
       </Stack></Paper>}
     </Box>

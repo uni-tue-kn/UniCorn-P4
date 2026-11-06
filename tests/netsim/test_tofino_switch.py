@@ -12,19 +12,28 @@ def test_forwarder_waits_for_its_own_bind_confirmation(tmp_path, monkeypatch):
     instance = switch()
     instance.work_dir = SimpleNamespace(name=str(tmp_path))
     instance.log_file = str(tmp_path / 'switch.log')
+    commands = []
     def start(command, **kwargs):
-        Path(command[command.index('--ready-file') + 1]).write_text('123')
+        commands.append(command)
+        Path(command[command.index('--ready-file') + 1]).write_text(json.dumps({
+            'pid': 123, 'host': '127.0.0.1', 'port': 53123,
+        }))
         return Mock(pid=123, poll=Mock(return_value=None))
     monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.subprocess.Popen', start)
     TofinoSwitch.start_forwarder(instance)
     assert instance.forwarder.pid == 123
+    assert instance.grpc_port == 53123
+    assert commands[0][commands[0].index('--listen') + 1] == '127.0.0.1:0'
+    assert commands[0][commands[0].index('--upstream') + 1] == '127.0.0.1:51052'
 
 
 def test_stale_ready_file_does_not_confirm_a_different_forwarder(tmp_path, monkeypatch):
     instance = switch()
     instance.work_dir = SimpleNamespace(name=str(tmp_path))
     instance.log_file = str(tmp_path / 'switch.log')
-    (tmp_path / 'forwarder.ready').write_text('456')
+    (tmp_path / 'forwarder.ready').write_text(json.dumps({
+        'pid': 456, 'host': '127.0.0.1', 'port': 53123,
+    }))
     monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.subprocess.Popen', lambda *args, **kwargs: Mock(pid=123, poll=Mock(return_value=None)))
     monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.monotonic', Mock(side_effect=[0, 0, 11]))
     monkeypatch.setattr('netsim.api.netsim.utils.tofino_switch.sleep', lambda _: None)
@@ -37,7 +46,9 @@ def switch():
     instance.name = 's2'
     instance.pid = 321
     instance.device_id = 5
-    instance.grpc_port = 51052
+    instance.architecture = 'tofino'
+    instance.bfrt_port = 51052
+    instance.grpc_port = None
     instance.model_port_base = 18016
     instance.status_port = 17001
     instance.bundle = '/bundles/empty'
@@ -62,6 +73,13 @@ def test_model_ports_are_zero_based_and_skip_loopback():
         switch().device_port(65)
 
 
+def test_tofino2_model_ports_start_at_first_front_panel_port():
+    instance = switch()
+    instance.architecture = 'tofino2'
+    assert instance.port_mapping() == {'PortToIf': [
+        {'device_port': 8, 'if': 's2-eth1'}, {'device_port': 10, 'if': 's2-eth3'}]}
+
+
 def test_each_switch_owns_a_supervisor_and_private_state(monkeypatch):
     instance = switch()
     process = Mock()
@@ -71,6 +89,7 @@ def test_each_switch_owns_a_supervisor_and_private_state(monkeypatch):
     instance.read_state = Mock(return_value={'status': 'ready'})
     instance.start([])
     arguments = popen.call_args.args[0]
+    assert arguments[arguments.index('--architecture') + 1] == 'tofino'
     assert arguments[arguments.index('--device-id') + 1] == '0'
     assert arguments[arguments.index('--bfrt-port') + 1] == '51052'
     path = Path(arguments[arguments.index('--port-map') + 1])

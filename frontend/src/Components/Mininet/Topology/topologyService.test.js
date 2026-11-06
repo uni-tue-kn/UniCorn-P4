@@ -102,21 +102,21 @@ describe('topology deployment boundaries', () => {
     expect(axios.post).toHaveBeenCalledTimes(2);
   });
   it('connects mixed targets with distinct logical and native identities', () => {
-    const configs = switchConfigs({ switches: { s1: {}, s2: { target: 'tofino' } }, switches_online: [
+    const configs = switchConfigs({ switches: { s1: {}, s2: { target: 'tofino', architecture: 'tofino2' } }, switches_online: [
       ...active().switches_online,
       { name: 's2', target: 'tofino', dev_id: 9, runtime_device_id: 0, grpc_port: 51052, target_options: { pipe_id: 0, client_id: 0 } },
     ] });
     expect(configs[0]).toMatchObject({ target: 'bmv2', address: '127.0.0.1:50057' });
-    expect(configs[1]).toMatchObject({ target: 'tofino', device_id: 9, address: '127.0.0.1:51052', target_options: { pipe_id: 0, runtime_device_id: 0 } });
+    expect(configs[1]).toMatchObject({ target: 'tofino', device_id: 9, address: '127.0.0.1:51052', target_options: { pipe_id: 0, runtime_device_id: 0, architecture: 'tofino2' } });
     expect(configs[1].register_thrift_port).toBeUndefined();
     expect(configs[1].runtime_device_id).toBeUndefined();
   });
   it('keeps discovered native runtime identity inside target options and preserves explicit scope', () => {
     const topology = { switches: { s1: { target: 'tofino' } }, switches_online: [{ name: 's1', target: 'tofino', dev_id: 7, grpc_port: 51051, runtime_device_id: 3 }] };
-    expect(switchConfigs(topology)[0].target_options).toEqual({ runtime_device_id: 3, pipe_id: 0, client_id: 0 });
+    expect(switchConfigs(topology)[0].target_options).toEqual({ runtime_device_id: 3, pipe_id: 0, client_id: 0, architecture: 'tofino' });
     topology.switches_online[0].target_options = { runtime_device_id: 5, pipe_id: 2, client_id: 9 };
     const configured = switchConfigs(topology)[0];
-    expect(configured.target_options).toEqual({ runtime_device_id: 5, pipe_id: 2, client_id: 9 });
+    expect(configured.target_options).toEqual({ runtime_device_id: 5, pipe_id: 2, client_id: 9, architecture: 'tofino' });
     expect(configured.runtime_device_id).toBeUndefined();
   });
   it('reports partial deployment when switch connection fails', async () => {

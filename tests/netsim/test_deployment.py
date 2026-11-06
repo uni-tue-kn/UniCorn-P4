@@ -143,7 +143,7 @@ def test_unavailable_model_keeps_running_topology_and_terminals(tmp_path, monkey
     response = app.test_client().post(endpoint, json={'topology_file': str(candidate)})
     assert response.status_code == 400
     assert reason in response.json['error']
-    available.assert_called_once_with()
+    available.assert_called_once_with(architecture='tofino')
     ws.close_clis.assert_not_called()
     runner.destroy_topology.assert_not_called()
     assert runner.net is old_network

@@ -193,6 +193,8 @@ const targetOptionFields = [
 export function validatedSwitchConfig(config) {
   if (config.target !== 'tofino') return config;
   const options = { ...config.target_options };
+  if (!['tofino', 'tofino2'].includes(options.architecture || 'tofino')) throw new Error('Choose Tofino 1 or Tofino 2.');
+  options.architecture ||= 'tofino';
   if (options.read_only !== undefined && typeof options.read_only !== 'boolean') throw new Error('Read-only connection must be enabled or disabled.');
   for (const [field, label, maximum] of targetOptionFields) {
     const value = options[field] ?? 0;
@@ -287,7 +289,8 @@ export function switchInput(switchConfig, switchesOnline, handler, handlerDropdo
       {target === 'tofino' && <Accordion disableGutters>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>Advanced connection</AccordionSummary>
         <AccordionDetails><Stack spacing={2}>
-          <Typography variant="body2" color="text.secondary">The model uses zero for these settings. Set an explicit scope when connecting to another switch.</Typography>
+          <Typography variant="body2" color="text.secondary">Select the ASIC generation. For external switches, set their connection scope below.</Typography>
+          <TextField select label="Tofino generation" name="target_options.architecture" value={switchConfig.target_options?.architecture || 'tofino'} onChange={handler} size="small"><MenuItem value="tofino">Tofino 1</MenuItem><MenuItem value="tofino2">Tofino 2</MenuItem></TextField>
           {targetOptionFields.map(([field, label, maximum]) => <TextField key={field} type="number" label={label} name={`target_options.${field}`} value={switchConfig.target_options?.[field] ?? 0} required onChange={handler} size="small" helperText={field === 'client_id' ? `Choose an unused client ID (0–${maximum}).` : `0–${maximum}`} slotProps={{ htmlInput: { min: 0, max: maximum, step: 1, inputMode: 'numeric' } }} />)}
         </Stack></AccordionDetails>
       </Accordion>}

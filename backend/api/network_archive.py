@@ -321,14 +321,15 @@ def _capture_native(switch, files, prefix, deadline):
     if not path:
         raise ValueError('Native pipeline build is unknown; initialize a workspace program bundle before export')
     bundle = validate_bundle(path)
-    portable = {'target': 'tofino', 'program_name': bundle['program_name'], 'bfrt_json': 'bf-rt.json', 'profiles': []}
+    portable = {'target': 'tofino', 'architecture': bundle.get('architecture', 'tofino'), 'program_name': bundle['program_name'], 'bfrt_json': 'bf-rt.json', 'profiles': []}
     files[prefix + '/bf-rt.json'] = Path(bundle['bfrt_json']).read_bytes()
     # Fixed-function descriptors are native metadata, never fabricated P4Info.
     program_ids = {table['id'] for table in switch.p4_helper.raw.get('tables', [])}
     files[prefix + '/fixed.json'] = json_bytes({'tables': [table for table in switch.p4_helper.tables if table['id'] not in program_ids]})
     portable['fixed_json'] = 'fixed.json'
     for index, profile in enumerate(bundle['profiles']):
-        context, binary = f'profile-{index}/context.json', f'profile-{index}/tofino.bin'
+        binary_name = 'tofino.bin' if bundle.get('architecture', 'tofino') == 'tofino' else 'tofino2.bin'
+        context, binary = f'profile-{index}/context.json', f'profile-{index}/{binary_name}'
         files[prefix + '/' + context] = Path(profile['context']).read_bytes()
         files[prefix + '/' + binary] = Path(profile['binary']).read_bytes()
         portable['profiles'].append({'profile_name': profile['profile_name'], 'context': context, 'binary': binary,
@@ -511,6 +512,9 @@ def _validate_native(record, pipeline, files):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(raw)
         resolved = validate_bundle(str(root / manifest_path), root=root)
+    configured_architecture = (record['config'].get('target_options') or {}).get('architecture', 'tofino')
+    if resolved.get('architecture', 'tofino') != configured_architecture:
+        raise ValueError('Archived Tofino generation does not match its pipeline bundle')
     portable = json_load(files[manifest_path])
     fixed = safe_path(str(PurePosixPath(manifest_path).parent / portable['fixed_json']))
     if fixed not in files or not fixed.startswith(prefix):
@@ -1067,8 +1071,11 @@ def validate_archive(raw):
         if record['kind'] == 'emulated':
             if topology is None or record['name'] not in topology['switches'] or record['name'] in emulated_names:
                 raise ValueError('Emulated switch does not match a unique topology node')
-            if topology['switches'][record['name']].get('target', 'bmv2') != config['target']:
+            topology_switch = topology['switches'][record['name']]
+            if topology_switch.get('target', 'bmv2') != config['target']:
                 raise ValueError('Archived switch target does not match its topology node')
+            if config['target'] == 'tofino' and topology_switch.get('architecture', 'tofino') != (config.get('target_options') or {}).get('architecture', 'tofino'):
+                raise ValueError('Archived Tofino generation does not match its topology node')
             emulated_names.add(record['name'])
         pipeline, entities, info, state = record.get('pipeline'), {}, None, None
         if pipeline is not None:
@@ -1192,6 +1199,9 @@ def deployment_options(stage, body):
         config = normalize_adapter_config(dict(config, name=config.get('name', external[key]['record']['name']), proto_dump_file=None))
         if config['target'] != external[key]['record']['config'].get('target', 'bmv2'):
             raise ValueError('External target mapping must match the archived switch target')
+        archived_options = external[key]['record']['config'].get('target_options') or {}
+        if config['target'] == 'tofino' and (config.get('target_options') or {}).get('architecture', 'tofino') != archived_options.get('architecture', 'tofino'):
+            raise ValueError('External target mapping must match the archived Tofino generation')
         if config['device_id'] in ids:
             raise ValueError('Explicit external targets must have distinct device IDs')
         ids.add(config['device_id'])

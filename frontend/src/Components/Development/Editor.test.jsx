@@ -101,6 +101,18 @@ it('saves modified buffers before compilation and presents compiler output and f
   expect(screen.getByRole('tab', { name: 'Switch to main.p4' })).toHaveAttribute('aria-selected', 'true');
 });
 
+it('sends an explicit Tofino 2 compiler selection', async () => {
+  const user = userEvent.setup(); mount();
+  await user.click(await screen.findByRole('button', { name: 'Open main.p4' }));
+  await user.click(screen.getByRole('combobox', { name: 'Compile for' }));
+  await user.click(screen.getByRole('option', { name: 'Tofino 2' }));
+  await user.click(screen.getByRole('button', { name: 'Compile', exact: true }));
+  await screen.findByText('Compilation completed');
+  expect(axios.post).toHaveBeenCalledWith('/compile', {
+    file: '/p4/main.p4', target: 'tofino', architecture: 'tofino2',
+  });
+});
+
 it('disables editing and duplicate compilation while a build is pending', async () => {
   let finish;
   const user = userEvent.setup(); mount();

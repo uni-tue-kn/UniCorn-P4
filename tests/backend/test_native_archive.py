@@ -84,6 +84,42 @@ def test_native_archive_contains_portable_build_and_exact_typed_state(snapshot):
     assert b'native-compiled-binary' not in raw  # ZIP compression is in use.
 
 
+def test_tofino2_archive_preserves_generation_and_binary_name(snapshot):
+    directory = Path(snapshot.switch.program_manifest).parent
+    (directory / 'tofino.bin').rename(directory / 'tofino2.bin')
+    manifest = json.loads((directory / 'manifest.json').read_text())
+    manifest['architecture'] = 'tofino2'
+    manifest['profiles'][0]['binary'] = 'tofino2.bin'
+    (directory / 'manifest.json').write_text(json.dumps(manifest))
+    snapshot.switch.bundle = dict(manifest, manifest_path=snapshot.switch.program_manifest)
+    snapshot.switch.config.setdefault('target_options', {})['architecture'] = 'tofino2'
+
+    validated = archive.validate_archive(archive.build_archive(snapshot.controller).getvalue())
+    record = validated['manifest']['switches'][0]
+    portable = json.loads(validated['files'][record['pipeline']['manifest']])
+    assert portable['architecture'] == 'tofino2'
+    assert portable['profiles'][0]['binary'] == 'profile-0/tofino2.bin'
+    assert validated['files']['programs/switch-17/profile-0/tofino2.bin'] == b'native-compiled-binary'
+
+    staged = archive.stage_import(archive.build_archive(snapshot.controller).getvalue())
+    assert staged['preview']['switches'][0]['target_options']['architecture'] == 'tofino2'
+
+
+@pytest.mark.parametrize('mismatch', ['connection', 'pipeline'])
+def test_native_archive_rejects_generation_mismatch_before_staging(snapshot, mismatch):
+    raw = archive.build_archive(snapshot.controller).getvalue()
+    def edit(files, manifest):
+        if mismatch == 'connection':
+            manifest['switches'][0]['config']['target_options']['architecture'] = 'tofino2'
+        else:
+            portable = json.loads(files['programs/switch-17/manifest.json'])
+            portable['architecture'] = 'tofino2'
+            files['programs/switch-17/manifest.json'] = archive.json_bytes(portable)
+    with pytest.raises(ValueError, match='generation does not match'):
+        archive.stage_import(rewrite(raw, edit))
+    assert not archive._STAGES
+
+
 @pytest.mark.parametrize('all_readonly', [False, True])
 def test_native_archive_omits_readonly_register_fields_from_replay(snapshot, all_readonly):
     table = snapshot.switch.p4_helper.table('pipe.Ingress.packet_register')

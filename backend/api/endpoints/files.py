@@ -57,6 +57,10 @@ class FileNames(Endpoint):
             target = getattr(switch, 'target', None) or (getattr(switch, 'config', {}) or {}).get('target', 'bmv2')
             programs = [program for program in programs if program.get('target', 'bmv2') == target]
             native = [program for program in native if program['target'] == target]
+            if target == 'tofino':
+                options = (getattr(switch, 'config', {}) or {}).get('target_options') or {}
+                architecture = options.get('architecture', 'tofino')
+                native = [program for program in native if program.get('architecture', 'tofino') == architecture]
         programs.extend(native)
         return {'p4_info': [str(path) for path in p4info_files],
                 'bmv2': [str(path) for path in json_files],

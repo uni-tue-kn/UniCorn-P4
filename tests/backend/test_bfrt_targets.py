@@ -391,6 +391,16 @@ def test_pipeline_scope_mismatch_preserves_active_metadata_and_never_initializes
     assert native.p4_helper is original
 
 
+def test_pipeline_generation_mismatch_preserves_active_metadata_and_never_initializes(native):
+    native.config['target_options']['architecture'] = 'tofino2'
+    original = native.p4_helper
+    with pytest.raises(ValueError, match='architecture does not match'):
+        native.initialize_bundle({'target': 'tofino', 'architecture': 'tofino',
+                                  'profiles': [{'pipe_scope': [0]}]})
+    native.client.initialize_bundle.assert_not_called()
+    assert native.p4_helper is original
+
+
 def test_transport_rejects_bundle_scope_before_reading_artifacts_or_native_rpc():
     client = BfRtClient('localhost', pipe_id=2)
     client.stub = Mock()

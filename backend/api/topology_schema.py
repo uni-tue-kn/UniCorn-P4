@@ -34,6 +34,8 @@ def validate_topology(topology):
     for properties in switches.values():
         if properties.get('target', 'bmv2') not in ('bmv2', 'tofino'):
             raise ValueError('Switch target must be bmv2 or tofino')
+        if properties.get('target', 'bmv2') == 'tofino' and properties.get('architecture', 'tofino') not in ('tofino', 'tofino2'):
+            raise ValueError('Tofino architecture must be tofino or tofino2')
     for index, link in enumerate(links):
         if not isinstance(link, list) or not 2 <= len(link) <= 4:
             raise ValueError(f'Link {index + 1} must contain two nodes and optional latency/bandwidth')

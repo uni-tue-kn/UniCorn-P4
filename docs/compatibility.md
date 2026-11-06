@@ -14,7 +14,8 @@ BMv2 queue depth and rate have setters without getters. The UI shows settings
 acknowledged during the current connection. Changes from another controller
 cannot be detected.
 
-Tofino models support Tofino1, one pipe and up to 64 linked ports. They simulate
+Tofino models support Tofino 1 and Tofino 2, one pipe and up to 64 linked ports.
+The switch generation must match the compiled TNA/T2NA pipeline. Models simulate
 packet behavior, not hardware throughput. External read-only Tofino connections
 discover the running program without taking ownership, but do not receive digests.
 

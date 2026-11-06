@@ -26,12 +26,15 @@ def normalize_adapter_config(config):
         options = {}
     if not isinstance(options, dict):
         raise ValueError("target_options must contain a JSON object")
-    allowed = {"program_name", "client_id", "pipe_id", "runtime_device_id", "read_only"}
+    allowed = {"program_name", "client_id", "pipe_id", "runtime_device_id", "read_only", "architecture"}
     if set(options) - allowed:
         raise ValueError("Unknown target_options: " + ", ".join(sorted(set(options) - allowed)))
     if target == "bmv2" and options:
         raise ValueError("target_options are only supported for tofino")
     options = dict(options)
+    if target == "tofino":
+        if options.get("architecture", "tofino") not in ("tofino", "tofino2"):
+            raise ValueError("architecture must be tofino or tofino2")
     if "read_only" in options and not isinstance(options["read_only"], bool):
         raise ValueError("read_only must be a boolean")
     if "program_name" in options and (not isinstance(options["program_name"], str) or not options["program_name"].strip()):

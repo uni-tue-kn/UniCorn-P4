@@ -74,7 +74,7 @@ def test_native_bundle_resolves_files_and_is_discovered_once(workspace):
     assert bundle['profiles'][0]['binary'] == str(directory / 'tofino.bin')
     assert discover_builds() == [{'id': str(directory / 'manifest.json'),
         'build_manifest': str(directory / 'manifest.json'), 'target': 'tofino',
-        'name': 'workshop', 'source': None, 'created_at': None}]
+        'name': 'workshop', 'source': None, 'created_at': None, 'architecture': 'tofino'}]
 
 
 def test_program_picker_advertises_latest_build_per_source_and_preserves_old_history(workspace):
@@ -249,13 +249,21 @@ def test_auto_detection_ignores_unreadable_includes_and_keeps_bmv2(workspace, tm
 
 
 @pytest.mark.parametrize('requested', ['auto', 'tofino'])
-def test_tofino2_programs_are_rejected_before_compilation(workspace, requested):
+def test_tofino2_programs_are_detected_for_compilation(workspace, requested):
     (workspace / 'arch.p4').write_text('#include <t2na.p4>\n')
     source = workspace / 'main.p4'
     source.write_text('#include "arch.p4"\n')
-    with pytest.raises(BuildError, match='Tofino 2'):
-        source_target(source, requested)
+    assert source_target(source, requested) == 'tofino'
     assert source_target(source, 'bmv2') == 'bmv2'
+
+
+def test_program_picker_keeps_both_tofino_generations(workspace):
+    for name, architecture in (('t1', 'tofino'), ('t2', 'tofino2')):
+        directory = workspace / '.unicorn-builds' / name
+        metadata = make_bundle(directory)
+        metadata['architecture'] = architecture
+        (directory / 'manifest.json').write_text(json.dumps(metadata))
+    assert {program['architecture'] for program in discover_builds()} == {'tofino', 'tofino2'}
 
 
 def test_multigeneration_workshop_uses_the_available_tofino1_branch(workspace):

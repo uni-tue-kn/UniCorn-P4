@@ -1,9 +1,13 @@
 """Run with the common controller adapter against a real struct-register model."""
 import json
+import os
 from controller.targets.tofino import TofinoTarget
 
+architecture = os.environ.get('UNICORN_NATIVE_ARCHITECTURE', 'tofino')
+program_name = os.environ.get('UNICORN_NATIVE_PROGRAM', 'unicorn_structured')
 switch = TofinoTarget(19, {'name': 'structured-native', 'address': '127.0.0.1:50052', 'target': 'tofino',
-    'target_options': {'runtime_device_id': 0, 'client_id': 93, 'pipe_id': 0, 'program_name': 'unicorn_structured'}})
+    'target_options': {'runtime_device_id': 0, 'client_id': 93, 'pipe_id': 0,
+                       'program_name': program_name, 'architecture': architecture}})
 try:
     switch.connect()
     registers = switch.get_loaded_config()['registers']

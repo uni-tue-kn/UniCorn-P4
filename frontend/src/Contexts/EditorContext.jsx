@@ -161,14 +161,18 @@ export function EditorProvider({ children }) {
     return { ...previous, documents, order, activePath: previous.activePath === path ? order.at(-1) || '' : previous.activePath };
   }), []);
   const target = useCallback(path => setState(previous => ({ ...previous, target: path })), []);
-  const compile = useCallback(() => run(async () => {
+  const compile = useCallback((compileTarget = 'auto') => run(async () => {
     const snapshot = current.current;
     const source = snapshot.files.find(file => file.path === snapshot.target);
     if (!source || !source.path.endsWith('.p4')) { setError('Select a P4 source file to compile.'); return false; }
     for (const path of snapshot.order) if (!(await saveOne(path))) return false;
     setState(previous => ({ ...previous, compileStatus: 'busy', output: `Compiling ${source.absolute_path}\n…`, diagnostics: [] }));
     try {
-      let { data } = await axios.post('/compile', { file: source.absolute_path });
+      const requested = compileTarget === 'bmv2' ? { target: 'bmv2' }
+        : compileTarget === 'tofino2' ? { target: 'tofino', architecture: 'tofino2' }
+          : compileTarget === 'tofino' ? { target: 'tofino', architecture: 'tofino' }
+            : { target: 'auto', architecture: 'tofino' };
+      let { data } = await axios.post('/compile', { file: source.absolute_path, ...requested });
       if (data?.job_id) {
         const jobID = data.job_id;
         const deadline = Date.now() + 15 * 60 * 1000;

@@ -99,7 +99,7 @@ export default function Initialization() {
             const program = fileNames.programs.find(item => item.id === event.target.value);
             if (program) setSelectedFiles(pairedFiles(program));
           }} helperText={loading ? 'Loading programs…' : selectedProgram ? 'The compiled program is selected.' : selectedFiles.p4_info && selectedFiles.bmv2 ? 'Custom files selected in Advanced.' : 'Compile a program or select files in Advanced.'}>
-            {fileNames.programs.map(program => <MenuItem key={program.id} value={program.id}>{program.name}</MenuItem>)}
+            {fileNames.programs.map(program => <MenuItem key={program.id} value={program.id}>{program.name}{program.target === 'tofino' ? ` · ${program.architecture === 'tofino2' ? 'Tofino 2' : 'Tofino 1'}` : ''}</MenuItem>)}
             {!fileNames.programs.length && <MenuItem disabled value="">No compiled programs found</MenuItem>}
           </TextField>
           {selectedProgram?.target !== 'tofino' && initializedFiles?.target !== 'tofino' && <Accordion expanded={advanced} onChange={(_, expanded) => setAdvanced(expanded)}>

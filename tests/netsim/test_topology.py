@@ -238,6 +238,115 @@ def test_mixed_targets_keep_link_properties_and_per_node_classes(runner, tmp_pat
     assert runner.switches['s2']['program'] == 'saved-build'
 
 
+def test_mixed_bmv2_and_both_tofino_generations_get_isolated_runtime_options(runner, monkeypatch):
+    from netsim.api.netsim import netsim
+    runner.hosts = []
+    runner.switches = {
+        's1': {'target': 'tofino', 'architecture': 'tofino'},
+        's2': {'target': 'tofino', 'architecture': 'tofino2'},
+        's3': {},
+    }
+    runner.links = runner.parse_links([['s1', 's2'], ['s2', 's3']])
+    monkeypatch.setattr(netsim, 'Mininet', Mock())
+    monkeypatch.setattr(netsim, 'configured_switch',
+                        lambda base, options: {'kind': 'tofino', 'base': base, **options})
+    monkeypatch.setattr(netsim, 'configureP4Switch',
+                        lambda **options: {'kind': 'bmv2', **options})
+    topology = Mock()
+    monkeypatch.setattr(netsim, 'ParsedTopo', topology)
+
+    runner.create_network()
+
+    classes = topology.call_args.kwargs['switch_classes']
+    assert classes['s1']['kind'] == classes['s2']['kind'] == 'tofino'
+    assert classes['s1']['architecture'] == 'tofino'
+    assert classes['s2']['architecture'] == 'tofino2'
+    assert (classes['s1']['device_id'], classes['s1']['grpc_port'],
+            classes['s1']['model_port_base'], classes['s1']['status_port']) == (0, 51051, 18000, 17000)
+    assert (classes['s2']['device_id'], classes['s2']['grpc_port'],
+            classes['s2']['model_port_base'], classes['s2']['status_port']) == (1, 51052, 18016, 17001)
+    assert (classes['s3']['kind'], classes['s3']['device_id'], classes['s3']['grpc_port'],
+            classes['s3']['thrift_port']) == ('bmv2', 2, 50053, 9092)
+
+
+def test_mixed_switch_discovery_publishes_dynamic_tofino_endpoints(runner):
+    runner.net = SimpleNamespace(switches=[
+        SimpleNamespace(name='s1', target='tofino', device_id=0, grpc_port=44679,
+                        thrift_port=None, architecture='tofino',
+                        target_options={'client_id': 0, 'pipe_id': 0, 'architecture': 'tofino'}),
+        SimpleNamespace(name='s2', target='tofino', device_id=1, grpc_port=33491,
+                        thrift_port=None, architecture='tofino2',
+                        target_options={'client_id': 0, 'pipe_id': 0, 'architecture': 'tofino2'}),
+        SimpleNamespace(name='s3', target='bmv2', device_id=2, grpc_port=50053, thrift_port=9092),
+    ])
+
+    mappings = runner.populate_switch_mappings()
+
+    assert [(item['name'], item['target'], item['address']) for item in mappings] == [
+        ('s1', 'tofino', '127.0.0.1:44679'),
+        ('s2', 'tofino', '127.0.0.1:33491'),
+        ('s3', 'bmv2', '127.0.0.1:50053'),
+    ]
+    assert mappings[0]['architecture'] == 'tofino'
+    assert mappings[1]['architecture'] == 'tofino2'
+    assert len({item['grpc_port'] for item in mappings}) == 3
+
+
+def test_mixed_topology_preflights_each_tofino_generation_once(runner, tmp_path, monkeypatch):
+    available = Mock()
+    monkeypatch.setattr('runtime.tofino.supervisor.check_available', available)
+    path = tmp_path / 'mixed-generations.json'
+    path.write_text(json.dumps({
+        'hosts': [],
+        'switches': {
+            's1': {'target': 'tofino', 'architecture': 'tofino'},
+            's2': {'target': 'tofino', 'architecture': 'tofino2'},
+            's3': {},
+        },
+        'links': [['s1', 's2'], ['s2', 's3']],
+    }))
+
+    runner.read_topology_file(path)
+
+    assert [item.kwargs for item in available.call_args_list] == [
+        {'architecture': 'tofino'}, {'architecture': 'tofino2'}]
+
+
+def test_failed_tofino2_start_rolls_back_partial_mixed_topology(runner):
+    candidate = {
+        'hosts': [],
+        'switches': {
+            's1': {'target': 'tofino', 'architecture': 'tofino'},
+            's2': {'target': 'tofino', 'architecture': 'tofino2'},
+            's3': {},
+        },
+        'links': runner.parse_links([['s1', 's2'], ['s2', 's3']], hosts=[], switches={
+            's1': {'target': 'tofino'}, 's2': {'target': 'tofino'}, 's3': {}}),
+        'ext_intfs': [],
+        'layout': {},
+    }
+    runner.destroy_topology = Mock()
+
+    def create_network():
+        runner.net = Mock()
+        def fail_during_start():
+            runner.switch_progress('s1', 'ready')
+            runner.switch_progress('s2', 'failed')
+            raise RuntimeError('Tofino switch s2 failed')
+        runner.net.start.side_effect = fail_during_start
+    runner.create_network = create_network
+
+    with pytest.raises(RuntimeError, match='s2 failed'):
+        runner.run(candidate=candidate)
+
+    assert runner.destroy_topology.call_count == 2
+    assert runner.deployment == {
+        'status': 'failed',
+        'error': 'Tofino switch s2 failed',
+        'switches': {'s1': 'ready', 's2': 'failed', 's3': 'pending'},
+    }
+
+
 @pytest.mark.parametrize('target', ['other', None, 1, []])
 def test_unknown_target_rejected_before_teardown(runner, tmp_path, target):
     path = tmp_path / 'target.json'
@@ -262,7 +371,7 @@ def test_model_discovery_reports_logical_and_native_identity(runner):
         grpc_port=51052, thrift_port=None, target_options={'client_id': 0, 'pipe_id': 0})])
     assert runner.populate_switch_mappings() == [{'name': 's2', 'target': 'tofino', 'dev_id': 7,
         'runtime_device_id': 0, 'grpc_port': 51052, 'thrift_port': None, 'address': '127.0.0.1:51052',
-        'target_options': {'client_id': 0, 'pipe_id': 0}, 'status': 'ready'}]
+        'architecture': 'tofino', 'target_options': {'client_id': 0, 'pipe_id': 0}, 'status': 'ready'}]
 
 
 def test_physical_interface_returns_to_original_namespace_before_switch_teardown(runner):

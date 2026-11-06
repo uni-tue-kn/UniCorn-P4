@@ -136,6 +136,10 @@ def validate_bundle(value, root=None, verify=True):
         resolved['p4info'] = artifact(metadata.get('p4info'))
         resolved['bmv2_json'] = artifact(metadata.get('bmv2_json'))
     else:
+        architecture = metadata.get('architecture', 'tofino')
+        if architecture not in ('tofino', 'tofino2'):
+            raise BuildError('Program build has an unsupported Tofino architecture')
+        resolved['architecture'] = architecture
         resolved['bfrt_json'] = artifact(metadata.get('bfrt_json'))
         if verify:
             info = _json_file(Path(resolved['bfrt_json']))
@@ -169,9 +173,12 @@ def build_description(value, verify=True):
         if source.is_relative_to(program_root()):
             name = source.relative_to(program_root()).with_suffix('').as_posix()
         source = str(source)
-    return {'id': bundle['manifest_path'], 'build_manifest': bundle['manifest_path'],
-            'name': name, 'target': bundle['target'],
-            'source': source, 'created_at': bundle.get('created_at')}
+    description = {'id': bundle['manifest_path'], 'build_manifest': bundle['manifest_path'],
+                   'name': name, 'target': bundle['target'], 'source': source,
+                   'created_at': bundle.get('created_at')}
+    if bundle['target'] == 'tofino':
+        description['architecture'] = bundle.get('architecture', 'tofino')
+    return description
 
 
 def discover_builds():
@@ -184,7 +191,7 @@ def discover_builds():
     for path in sorted(set(candidates)):
         try:
             program = build_description(path, verify=False)
-            key = (program['target'], program['source']) if program['source'] and path.is_relative_to(directory) else program['id']
+            key = (program['target'], program.get('architecture', 'tofino'), program['source']) if program['source'] and path.is_relative_to(directory) else program['id']
             previous = builds.get(key)
             if previous is None or (program.get('created_at') or '') > (previous.get('created_at') or ''):
                 builds[key] = program
@@ -233,7 +240,7 @@ def include_closure(source, strict=True):
 
 
 def program_architecture(source):
-    """Best-effort TNA detection. The compiler reports genuine include errors."""
+    """Best-effort native architecture detection; the compiler reports include errors."""
     found = set()
     try:
         for _path, _raw, text in include_closure(source, strict=False):
@@ -242,8 +249,8 @@ def program_architecture(source):
             found.update(_ARCHITECTURE.findall(text))
     except (BuildError, OSError):
         pass
-    # Multi-target programs commonly select their architecture with #if. The
-    # worker compiles for Tofino 1; let its preprocessor select the active branch.
+    # Multi-target sources may contain both includes; explicit target selection
+    # lets the compiler preprocessor choose the matching branch.
     return 'tna' if 'tna' in found else 'v1model' if 'v1model' in found else 't2na' if 't2na' in found else None
 
 
@@ -253,12 +260,9 @@ def source_target(source, requested='auto'):
     if requested == 'bmv2':
         return requested
     architecture = program_architecture(source)
-    if architecture == 't2na':
-        raise BuildError('Tofino 2 programs (t2na.p4) are not supported. '
-                         'The Tofino compiler and model in this deployment target Tofino 1 (tna.p4).')
     if requested == 'tofino':
         return requested
-    return 'tofino' if architecture == 'tna' else 'bmv2'
+    return 'tofino' if architecture in ('tna', 't2na') else 'bmv2'
 
 
 def snapshot_sources(source, destination):
@@ -334,8 +338,8 @@ def prune_builds(keep, referenced):
         try:
             referenced = set(referenced()) | set(_PINNED)
             current = _json_file(keep / 'manifest.json', 1024 * 1024)
-            identity, newest = (current.get('target'), current.get('source')), _created_at(current)
-            if newest is None or identity[1] is None:
+            identity, newest = (current.get('target'), current.get('architecture', 'tofino'), current.get('source')), _created_at(current)
+            if newest is None or identity[2] is None:
                 return
             for manifest in directory.glob('*/manifest.json'):
                 build = manifest.parent
@@ -345,7 +349,7 @@ def prune_builds(keep, referenced):
                     metadata = _json_file(manifest, 1024 * 1024)
                 except (OSError, BuildError):
                     continue
-                if not isinstance(metadata, dict) or (metadata.get('target'), metadata.get('source')) != identity:
+                if not isinstance(metadata, dict) or (metadata.get('target'), metadata.get('architecture', 'tofino'), metadata.get('source')) != identity:
                     continue
                 created = _created_at(metadata)
                 if created is not None and created < newest:
@@ -362,7 +366,9 @@ class BuildJobs:
         # it, old builds are kept because pruning could break a saved state.
         self.referenced = None
 
-    def start(self, source):
+    def start(self, source, architecture='tofino'):
+        if architecture not in ('tofino', 'tofino2'):
+            raise BuildError('Select Tofino 1 or Tofino 2 as the target architecture')
         worker = os.environ.get('TOFINO_COMPILER_URL', '').rstrip('/')
         if not worker:
             raise BuildError('The compiler for this program is unavailable in this deployment', 503)
@@ -372,10 +378,10 @@ class BuildJobs:
             while len(self.jobs) >= 16:
                 self.jobs.pop(next(iter(self.jobs)))
             identifier = uuid.uuid4().hex
-            job = {'job_id': identifier, 'status': 'pending', 'target': 'tofino',
+            job = {'job_id': identifier, 'status': 'pending', 'target': 'tofino', 'architecture': architecture,
                    'source': str(source), 'started_at': datetime.now(timezone.utc).isoformat()}
             self.jobs[identifier] = job
-        thread = threading.Thread(target=self._compile, args=(identifier, source, worker), daemon=True)
+        thread = threading.Thread(target=self._compile, args=(identifier, source, worker, architecture), daemon=True)
         thread.start()
         return dict(job)
 
@@ -385,7 +391,7 @@ class BuildJobs:
                 raise BuildError('This compilation is no longer available', 404)
             return dict(self.jobs[identifier])
 
-    def _compile(self, identifier, source, worker):
+    def _compile(self, identifier, source, worker, architecture='tofino'):
         directory = None
         try:
             directory = build_root() / identifier
@@ -401,7 +407,7 @@ class BuildJobs:
             name = name[:64]
             output = directory / 'artifacts'
             request = urlrequest.Request(worker + '/compile',
-                data=json.dumps({'source': str(frozen), 'output': str(output), 'name': name}).encode(),
+                data=json.dumps({'source': str(frozen), 'output': str(output), 'name': name, 'architecture': architecture}).encode(),
                 headers={'Content-Type': 'application/json'}, method='POST')
             try:
                 with urlrequest.urlopen(request, timeout=600) as response:
@@ -418,7 +424,7 @@ class BuildJobs:
             if not isinstance(data, dict):
                 raise BuildError('The compiler returned an invalid response')
             metadata = data.get('manifest')
-            if not isinstance(metadata, dict) or metadata.get('target') != 'tofino':
+            if not isinstance(metadata, dict) or metadata.get('target') != 'tofino' or metadata.get('architecture', 'tofino') != architecture:
                 raise BuildError('The compiler returned an invalid program build')
             # Keep artifact references portable relative to this final manifest.
             metadata = {**metadata, 'bfrt_json': 'artifacts/' + metadata['bfrt_json'],

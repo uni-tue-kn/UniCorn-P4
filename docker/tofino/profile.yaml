@@ -8,3 +8,4 @@ features:
     kernel-modules: false
 architectures:
   - tofino
+  - tofino2

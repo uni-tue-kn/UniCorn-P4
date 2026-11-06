@@ -71,13 +71,16 @@ describe('external switch register adapter', () => {
     render(<AddNewSwitch open setOpen={vi.fn()} />);
     await user.click(screen.getByRole('combobox', { name: 'Switch target' }));
     await user.click(screen.getByRole('option', { name: 'Tofino' }));
+    await user.click(screen.getByRole('button', { name: 'Advanced connection' }));
+    await user.click(screen.getByRole('combobox', { name: 'Tofino generation' }));
+    await user.click(screen.getByRole('option', { name: 'Tofino 2' }));
     expect(screen.queryByRole('checkbox', { name: 'Enable BMv2 register adapter' })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'BMv2 Thrift host' })).not.toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Switch Name' }), 'model');
     await user.type(screen.getByRole('textbox', { name: 'Switch Address:Switch Port' }), '192.0.2.10:51051');
     await user.type(screen.getByRole('textbox', { name: 'Switch Device ID' }), '7');
     await user.click(screen.getByRole('button', { name: 'Add Switch', exact: true }));
-    expect(JSON.parse(axios.post.mock.calls[0][1].switch_config)).toMatchObject({ target: 'tofino', device_id: 7, target_options: { runtime_device_id: 0, pipe_id: 0, client_id: 0 }, register_adapter_enabled: false, register_thrift_host: null, register_thrift_port: null });
+    expect(JSON.parse(axios.post.mock.calls[0][1].switch_config)).toMatchObject({ target: 'tofino', device_id: 7, target_options: { runtime_device_id: 0, pipe_id: 0, client_id: 0, architecture: 'tofino2' }, register_adapter_enabled: false, register_thrift_host: null, register_thrift_port: null });
   });
   it('updates a saved external connection target and clears incompatible endpoint fields', async () => {
     const user = userEvent.setup();
@@ -124,7 +127,7 @@ describe('external switch register adapter', () => {
     const client = screen.getByRole('spinbutton', { name: 'Client ID' });
     await user.clear(client); await user.type(client, '42');
     await user.click(screen.getByRole('button', { name: 'Submit Edit' }));
-    expect(JSON.parse(axios.patch.mock.calls[0][1].switch_config).target_options).toEqual({ runtime_device_id: 3, pipe_id: 5, client_id: 42, program_name: 'routing' });
+    expect(JSON.parse(axios.patch.mock.calls[0][1].switch_config).target_options).toEqual({ runtime_device_id: 3, pipe_id: 5, client_id: 42, program_name: 'routing', architecture: 'tofino' });
   });
 
   it.each([['Runtime device ID', '-1'], ['Pipeline ID', '65535'], ['Client ID', '4294967296'], ['Client ID', '1.5']])('rejects an invalid %s connection scope before HTTP (%s)', async (label, value) => {
