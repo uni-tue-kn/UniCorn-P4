@@ -1,8 +1,12 @@
 name: Publish optional Tofino release images
 
 # Run after the normal release. Reuse a prepared SDK; never make BMv2 release
-# wait for SDK source compilation. Dispatch this trusted workflow from main.
+# wait for SDK source compilation. Manual dispatch remains available for retry.
 on:
+  workflow_run:
+    workflows: [Release merged main pull request]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -17,19 +21,79 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: unicorn-tofino-release
   cancel-in-progress: false
 
 jobs:
+  select:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    outputs:
+      ready: ${{ steps.release.outputs.ready }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select completed stable release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            tag=$REQUESTED_TAG
+          else
+            gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/pulls" --paginate --slurp > "$RUNNER_TEMP/tofino-merged-prs.json"
+            tag=$(python3 - "$SOURCE_SHA" "$RUNNER_TEMP/tofino-merged-prs.json" <<'PY'
+          import json, os, subprocess, sys
+          from scripts.release_version import eligible_merge, next_version
+          source, path = sys.argv[1:]
+          if not eligible_merge(json.load(open(path)), os.environ['GITHUB_REPOSITORY'], source):
+              raise SystemExit(2)
+          version = subprocess.check_output(['git', 'show', f'{source}:VERSION'], text=True).strip()
+          print('v' + next_version(version))
+          PY
+            ) || {
+              echo 'The completed standard-release run was not for a newly merged main PR; no Tofino release is needed.'
+              echo 'ready=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            }
+          fi
+          if ! gh release view "$tag" --json isDraft,isPrerelease,assets > "$RUNNER_TEMP/tofino-release.json"; then
+            if [[ "$EVENT_NAME" == workflow_dispatch ]]; then exit 1; fi
+            echo "The standard workflow did not publish $tag; no Tofino release is needed."
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 - "$RUNNER_TEMP/tofino-release.json" <<'PY'
+          import json, sys
+          release = json.load(open(sys.argv[1]))
+          assert not release['isDraft'] and not release['isPrerelease'], 'A published stable release is required'
+          assert any(a['name'] == 'UniCorn-P4.tar.gz' for a in release['assets']), 'Standard release archive is missing'
+          PY
+          printf 'ready=true\ntag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
   publish:
-    if: github.ref == 'refs/heads/main'
+    needs: select
+    if: needs.select.outputs.ready == 'true'
     runs-on: [self-hosted, linux, x64, tofino]
     timeout-minutes: 120
     env:
-      TAG: ${{ inputs.tag }}
-      TOFINO_SDK_IMAGE: ${{ inputs.sdk_image }}
+      TAG: ${{ needs.select.outputs.tag }}
+      TOFINO_SDK_IMAGE: ${{ inputs.sdk_image || 'unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -48,10 +112,8 @@ jobs:
           assert any(a['name'] == 'UniCorn-P4.tar.gz' for a in release['assets']), 'Standard release archive is missing'
           PY
       - name: Resolve the published SDK tag to an immutable digest
-        env:
-          SDK_REF: ${{ inputs.sdk_image }}
         run: |
-          digest=$(bash scripts/resolve-image-digest.sh "$SDK_REF")
+          digest=$(bash scripts/resolve-image-digest.sh "$TOFINO_SDK_IMAGE")
           echo "TOFINO_SDK_IMAGE=$digest" >> "$GITHUB_ENV"
       - name: Verify trusted stable release and immutable SDK reference
         id: release

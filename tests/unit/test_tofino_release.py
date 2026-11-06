@@ -27,6 +27,8 @@ def test_prebuilt_sdk_and_release_defaults_match_verified_source_pair():
     sdk_input = workflow.split('      sdk_image:\n', 1)[1].split('\npermissions:', 1)[0]
     assert f'        default: {PUBLIC_SDK_TAG}\n' in sdk_input
     assert 'Resolve the published SDK tag to an immutable digest' in workflow
+    assert 'resolve-image-digest.sh "$TOFINO_SDK_IMAGE"' in workflow
+    assert "inputs.sdk_image || 'unituekn/unicornp4-tofino-sdk:tofino1-tofino2-6d8b203'" in workflow
     source_ci = (ROOT / '.github/workflows/tofino.yml').read_text()
     assert 'SDK_IMAGE=build\n' in source_ci
     assert 'OPEN_P4STUDIO_REV=6d8b203700e3ca0f1208418072f88dc4a6a597e8\n' in source_ci
@@ -247,7 +249,18 @@ def test_exited_runtime_fails_fast_and_cleans_disposable_state(shell):
 
 def test_workflow_requires_trusted_ref_and_native_validation_before_login():
     workflow = (ROOT / '.github/workflows/tofino-release.yml').read_text()
-    assert "    if: github.ref == 'refs/heads/main'\n" in workflow
+    trigger = workflow.split('on:\n', 1)[1].split('\npermissions:', 1)[0]
+    assert 'workflow_dispatch:' in trigger
+    assert 'workflow_run:' in trigger
+    assert 'workflows: [Release merged main pull request]' in trigger
+    assert 'types: [completed]' in trigger and 'branches: [main]' in trigger
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "github.event.workflow_run.head_repository.full_name == github.repository" in workflow
+    assert 'from scripts.release_version import eligible_merge, next_version' in workflow
+    assert 'The completed standard-release run was not for a newly merged main PR' in workflow
+    assert 'needs: select\n' in workflow
+    assert "if: needs.select.outputs.ready == 'true'" in workflow
+    assert 'TAG: ${{ needs.select.outputs.tag }}' in workflow
     # Each step is independent YAML at this indentation. Avoid adding a YAML
     # runtime dependency to the ordinary Python test environment.
     steps = workflow.split('\n      - ')
