@@ -34,11 +34,29 @@ jobs:
           fetch-depth: 0
       - name: Verify tested commit is the result of a merged pull request
         run: gh api "repos/$GITHUB_REPOSITORY/commits/$TESTED_SHA/pulls" --paginate --slurp > "$RUNNER_TEMP/merged-prs.json"
+      # A merged nightly pull request is a minor release; list its Dependabot
+      # updates in the changelog regardless of the merge method used.
+      - name: Collect Dependabot updates promoted from nightly
+        run: |
+          echo '[]' > "$RUNNER_TEMP/dependency-prs.json"
+          : > "$RUNNER_TEMP/promoted-commits.txt"
+          pr=$(jq -r --arg sha "$TESTED_SHA" --arg repo "$GITHUB_REPOSITORY" '
+            flatten | map(select(.merged_at and .merge_commit_sha == $sha and .base.ref == "main"
+              and .head.ref == "nightly" and .head.repo.full_name == $repo)) | .[0].number // empty
+          ' "$RUNNER_TEMP/merged-prs.json")
+          if [[ -n "$pr" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/commits" --paginate --jq '.[].sha' > "$RUNNER_TEMP/promoted-commits.txt"
+            gh pr list -R "$GITHUB_REPOSITORY" --base nightly --state merged --author app/dependabot \
+              --limit 300 --json number,title,mergeCommit > "$RUNNER_TEMP/dependency-prs.json"
+          fi
       - name: Prepare release version and matching frontend manifests
         id: version
         run: >-
           python3 scripts/release_version.py --tested-sha "$TESTED_SHA"
-          --merged-prs "$RUNNER_TEMP/merged-prs.json" --commit --output "$GITHUB_OUTPUT"
+          --merged-prs "$RUNNER_TEMP/merged-prs.json"
+          --dependency-prs "$RUNNER_TEMP/dependency-prs.json"
+          --promoted-commits "$RUNNER_TEMP/promoted-commits.txt"
+          --commit --output "$GITHUB_OUTPUT"
       - name: Reserve release commit and tag atomically
         if: steps.version.outputs.ready == 'true' && steps.version.outputs.reserve_needed == 'true'
         env:

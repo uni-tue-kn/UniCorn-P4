@@ -9,8 +9,8 @@ import tarfile
 import pytest
 
 from scripts.package_release import package
-from scripts.release_version import eligible_merge, git, next_version, prepare
-from scripts.release_changelog import release_notes
+from scripts.release_version import eligible_merge, git, next_version, prepare, release_bump
+from scripts.release_changelog import add_unreleased_entries, dependency_entries, release_notes
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -72,6 +72,17 @@ def repo(tmp_path):
     ('1.2.0', '1.2.1'), ('1.2.9', '1.2.10'), ('0.0.0', '0.0.1')])
 def test_semantic_release_increment(current, expected):
     assert next_version(current) == expected
+
+
+@pytest.mark.parametrize('current,expected', [('1.2.0-dev.0', '1.2.0'), ('1.2.3-rc.1', '1.3.0'),
+    ('1.2.3', '1.3.0'), ('1.9.9', '1.10.0'), ('0.0.0', '0.1.0')])
+def test_minor_release_increment(current, expected):
+    assert next_version(current, 'minor') == expected
+
+
+def test_unknown_release_bump_is_rejected():
+    with pytest.raises(ValueError):
+        next_version('1.2.3', 'major')
 
 
 @pytest.mark.parametrize('current', ['1.2', 'v1.2.0', '1.2.0;rm', '01.2.0', 'bad'])
@@ -161,6 +172,63 @@ def test_commit_association_accepts_squash_and_excludes_direct_pushes():
     assert not eligible_merge([dict(merged, merged_at=None)], 'owner/repo', sha)
     assert not eligible_merge([merged], 'owner/repo', 'b' * 40)
     assert not eligible_merge([merged], 'fork/repo', sha)
+
+
+def test_only_nightly_promotions_from_this_repository_are_minor_releases():
+    sha = 'a' * 40
+    merged = {'merged_at': '2026-12-01T00:00:00Z', 'merge_commit_sha': sha,
+              'base': {'ref': 'main', 'repo': {'full_name': 'owner/repo'}},
+              'head': {'ref': 'nightly', 'repo': {'full_name': 'owner/repo'}}}
+    assert release_bump([[merged]], 'owner/repo', sha) == 'minor'
+    assert release_bump([dict(merged, head={'ref': 'feature', 'repo': {'full_name': 'owner/repo'}})], 'owner/repo', sha) == 'patch'
+    assert release_bump([dict(merged, head={'ref': 'nightly', 'repo': {'full_name': 'fork/repo'}})], 'owner/repo', sha) == 'patch'
+    assert release_bump([dict(merged, head={'ref': 'nightly', 'repo': None})], 'owner/repo', sha) == 'patch'
+    assert release_bump([dict(merged, merge_commit_sha='b' * 40)], 'owner/repo', sha) == 'patch'
+
+
+def test_real_cli_releases_nightly_promotion_as_minor_with_dependency_notes(repo, tmp_path):
+    first = prepare(repo, git(repo, 'rev-parse', 'HEAD'), commit=True)
+    write(repo, 'frontend/package.json', (repo / 'frontend/package.json').read_text().replace('19.3.1', '19.4.0'))
+    tested = commit(repo, 'Bump react from 19.3.1 to 19.4.0 in /frontend (#7)')
+    metadata, output = tmp_path / 'prs.json', tmp_path / 'output.txt'
+    metadata.write_text(json.dumps([[{'merged_at': '2026-12-01T00:00:00Z', 'merge_commit_sha': tested,
+        'base': {'ref': 'main', 'repo': {'full_name': 'owner/repo'}},
+        'head': {'ref': 'nightly', 'repo': {'full_name': 'owner/repo'}}}]]))
+    dependency_prs, promoted = tmp_path / 'dependency-prs.json', tmp_path / 'promoted.txt'
+    dependency_prs.write_text(json.dumps([
+        {'number': 7, 'title': 'Bump react from 19.3.1 to 19.4.0 in /frontend', 'mergeCommit': {'oid': tested}},
+        {'number': 3, 'title': 'Bump flask from 3.1.2 to 3.1.3 in /backend', 'mergeCommit': {'oid': 'c' * 40}}]))
+    promoted.write_text(tested + '\n')
+    subprocess.run([sys.executable, str(ROOT / 'scripts/release_version.py'), '--repo', str(repo),
+                    '--tested-sha', tested, '--merged-prs', str(metadata), '--repository', 'owner/repo',
+                    '--dependency-prs', str(dependency_prs), '--promoted-commits', str(promoted),
+                    '--commit', '--output', str(output)], check=True, capture_output=True)
+    assert first['version'] == '1.2.0'
+    assert 'version=1.3.0' in output.read_text() and 'bump=minor' in output.read_text()
+    assert git(repo, 'rev-parse', 'v1.3.0') == git(repo, 'rev-parse', 'HEAD')
+    assert release_notes((repo / 'CHANGELOG.md').read_text(), '1.3.0') == \
+        '### Dependencies\n\n* Bump react from 19.3.1 to 19.4.0 in /frontend (#7)\n'
+
+
+def test_dependency_entries_follow_promoted_merge_commits():
+    prs = [{'number': 9, 'title': 'Bump b ', 'mergeCommit': {'oid': 'b' * 40}},
+           {'number': 4, 'title': 'Bump a', 'mergeCommit': {'oid': 'a' * 40}},
+           {'number': 5, 'title': 'Bump c', 'mergeCommit': None}]
+    assert dependency_entries(prs, ['a' * 40, 'b' * 40]) == ['* Bump a (#4)', '* Bump b (#9)']
+    assert dependency_entries(prs, []) == []
+
+
+def test_dependency_entries_join_the_pending_release_once():
+    released = '# Changelog\n\n## 1.0.0 — 2026-01-01\n\n* Old.\n'
+    first = add_unreleased_entries(released, 'Dependencies', ['* Bump a (#1)', '* Bump a (#1)', ''])
+    assert first == '# Changelog\n\n## Unreleased\n\n### Dependencies\n\n* Bump a (#1)\n\n## 1.0.0 — 2026-01-01\n\n* Old.\n'
+    second = add_unreleased_entries(first, 'Dependencies', ['* Bump a (#1)', '* Bump b (#2)'])
+    assert release_notes(second.replace('## Unreleased', '## 1.1.0'), '1.1.0') == \
+        '### Dependencies\n\n* Bump a (#1)\n* Bump b (#2)\n'
+    assert add_unreleased_entries(second, 'Dependencies', ['* Bump b (#2)']) == second
+    pending = '# Changelog\n\n## Unreleased\n\n### Fixed\n\n* Bug.\n\n## 1.0.0\n\n* Old.\n'
+    assert release_notes(add_unreleased_entries(pending, 'Dependencies', ['* Bump c (#3)']).replace(
+        '## Unreleased', '## 1.1.0'), '1.1.0') == '### Fixed\n\n* Bug.\n\n### Dependencies\n\n* Bump c (#3)\n'
 
 
 def test_real_cli_does_not_release_unassociated_direct_push(repo, tmp_path):

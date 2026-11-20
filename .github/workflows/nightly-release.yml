@@ -1,0 +1,81 @@
+name: Propose nightly dependency updates for release
+
+# Once a month, bring nightly up to date with main and open a pull request
+# nightly -> main. Merging it publishes a minor release (see release.yml).
+on:
+  schedule:
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unicorn-nightly-release
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      HAS_APP: ${{ secrets.RELEASE_APP_ID != '' }}
+    steps:
+      # The release app can push workflow-file changes from main into nightly,
+      # and its pushes and pull requests start CI (GITHUB_TOKEN's do not).
+      - name: Create repository-scoped release app token
+        id: app-token
+        if: env.HAS_APP == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - name: Select token
+        run: |
+          echo "GH_TOKEN=${{ steps.app-token.outputs.token || github.token }}" >> "$GITHUB_ENV"
+          # Without the app, CI is dispatched explicitly; its checks attach to the PR head.
+          echo "DISPATCH_CI=${{ steps.app-token.outcome != 'success' }}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token || github.token }}
+      - name: Bring nightly up to date with main
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git rev-parse --verify --quiet refs/remotes/origin/nightly >/dev/null; then
+            git checkout -B nightly origin/nightly
+            if ! git merge --no-edit origin/main; then
+              echo '::error::nightly conflicts with main. Merge main into nightly manually and rerun this workflow.'
+              exit 1
+            fi
+          else
+            git checkout -B nightly origin/main
+          fi
+          git push origin nightly
+      - name: Open or refresh the release pull request
+        run: |
+          if git diff --quiet origin/main nightly; then
+            echo 'nightly has no changes beyond main; no release proposed.'
+            exit 0
+          fi
+          existing=$(gh pr list -R "$GITHUB_REPOSITORY" --base main --head nightly --state open --json number --jq '.[0].number // empty')
+          if [[ -z "$existing" ]]; then
+            cat > "$RUNNER_TEMP/body.md" <<'EOF'
+          Monthly promotion of the Dependabot updates that passed CI on `nightly`.
+
+          Merging this pull request publishes a **minor release**. Its changelog lists
+          every Dependabot update included at merge time.
+
+          Prefer **Create a merge commit** so nightly and main keep a shared history.
+          EOF
+            gh pr create -R "$GITHUB_REPOSITORY" --base main --head nightly \
+              --title "Dependency updates $(date -u +%Y-%m)" --body-file "$RUNNER_TEMP/body.md"
+          fi
+          if [[ "$DISPATCH_CI" == true ]]; then
+            gh workflow run docker-image.yml -R "$GITHUB_REPOSITORY" --ref nightly
+          fi

@@ -142,3 +142,17 @@ version/`latest` images, changelog notes and a deployment archive. Direct pushes
 do not release. Configure `DOCKER_USERNAME`/`DOCKER_PASSWORD` and allow the workflow
 to push version commits/tags. Optional Tofino images have a separate
 [publication workflow](../docker/tofino/README.md).
+
+Dependabot proposes weekly version updates against the `nightly` branch. Each
+update is merged into `nightly` once its full CI run passes. On the 1st of every
+month, a workflow merges `main` into `nightly` and opens a `nightly` → `main` pull
+request. Merging it releases a minor version (other PRs release a patch version)
+with the included Dependabot updates in the changelog. Security updates target
+`main` directly and are reviewed by hand.
+
+Merging workflow-file changes (GitHub Actions updates, or syncing `main` changes to
+`.github/workflows` into `nightly`) needs the release GitHub App: set the
+`RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` secrets for an App installed on this
+repository with read/write *Contents*, *Pull requests* and *Workflows*. Without it,
+`GITHUB_TOKEN` handles everything else. Protect `nightly` against deletion so merging
+the monthly pull request does not remove it.

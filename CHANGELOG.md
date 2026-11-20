@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.4 — 2026-11-20
+
+### Added
+
+* Weekly Dependabot updates merge into `nightly` after CI passes, and a monthly `nightly` → `main` pull request publishes them as a minor release.
+
 ## 1.2.3 — 2026-11-06
 
 ### Added
