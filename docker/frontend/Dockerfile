@@ -6,7 +6,7 @@ COPY VERSION /app/VERSION
 COPY frontend/ ./
 RUN npm run build
 
-FROM nginx:1.30.6-alpine
+FROM nginx:1.31.8-alpine
 ENV BACKEND_URL=http://host.docker.internal:5000 NETSIM_URL=http://host.docker.internal:5001
 COPY frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
