@@ -48,4 +48,17 @@ jobs:
             echo "No open Dependabot pull request into nightly is at the tested commit; nothing to merge."
             exit 0
           fi
-          gh pr merge "$pr" -R "$GITHUB_REPOSITORY" --squash --match-head-commit "$HEAD_SHA"
+          # Updates finishing CI together race for nightly ("Base branch was
+          # modified"), so retry while the PR is still open at the tested commit.
+          for attempt in 1 2 3 4 5; do
+            if gh pr merge "$pr" -R "$GITHUB_REPOSITORY" --squash --match-head-commit "$HEAD_SHA"; then
+              exit 0
+            fi
+            sleep $((attempt * 15))
+            state=$(gh pr view "$pr" -R "$GITHUB_REPOSITORY" --json state,headRefOid --jq '.state + " " + .headRefOid')
+            if [[ "$state" != "OPEN $HEAD_SHA" ]]; then
+              echo "Pull request is now '$state'; a newer commit is tested separately or it was merged/closed."
+              exit 0
+            fi
+          done
+          exit 1
