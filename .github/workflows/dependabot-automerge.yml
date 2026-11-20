@@ -1,0 +1,51 @@
+name: Merge passing Dependabot updates into nightly
+
+# Runs after CI finishes, so only a fully green run of the exact pull request
+# head is merged. No pull request code is checked out here.
+on:
+  workflow_run:
+    workflows: [Test and build UniCorn-P4]
+    types: [completed]
+    branches: ['dependabot/**']
+
+permissions:
+  contents: read
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      HAS_APP: ${{ secrets.RELEASE_APP_ID != '' }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      # GITHUB_TOKEN cannot merge changes to workflow files (GitHub Actions
+      # updates); the release app additionally has the Workflows permission.
+      - name: Create repository-scoped release app token
+        id: app-token
+        if: env.HAS_APP == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - name: Merge the tested Dependabot pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          pr=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --base nightly --state open \
+            --author app/dependabot --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"$HEAD_SHA\") | .number")
+          if [[ -z "$pr" ]]; then
+            echo "No open Dependabot pull request into nightly is at the tested commit; nothing to merge."
+            exit 0
+          fi
+          gh pr merge "$pr" -R "$GITHUB_REPOSITORY" --squash --match-head-commit "$HEAD_SHA"

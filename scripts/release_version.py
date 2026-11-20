@@ -11,43 +11,64 @@ import re
 import subprocess
 
 if __package__:
-    from .release_changelog import promote_changelog
+    from .release_changelog import add_unreleased_entries, dependency_entries, promote_changelog
 else:
-    from release_changelog import promote_changelog
+    from release_changelog import add_unreleased_entries, dependency_entries, promote_changelog
 
 VERSION_PATTERN = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?")
 RELEASE_FILES = {"VERSION", "frontend/package.json", "frontend/package-lock.json", "CHANGELOG.md"}
 
 
-def next_version(current):
+# Monthly dependency promotions from this branch are released as minor versions.
+NIGHTLY_BRANCH = "nightly"
+
+
+def next_version(current, bump="patch"):
     match = VERSION_PATTERN.fullmatch(current.strip())
     if match is None:
         raise ValueError("VERSION must contain a three-component semantic version")
     major, minor, patch, prerelease = match.groups()
+    if bump == "minor":
+        # A prerelease of x.y.0 already announces that minor release.
+        return f"{major}.{minor if prerelease and patch == '0' else int(minor) + 1}.0"
+    if bump != "patch":
+        raise ValueError("Release bump must be 'patch' or 'minor'")
     return f"{major}.{minor}.{int(patch) if prerelease else int(patch) + 1}"
 
 
-def eligible_merge(pages, repository, sha):
+def _merged_into_main(pages, repository, sha):
     """GitHub commit->PR association supports merge, squash and rebase merges."""
     requests = [item for page in pages for item in page] if pages and isinstance(pages[0], list) else pages
-    return any(pr.get("merged_at") and pr.get("merge_commit_sha") == sha
-               and pr.get("base", {}).get("ref") == "main"
-               and pr.get("base", {}).get("repo", {}).get("full_name") == repository
-               for pr in requests)
+    return [pr for pr in requests
+            if pr.get("merged_at") and pr.get("merge_commit_sha") == sha
+            and pr.get("base", {}).get("ref") == "main"
+            and pr.get("base", {}).get("repo", {}).get("full_name") == repository]
+
+
+def eligible_merge(pages, repository, sha):
+    return bool(_merged_into_main(pages, repository, sha))
+
+
+def release_bump(pages, repository, sha):
+    head = lambda pr: pr.get("head") or {}
+    nightly = any(head(pr).get("ref") == NIGHTLY_BRANCH
+                  and (head(pr).get("repo") or {}).get("full_name") == repository
+                  for pr in _merged_into_main(pages, repository, sha))
+    return "minor" if nightly else "patch"
 
 
 def git(repo, *arguments):
     return subprocess.check_output(["git", "-C", str(repo), *arguments], text=True).strip()
 
 
-def prepare(repo, tested_sha, commit=False):
+def prepare(repo, tested_sha, commit=False, bump="patch", dependency_updates=()):
     if not re.fullmatch(r"[0-9a-f]{40}", tested_sha):
         raise ValueError("Expected the full tested commit SHA")
     head = git(repo, "rev-parse", "HEAD")
     if git(repo, "status", "--porcelain", "--untracked-files=no"):
         raise ValueError("Release preparation requires a clean tracked worktree")
     source_version = git(repo, "show", f"{tested_sha}:VERSION")
-    version = next_version(source_version)
+    version = next_version(source_version, bump)
     tag = f"v{version}"
     existing = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
                               capture_output=True, text=True)
@@ -80,7 +101,8 @@ def prepare(repo, tested_sha, commit=False):
         if git(repo, "status", "--porcelain", "--untracked-files=no"):
             raise ValueError("Release preparation requires a clean tracked worktree")
         changelog = repo / 'CHANGELOG.md'
-        promoted = promote_changelog(changelog.read_text(), version)
+        pending = add_unreleased_entries(changelog.read_text(), "Dependencies", dependency_updates)
+        promoted = promote_changelog(pending, version)
         (repo / "VERSION").write_text(version + "\n")
         changelog.write_text(promoted)
         for filename in ("frontend/package.json", "frontend/package-lock.json"):
@@ -114,13 +136,23 @@ def main():
     parser.add_argument("--tested-sha", required=True)
     parser.add_argument("--merged-prs", type=Path)
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
+    parser.add_argument("--dependency-prs", type=Path,
+                        help="gh pr list JSON (number,title,mergeCommit) of Dependabot PRs merged into nightly")
+    parser.add_argument("--promoted-commits", type=Path,
+                        help="commit SHAs of the merged nightly pull request, one per line")
     parser.add_argument("--commit", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    if args.merged_prs and not eligible_merge(json.loads(args.merged_prs.read_text()), args.repository, args.tested_sha):
+    pages = json.loads(args.merged_prs.read_text()) if args.merged_prs else None
+    if pages is not None and not eligible_merge(pages, args.repository, args.tested_sha):
         result = {"ready": "false", "reason": "tested commit is not an associated merged PR on main"}
     else:
-        result = prepare(args.repo, args.tested_sha, args.commit)
+        bump = release_bump(pages, args.repository, args.tested_sha) if pages is not None else "patch"
+        updates = []
+        if bump == "minor" and args.dependency_prs and args.promoted_commits:
+            updates = dependency_entries(json.loads(args.dependency_prs.read_text()),
+                                         args.promoted_commits.read_text().split())
+        result = {**prepare(args.repo, args.tested_sha, args.commit, bump, updates), "bump": bump}
     if args.output:
         with args.output.open("a") as destination:
             destination.write("".join(f"{key}={value}\n" for key, value in result.items()))

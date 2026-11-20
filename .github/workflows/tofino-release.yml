@@ -58,12 +58,13 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/pulls" --paginate --slurp > "$RUNNER_TEMP/tofino-merged-prs.json"
             tag=$(python3 - "$SOURCE_SHA" "$RUNNER_TEMP/tofino-merged-prs.json" <<'PY'
           import json, os, subprocess, sys
-          from scripts.release_version import eligible_merge, next_version
+          from scripts.release_version import eligible_merge, next_version, release_bump
           source, path = sys.argv[1:]
-          if not eligible_merge(json.load(open(path)), os.environ['GITHUB_REPOSITORY'], source):
+          pages, repository = json.load(open(path)), os.environ['GITHUB_REPOSITORY']
+          if not eligible_merge(pages, repository, source):
               raise SystemExit(2)
           version = subprocess.check_output(['git', 'show', f'{source}:VERSION'], text=True).strip()
-          print('v' + next_version(version))
+          print('v' + next_version(version, release_bump(pages, repository, source)))
           PY
             ) || {
               echo 'The completed standard-release run was not for a newly merged main PR; no Tofino release is needed.'

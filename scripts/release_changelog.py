@@ -47,6 +47,40 @@ def promote_changelog(text, version, released_on=None):
     return text[:start].rstrip() + '\n\n' + heading + '\n' + text[start:]
 
 
+def add_unreleased_entries(text, section, entries):
+    """Append bullet entries to `### section` of the pending release, once each."""
+    present = set(text.splitlines())
+    entries = [entry for entry in dict.fromkeys(entries) if entry.strip() and entry not in present]
+    if not entries:
+        return text
+    block = ''.join(entry + '\n' for entry in entries)
+    entries_found = sections(text)
+    pending = [entry for entry in entries_found if re.match(r'^\[?Unreleased\]?(?=\s|$)', entry[3], re.I)]
+    if len(pending) > 1:
+        raise ValueError('Changelog contains ambiguous release sections')
+    if not pending:
+        start = entries_found[0][0] if entries_found else len(text)
+        return text[:start].rstrip() + f'\n\n## Unreleased\n\n### {section}\n\n' + block + '\n' + text[start:]
+    _start, body, end, _title = pending[0]
+    content = text[body:end]
+    heading = re.search(r'^### ' + re.escape(section) + r'[ \t]*$', content, re.M)
+    if heading is None:
+        content = content.rstrip('\r\n') + f'\n\n### {section}\n\n' + block + '\n'
+    else:
+        following = re.search(r'^#{1,3} ', content[heading.end():], re.M)
+        stop = heading.end() + following.start() if following else len(content)
+        content = content[:stop].rstrip('\r\n') + '\n' + block + '\n' + content[stop:]
+    return text[:body] + content + text[end:]
+
+
+def dependency_entries(merged_prs, promoted_commits):
+    """Changelog bullets for Dependabot PRs whose merge commits are being promoted."""
+    promoted = set(promoted_commits)
+    return [f"* {pr['title'].strip()} (#{pr['number']})"
+            for pr in sorted(merged_prs, key=lambda pr: pr['number'])
+            if (pr.get('mergeCommit') or {}).get('oid') in promoted]
+
+
 def release_notes(text, version):
     matches = [entry for entry in sections(text) if version_section(entry[3], version)]
     if len(matches) != 1:
