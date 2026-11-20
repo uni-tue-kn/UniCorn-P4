@@ -1,0 +1,88 @@
+# Version updates land on `nightly`. Passing updates are merged there by
+# dependabot-automerge.yml, and nightly-release.yml proposes them to `main`
+# once a month, where the merge publishes a minor release.
+# (Security updates always target the default branch and are reviewed manually.)
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directories: [/backend, /netsim]
+    target-branch: nightly
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      python:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    target-branch: nightly
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      frontend:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /tests/e2e
+    target-branch: nightly
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      e2e:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: nightly
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  # The Tofino image builds on a digest-pinned SDK and is updated by maintainers.
+  - package-ecosystem: docker
+    directories: [/docker/backend, /docker/netsim, /docker/frontend]
+    target-branch: nightly
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      docker:
+        patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      # Python and Node.js runtime upgrades must match the versions CI tests with.
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
+      - dependency-name: node
+        update-types: [version-update:semver-major]

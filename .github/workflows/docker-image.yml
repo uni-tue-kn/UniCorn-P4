@@ -2,7 +2,7 @@ name: Test and build UniCorn-P4
 
 on:
   push:
-    branches: [main, dev, nightly-registers-runtime-ui]
+    branches: [main, dev, nightly, nightly-registers-runtime-ui]
   pull_request:
   workflow_dispatch:
 
