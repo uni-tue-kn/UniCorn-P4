@@ -82,5 +82,7 @@ it('clamps keyboard and pointer resizing and keeps mobile navigation available',
   window.matchMedia.mockImplementation(query => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
   mount();
   await user.click(screen.getByRole('button', { name: 'Open resource menu' }));
-  expect(screen.getByRole('presentation')).toBeInTheDocument();
+  // The temporary drawer only renders while open. jsdom applies the drawer's
+  // desktop media style for its fixed 1024px viewport, so ignore CSS visibility.
+  expect(screen.getByRole('presentation', { hidden: true })).toBeInTheDocument();
 });
