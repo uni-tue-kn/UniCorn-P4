@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0 — 2026-11-20
+
+### Dependencies
+
+* Bump nginx from 1.30.6-alpine to 1.31.8-alpine in /docker/frontend in the docker group across 1 directory (#17)
+* Bump @playwright/test from 1.64.1 to 1.65.1 in /tests/e2e in the e2e group (#18)
+* Bump docker/login-action from 4.7.0 to 4.8.0 in the actions group (#19)
+* Bump flask-socketio from 5.7.0 to 5.7.2 in /netsim in the python group across 1 directory (#20)
+* Bump the frontend group in /frontend with 6 updates (#21)
+* Bump globals from 16.5.0 to 17.14.0 in /frontend (#22)
+* Bump jsdom from 27.4.0 to 31.0.1 in /frontend (#23)
+* Bump @testing-library/jest-dom from 6.9.1 to 7.0.1 in /frontend (#24)
+
 ## 1.2.4 — 2026-11-20
 
 ### Added
