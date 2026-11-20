@@ -125,7 +125,7 @@ def package(repo, output, compiler_image=None, compiled_dir=None):
         "P4 sources and compiled examples are in p4-files/; sample topologies "
         "are in topologies/. The database starts empty. Mininet requires Linux "
         "and the privileged container configured in docker-compose.yaml.\n\n"
-        "For optional Tofino models on Linux x64, once the Tofino images are published:\n\n"
+        "For optional Tofino models on Linux x64:\n\n"
         "```sh\ndocker compose -f docker-compose.yaml -f docker-compose.tofino.yaml up -d\n```\n\n"
         "[Usage guide](docs/usage.md) · "
         "[Physical interfaces](docs/usage.md#use-external-network-interfaces) · "
