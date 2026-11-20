@@ -101,7 +101,7 @@ Requires Linux and Docker with Compose v2.
 docker compose up -d
 ```
 
-For optional Tofino models on Linux x64, once the Tofino images are published:
+For optional Tofino models on Linux x64:
 
 ```sh
 docker compose -f docker-compose.yaml -f docker-compose.tofino.yaml up -d
